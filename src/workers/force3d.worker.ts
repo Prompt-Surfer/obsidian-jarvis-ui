@@ -82,19 +82,42 @@ self.onmessage = (e: MessageEvent) => {
       target: l.target,
     }))
 
-    // Identify orphan nodes (degree = 0) to apply weak radial pull toward origin
-    const linkedIds = new Set<string>()
-    for (const l of links ?? []) {
-      linkedIds.add(l.source)
-      linkedIds.add(l.target)
-    }
-    const orphanIds = new Set<string>(simNodes.filter(n => !linkedIds.has(n.id)).map(n => n.id))
+    // Compute connected components via union-find to identify isolated sub-clusters
+    const allNodeIds = simNodes.map(n => n.id)
+    const parent = new Map<string, string>()
+    for (const id of allNodeIds) parent.set(id, id)
 
-    // Weak radial pull for orphan nodes toward global centroid (origin)
-    const orphanForce = (alpha: number) => {
-      const k = alpha * 0.04
+    function find(x: string): string {
+      if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!))
+      return parent.get(x)!
+    }
+    function unite(a: string, b: string) { parent.set(find(a), find(b)) }
+    for (const l of links ?? []) unite(l.source, l.target)
+
+    // Group by component root, find largest
+    const components = new Map<string, string[]>()
+    for (const id of allNodeIds) {
+      const root = find(id)
+      if (!components.has(root)) components.set(root, [])
+      components.get(root)!.push(id)
+    }
+    let largestRoot = ''
+    let largestSize = 0
+    for (const [root, members] of components) {
+      if (members.length > largestSize) { largestSize = members.length; largestRoot = root }
+    }
+
+    // All nodes NOT in the largest component (orphans + isolated sub-clusters)
+    const isolatedIds = new Set<string>()
+    for (const [root, members] of components) {
+      if (root !== largestRoot) for (const id of members) isolatedIds.add(id)
+    }
+
+    // Radial pull toward origin for isolated nodes (0.08 = moderate, tunable)
+    const isolatedForce = (alpha: number) => {
+      const k = alpha * 0.08
       for (const node of simNodes) {
-        if (orphanIds.has(node.id)) {
+        if (isolatedIds.has(node.id)) {
           node.vx -= node.x * k
           node.vy -= node.y * k
           node.vz -= node.z * k
@@ -110,7 +133,7 @@ self.onmessage = (e: MessageEvent) => {
       .force('center', forceCenter(0, 0, 0).strength(0.05))
       .force('collide', forceCollide(12))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .force('orphan', orphanForce as any)
+      .force('isolated', isolatedForce as any)
       .alphaDecay(0.02)
       .velocityDecay(0.4)
       .stop()
