@@ -147,16 +147,16 @@ export function Settings({
 
           {sliderRow(`OPACITY: ${nodeOpacity.toFixed(2)}`, nodeOpacity, 0.1, 1.0, 0.05, onOpacityChange)}
           {sliderRow(`SPREAD: ${spread.toFixed(1)}x`, spread, 1.0, 10.0, 0.1, onSpreadChange)}
-          {sliderRow(`MIN SIZE: ${minNodeSize.toFixed(1)}x`, minNodeSize, 0.5, 2.0, 0.1, onMinSizeChange)}
+          {sliderRow(`MIN SIZE: ${minNodeSize.toFixed(1)}x`, minNodeSize, 1.0, 2.0, 0.1, onMinSizeChange)}
 
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>
-              MAX SIZE: {maxNodeSize.toFixed(1)}x
+              SUPERNODE SIZE: {maxNodeSize.toFixed(1)}x
             </div>
             <input
               type="range"
-              min={0.5}
-              max={5.0}
+              min={1}
+              max={10}
               step={0.1}
               value={maxNodeSize}
               onChange={e => onMaxSizeChange(Number(e.target.value))}
