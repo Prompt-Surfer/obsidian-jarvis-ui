@@ -104,6 +104,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const lastClickNodeRef = useRef<string | null>(null)
   const positionsRef = useRef<Map<string, NodePosition>>(new Map())
   const projRef = useRef(new THREE.Vector3())
+  const proximityNodeRef = useRef<GraphNode | null>(null)
   const [, forceUpdate] = useState(0)
 
   // Keep positionsRef in sync for proximity detection
@@ -463,16 +464,26 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
+    proximityNodeRef.current = nearestNode
     onNodeHover(nearestNode, e.clientX, e.clientY)
   }, [getHitNode, onNodeHover, graphData, visibleNodes])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     const hit = getHitNode(e)
-    if (!hit) return
-
     const now = Date.now()
-    const isDouble = now - lastClickTimeRef.current < 350 && lastClickNodeRef.current === hit.node.id
 
+    if (!hit) {
+      // Fallback: open proximity-previewed note if one is active
+      const prox = proximityNodeRef.current
+      if (prox) {
+        lastClickTimeRef.current = now
+        lastClickNodeRef.current = prox.id
+        onNodeClick(prox)
+      }
+      return
+    }
+
+    const isDouble = now - lastClickTimeRef.current < 350 && lastClickNodeRef.current === hit.node.id
     lastClickTimeRef.current = now
     lastClickNodeRef.current = hit.node.id
 
@@ -560,7 +571,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       onMouseMove={handleMouseMove}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      onMouseLeave={() => onNodeHover(null, 0, 0)}
+      onMouseLeave={() => { proximityNodeRef.current = null; onNodeHover(null, 0, 0) }}
     />
   )
 })
