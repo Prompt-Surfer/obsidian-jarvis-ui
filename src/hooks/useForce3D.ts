@@ -16,8 +16,9 @@ export function useForce3D(graphData: GraphData | null, orphanPattern: 'ring' | 
   useEffect(() => {
     if (!graphData) return
 
-    // Terminate previous worker
+    // Terminate previous worker and reset done flag
     workerRef.current?.terminate()
+    setSimDone(false)
 
     const worker = new Worker(
       new URL('../workers/force3d.worker.ts', import.meta.url),

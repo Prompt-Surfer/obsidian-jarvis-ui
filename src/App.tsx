@@ -63,6 +63,8 @@ function App() {
 
   const graphRef = useRef<Graph3DHandle>(null)
   const hasAutoResetRef = useRef(false)
+  const isInitialLoadRef = useRef(true)
+  const [patternLoading, setPatternLoading] = useState(false)
 
   // UI State
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
@@ -105,9 +107,24 @@ function App() {
   useEffect(() => {
     if (positions.size > 0 && !hasAutoResetRef.current) {
       hasAutoResetRef.current = true
+      isInitialLoadRef.current = false
       graphRef.current?.resetCamera()
     }
   }, [positions])
+
+  // Show loading indicator + reset view when orphan pattern changes
+  useEffect(() => {
+    if (isInitialLoadRef.current) return // skip on first mount
+    setPatternLoading(true)
+    hasAutoResetRef.current = false // allow auto-reset after reload
+  }, [orphanPattern])
+
+  // When sim finishes after pattern change: clear loading + reset view
+  useEffect(() => {
+    if (simDone && patternLoading) {
+      setPatternLoading(false)
+    }
+  }, [simDone, patternLoading])
 
   // Propagate time/tag/search filter changes to force simulation center
   useEffect(() => {
@@ -510,7 +527,7 @@ function App() {
         linkCount={graphData.links.length}
         visibleNodeCount={visibleCount}
         simDone={simDone}
-        breadcrumb={focusMode ? '[H] FOCUS MODE' : navBreadcrumb}
+        breadcrumb={patternLoading ? '◌ RECALCULATING...' : focusMode ? '[H] FOCUS MODE' : navBreadcrumb}
       />
 
       <Settings
