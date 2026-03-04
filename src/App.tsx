@@ -65,6 +65,8 @@ function App() {
   const hasAutoResetRef = useRef(false)
   const isInitialLoadRef = useRef(true)
   const [patternLoading, setPatternLoading] = useState(false)
+  // Ref tracks latest patternLoading so simDone effect doesn't need it as a dep
+  const patternLoadingRef = useRef(false)
 
   // UI State
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
@@ -115,16 +117,43 @@ function App() {
   // Show loading indicator + reset view when orphan pattern changes
   useEffect(() => {
     if (isInitialLoadRef.current) return // skip on first mount
+    console.log('[patternLoading] orphanPattern changed →', orphanPattern, '— setting patternLoading=true')
+    patternLoadingRef.current = true
     setPatternLoading(true)
     hasAutoResetRef.current = false // allow auto-reset after reload
   }, [orphanPattern])
 
-  // When sim finishes after pattern change: clear loading + reset view
+  // Keep ref in sync so the simDone effect below can read latest value without stale closure
   useEffect(() => {
-    if (simDone && patternLoading) {
+    patternLoadingRef.current = patternLoading
+    console.log('[patternLoading] state synced to ref:', patternLoading)
+  }, [patternLoading])
+
+  // When sim finishes: clear patternLoading if active.
+  // Dep array is [simDone] only — firing on patternLoading changes risks clearing with a
+  // stale simDone=true before setSimDone(false) has applied in the same batch.
+  useEffect(() => {
+    if (!simDone) return
+    console.log('[patternLoading] simDone=true — patternLoadingRef:', patternLoadingRef.current)
+    if (patternLoadingRef.current) {
+      console.log('[patternLoading] clearing (sim finished)')
       setPatternLoading(false)
     }
-  }, [simDone, patternLoading])
+  }, [simDone]) // patternLoading intentionally read via ref to avoid premature-clear race
+
+  // Safety net: if patternLoading is still true after 5s, force-clear it
+  useEffect(() => {
+    if (!patternLoading) return
+    console.log('[patternLoading] arming 5s safety timeout')
+    const id = setTimeout(() => {
+      console.warn('[patternLoading] 5s timeout fired — force-clearing stuck loading state')
+      setPatternLoading(false)
+    }, 5000)
+    return () => {
+      console.log('[patternLoading] clearing 5s safety timeout')
+      clearTimeout(id)
+    }
+  }, [patternLoading])
 
   // Propagate time/tag/search filter changes to force simulation center
   useEffect(() => {

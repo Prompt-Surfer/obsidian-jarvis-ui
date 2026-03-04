@@ -646,21 +646,6 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     return { node, index: instanceId }
   }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds])
 
-  // Helper: get world position on a plane perpendicular to camera at given z depth
-  const getWorldPosOnPlane = useCallback((clientX: number, clientY: number, planeZ: number): THREE.Vector3 | null => {
-    const camera = cameraRef.current
-    const canvas = canvasRef.current
-    if (!camera || !canvas) return null
-    const rect = canvas.getBoundingClientRect()
-    const mx = ((clientX - rect.left) / rect.width) * 2 - 1
-    const my = -((clientY - rect.top) / rect.height) * 2 + 1
-    raycasterRef.current.setFromCamera(new THREE.Vector2(mx, my), camera)
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ)
-    const point = new THREE.Vector3()
-    if (!raycasterRef.current.ray.intersectPlane(plane, point)) return null
-    return point
-  }, [])
-
   // Apply right-drag overrides directly to Three.js objects
   const applyRightDragToScene = useCallback(() => {
     const drag = rightDragRef.current
@@ -984,7 +969,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const mesh = instancedMeshRef.current
       if (mesh) {
         const color = new THREE.Color()
-        for (const nodeId of dragNodeIds) {
+        for (const nodeId of [nearestNode.id]) {
           const idx = nodeIndexMapRef.current.get(nodeId)
           if (idx === undefined) continue
           const node = graphData.nodes[idx]
