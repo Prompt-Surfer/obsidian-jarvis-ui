@@ -138,6 +138,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     controls.enableDamping = true
     controls.dampingFactor = 0.08
     controls.zoomSpeed = 1.2
+    controls.zoomToCursor = true
     controlsRef.current = controls
 
     // Bloom post-processing
