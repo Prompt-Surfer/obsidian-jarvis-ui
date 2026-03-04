@@ -78,6 +78,9 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
+      setQuery('')
+      onResults(null)
+      inputRef.current?.blur()
       onClose()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
