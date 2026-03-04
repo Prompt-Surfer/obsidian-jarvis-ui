@@ -106,23 +106,7 @@ Concept inspired by [@the.poet.engineer](https://instagram.com/the.poet.engineer
 
 ## Changelog
 
-### Phase 6
-Menu centred vertically, 10x stars (2000) + 3 galaxy backdrops, camera-reset `[ ↺ POS ]` button in settings panel, dynamic centre of gravity shifts to filtered nodes, fly-to lands 3x further for comfortable framing, connected edges bloom cyan on node selection, default spread 1.5x / max size 3x, zoom-to-node toggle (default ON), orphan nodes group by folder colour, HUD buttons moved to settings panel.
-
-### Phase 5
-Max zoom clamped to bounding sphere, zoom-out button, hidden nodes excluded from raycasting and proximity, labels toggle shows all visible nodes, 3D wireframe bracket on open note, search bar always visible, tag filter row in search results, max node size 5x, 3x closer zoom in, internal wikilink navigation, settings panel moved to left side.
-
-### Phase 4
-Sub-cluster pull toward origin, RESET ALL button, click-vs-drag distinction, SPREAD slider 10x max with multiplier display, tag click in sidebar triggers tag isolation, scroll zoom anchors to mouse cursor, 120fps via uncapped pixel ratio.
-
-### Phase 3
-Settings panel, resizable sidebar, orphan node radial pull, annotation line to proximity node, keyboard navigation (arrow keys), click-to-open note in sidebar, folder collapse/expand.
-
-### Phase 2
-Star field, reset camera to fit, proximity hover with tooltip, SPREAD slider, node size by degree, floating label sprites above nodes.
-
-### Phase 1
-Initial build: 3D force-directed graph, bloom post-processing, folder colour coding, search bar, tag filter, time filter slider.
+See [CHANGELOG.md](./CHANGELOG.md) for full version history.
 
 ---
 

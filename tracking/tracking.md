@@ -9,6 +9,25 @@
 
 ---
 
+## v1.2.8 — 2026-03-04 · Phase 7 — Interaction & Layout Enhancements
+
+**Commits:** `98c9115`, `71e3329`, `ef857c8`, `5c6c194`, `3367973`, `178892d`, `88805de`, `5f86e90`, `39cdb12`, `0951f24`
+
+| # | Fix | Commit |
+|---|-----|--------|
+| P7-1 | Initial load auto-resets camera to bounding-sphere fit | `98c9115` |
+| P7-2 | Centre of gravity recalculates on all filter changes (tag + time) | `71e3329` |
+| P7-3 | ESC in search bar clears query, removes filter, blurs input | `ef857c8` |
+| P7-4 | Note reader width persisted to `jarvis-note-width` localStorage key | `5c6c194` |
+| P7-5 | Backlink clicks respect zoom-to-node toggle (no flyTo when OFF) | `3367973` |
+| P7-6 | Max node size slider cap=10× min=1×; node size slider min=1× | `178892d` |
+| P7-7 | Slider labels renamed: "Node Size" and "Supernode Size" | `88805de` |
+| P7-8 | Right-click drag moves closest node + connected neighbours as rigid cluster | `5f86e90` |
+| P7-9 | H key focus mode: hide all except selected + connected; HUD breadcrumb | `39cdb12` |
+| P7-10 | Orphan ring pattern (Jupiter's rings); orphanPattern setting in Settings | `0951f24` |
+
+---
+
 ## v1.2.2 — 2026-03-04 · Hotfixes & Infrastructure
 
 **Commits:** `370cd97`, `aa2f81b`, `038d432`, `079401d`, `a61e720`, `f3a93d3`
