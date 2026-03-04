@@ -291,9 +291,18 @@ function App() {
     reheat()
   }, [reheat])
 
-  const handleResetCamera = useCallback(() => {
+  const handleResetAll = useCallback(() => {
     graphRef.current?.resetCamera()
-  }, [])
+    setSpreadState(1.0)
+    setSpread(1.0)
+    setNodeOpacity(1.0)
+    setMinNodeSize(1.0)
+    setMaxNodeSize(2.0)
+    setTagIsolationIds(null)
+    setTagIsolationTags([])
+    setCollapsedNodes(new Set())
+    reheat()
+  }, [setSpread, reheat])
 
   const navigateToNode = useCallback((nodeId: string) => {
     if (!graphData) return
@@ -431,7 +440,6 @@ function App() {
         linkCount={graphData.links.length}
         visibleNodeCount={visibleCount}
         simDone={simDone}
-        onResetCamera={handleResetCamera}
         breadcrumb={navBreadcrumb}
       />
 
@@ -450,6 +458,7 @@ function App() {
         onSpreadChange={handleSpreadChange}
         onMinSizeChange={setMinNodeSize}
         onMaxSizeChange={setMaxNodeSize}
+        onResetAll={handleResetAll}
       />
 
       <SearchBar

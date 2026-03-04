@@ -15,6 +15,7 @@ interface SettingsProps {
   onSpreadChange: (value: number) => void
   onMinSizeChange: (value: number) => void
   onMaxSizeChange: (value: number) => void
+  onResetAll: () => void
 }
 
 export function Settings({
@@ -32,6 +33,7 @@ export function Settings({
   onSpreadChange,
   onMinSizeChange,
   onMaxSizeChange,
+  onResetAll,
 }: SettingsProps) {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
@@ -133,7 +135,7 @@ export function Settings({
           {sliderRow(`SPREAD: ${Math.round(spread * 100)}%`, spread, 1.0, 3.0, 0.1, onSpreadChange)}
           {sliderRow(`MIN SIZE: ${minNodeSize.toFixed(1)}x`, minNodeSize, 0.5, 2.0, 0.1, onMinSizeChange)}
 
-          <div style={{ marginBottom: 0 }}>
+          <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>
               MAX SIZE: {maxNodeSize.toFixed(1)}x
             </div>
@@ -146,6 +148,10 @@ export function Settings({
               onChange={e => onMaxSizeChange(Number(e.target.value))}
               style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
             />
+          </div>
+
+          <div style={{ borderTop: '1px solid #1a3a4a', paddingTop: 14, marginBottom: 0 }}>
+            {toggleBtn(false, '[ RESET ALL ]', onResetAll)}
           </div>
         </div>
       )}

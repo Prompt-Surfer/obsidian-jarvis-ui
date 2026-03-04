@@ -5,11 +5,10 @@ interface HUDProps {
   linkCount: number
   visibleNodeCount: number
   simDone: boolean
-  onResetCamera: () => void
   breadcrumb?: string | null
 }
 
-export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, onResetCamera, breadcrumb }: HUDProps) {
+export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrumb }: HUDProps) {
   const [fps, setFps] = useState(0)
   const frameTimesRef = useRef<number[]>([])
   const lastFrameRef = useRef(performance.now())
@@ -44,37 +43,20 @@ export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, onResetCa
       lineHeight: '1.7',
       userSelect: 'none',
       textShadow: '0 0 8px #00a8cc44',
+      pointerEvents: 'none',
     }}>
-      <div style={{ pointerEvents: 'none' }}>
-        <div>NODES: {nodeCount}</div>
-        <div>VISIBLE: {visibleNodeCount}</div>
-        <div>LINKS: {linkCount}</div>
-        <div>FPS: {fps}</div>
-        <div style={{ marginTop: 4, color: simDone ? '#00d4ff' : '#ff6b35' }}>
-          {simDone ? '■ SIM STABLE' : '◌ SIMULATING'}
-        </div>
-        {breadcrumb && (
-          <div style={{ marginTop: 4, color: '#00d4ff', fontSize: 10, letterSpacing: '0.06em' }}>
-            {breadcrumb}
-          </div>
-        )}
+      <div>NODES: {nodeCount}</div>
+      <div>VISIBLE: {visibleNodeCount}</div>
+      <div>LINKS: {linkCount}</div>
+      <div>FPS: {fps}</div>
+      <div style={{ marginTop: 4, color: simDone ? '#00d4ff' : '#ff6b35' }}>
+        {simDone ? '■ SIM STABLE' : '◌ SIMULATING'}
       </div>
-      <button
-        onClick={onResetCamera}
-        style={{
-          marginTop: 8,
-          background: 'rgba(0,0,0,0.7)',
-          border: '1px solid #1a3a4a',
-          color: '#00a8cc',
-          borderRadius: 4,
-          padding: '4px 10px',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-          fontSize: 11,
-          letterSpacing: '0.08em',
-          pointerEvents: 'auto',
-        }}
-      >[ RESET ]</button>
+      {breadcrumb && (
+        <div style={{ marginTop: 4, color: '#00d4ff', fontSize: 10, letterSpacing: '0.06em' }}>
+          {breadcrumb}
+        </div>
+      )}
     </div>
   )
 }
