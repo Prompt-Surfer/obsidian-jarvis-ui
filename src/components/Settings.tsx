@@ -19,8 +19,8 @@ interface SettingsProps {
   onResetPosition: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
-  orphanPattern: 'ring' | 'centroid'
-  onOrphanPatternChange: (v: 'ring' | 'centroid') => void
+  graphShape: 'ring' | 'centroid' | 'jupiter' | 'milkyway'
+  onGraphShapeChange: (v: 'ring' | 'centroid' | 'jupiter' | 'milkyway') => void
 }
 
 export function Settings({
@@ -42,8 +42,8 @@ export function Settings({
   onResetPosition,
   zoomToNode,
   onZoomToNodeToggle,
-  orphanPattern,
-  onOrphanPatternChange,
+  graphShape,
+  onGraphShapeChange,
 }: SettingsProps) {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
@@ -169,25 +169,36 @@ export function Settings({
           </div>
 
           <div style={{ marginBottom: 14 }}>
-            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>ORPHAN PATTERN</div>
-            <select
-              value={orphanPattern}
-              onChange={e => onOrphanPatternChange(e.target.value as 'ring' | 'centroid')}
-              style={{
-                width: '100%',
-                background: 'rgba(0,0,0,0.7)',
-                border: '1px solid #1a3a4a',
-                color: '#00a8cc',
-                borderRadius: 4,
-                padding: '4px 8px',
-                fontFamily: '"Courier New", monospace',
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >
-              <option value="ring">Ring (Jupiter's rings)</option>
-              <option value="centroid">Centroid (folder clusters)</option>
-            </select>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>SHAPE</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+              {([
+                { value: 'ring', icon: '🔵', label: 'Ring' },
+                { value: 'centroid', icon: '⚪', label: 'Centroid' },
+                { value: 'jupiter', icon: '🪐', label: 'Jupiter' },
+                { value: 'milkyway', icon: '🌌', label: 'Milky Way' },
+              ] as const).map(({ value, icon, label }) => (
+                <button
+                  key={value}
+                  onClick={() => onGraphShapeChange(value)}
+                  title={label}
+                  style={{
+                    background: graphShape === value ? '#00d4ff22' : 'rgba(0,0,0,0.5)',
+                    border: `1px solid ${graphShape === value ? '#00d4ff' : '#1a3a4a'}`,
+                    color: graphShape === value ? '#00d4ff' : '#585b70',
+                    borderRadius: 4,
+                    padding: '5px 4px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: 10,
+                    letterSpacing: '0.05em',
+                    textAlign: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: 13, display: 'block', marginBottom: 2 }}>{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div style={{ borderTop: '1px solid #1a3a4a', paddingTop: 14, marginBottom: 0 }}>

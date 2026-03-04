@@ -55,10 +55,10 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
-  const [orphanPattern, setOrphanPattern] = useState<'ring' | 'centroid'>(() => {
-    try { return (localStorage.getItem('jarvis-orphan-pattern') as 'ring' | 'centroid') ?? 'ring' } catch { return 'ring' }
+  const [graphShape, setGraphShape] = useState<'ring' | 'centroid' | 'jupiter' | 'milkyway'>(() => {
+    try { return (localStorage.getItem('jarvis-graph-shape') as 'ring' | 'centroid' | 'jupiter' | 'milkyway') ?? 'ring' } catch { return 'ring' }
   })
-  const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, orphanPattern)
+  const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
 
   const graphRef = useRef<Graph3DHandle>(null)
@@ -114,14 +114,14 @@ function App() {
     }
   }, [positions])
 
-  // Show loading indicator + reset view when orphan pattern changes
+  // Show loading indicator + reset view when graph shape changes
   useEffect(() => {
     if (isInitialLoadRef.current) return // skip on first mount
-    console.log('[patternLoading] orphanPattern changed →', orphanPattern, '— setting patternLoading=true')
+    console.log('[patternLoading] graphShape changed →', graphShape, '— setting patternLoading=true')
     patternLoadingRef.current = true
     setPatternLoading(true)
     hasAutoResetRef.current = false // allow auto-reset after reload
-  }, [orphanPattern])
+  }, [graphShape])
 
   // Keep ref in sync so the simDone effect below can read latest value without stale closure
   useEffect(() => {
@@ -414,8 +414,8 @@ function App() {
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
-    setOrphanPattern('ring')
-    try { localStorage.setItem('jarvis-orphan-pattern', 'ring') } catch { /* storage unavailable */ }
+    setGraphShape('ring')
+    try { localStorage.setItem('jarvis-graph-shape', 'ring') } catch { /* storage unavailable */ }
     resetPins() // clear all dragged node pins so layout reflows naturally
     reheat()
   }, [setSpread, reheat, resetPins])
@@ -585,10 +585,10 @@ function App() {
           setZoomToNode(v)
           try { localStorage.setItem('jarvis-zoom-to-node', String(v)) } catch { /* storage unavailable */ }
         }}
-        orphanPattern={orphanPattern}
-        onOrphanPatternChange={(v) => {
-          setOrphanPattern(v)
-          try { localStorage.setItem('jarvis-orphan-pattern', v) } catch { /* storage unavailable */ }
+        graphShape={graphShape}
+        onGraphShapeChange={(v) => {
+          setGraphShape(v)
+          try { localStorage.setItem('jarvis-graph-shape', v) } catch { /* storage unavailable */ }
         }}
       />
 

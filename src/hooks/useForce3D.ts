@@ -8,7 +8,7 @@ export interface NodePosition {
   z: number
 }
 
-export function useForce3D(graphData: GraphData | null, orphanPattern: 'ring' | 'centroid' = 'ring') {
+export function useForce3D(graphData: GraphData | null, graphShape: 'ring' | 'centroid' | 'jupiter' | 'milkyway' = 'ring') {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
   const workerRef = useRef<Worker | null>(null)
@@ -49,13 +49,13 @@ export function useForce3D(graphData: GraphData | null, orphanPattern: 'ring' | 
         source: typeof l.source === 'string' ? l.source : (l.source as GraphNode).id,
         target: typeof l.target === 'string' ? l.target : (l.target as GraphNode).id,
       })),
-      orphanPattern,
+      graphShape,
     })
 
     return () => {
       worker.terminate()
     }
-  }, [graphData, orphanPattern])
+  }, [graphData, graphShape])
 
   const reheat = useCallback(() => {
     workerRef.current?.postMessage({ type: 'reheat' })
