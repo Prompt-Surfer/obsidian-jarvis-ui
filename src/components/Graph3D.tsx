@@ -106,6 +106,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const positionsRef = useRef<Map<string, NodePosition>>(new Map())
   const projRef = useRef(new THREE.Vector3())
   const proximityNodeRef = useRef<GraphNode | null>(null)
+  const mouseDownPosRef = useRef({ x: 0, y: 0 })
   const [, forceUpdate] = useState(0)
 
   // Keep positionsRef in sync for proximity detection
@@ -505,6 +506,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   }, [getHitNode, onNodeHover, graphData, visibleNodes])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
+    // Ignore if this was a drag (mouse moved > 5px from mousedown position)
+    const dx = e.clientX - mouseDownPosRef.current.x
+    const dy = e.clientY - mouseDownPosRef.current.y
+    if (dx * dx + dy * dy > 25) return
+
     const hit = getHitNode(e)
     const now = Date.now()
 
@@ -619,6 +625,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     <canvas
       ref={canvasRef}
       style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
+      onMouseDown={e => { mouseDownPosRef.current = { x: e.clientX, y: e.clientY } }}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
