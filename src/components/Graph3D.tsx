@@ -699,7 +699,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const target = new THREE.Vector3(pos.x, pos.y, pos.z)
     const startPos = camera.position.clone()
     const startTarget = controls.target.clone()
-    const endPos = new THREE.Vector3(pos.x, pos.y, pos.z + 53)
+    const endPos = new THREE.Vector3(pos.x, pos.y, pos.z + 159)
 
     let t = 0
     const duration = 600
