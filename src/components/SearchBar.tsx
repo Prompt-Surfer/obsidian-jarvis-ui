@@ -177,6 +177,43 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
           </div>
         )}
 
+        {/* Tag filter row: shown when query is a pure #tag search */}
+        {query.trim().startsWith('#') && onTagIsolate && (() => {
+          const terms = query.trim().toLowerCase().split(/\s+/).filter(t => t.length > 0)
+          const tagTerms = terms.filter(t => t.startsWith('#')).map(t => t.slice(1))
+          const textTerms = terms.filter(t => !t.startsWith('#'))
+          if (tagTerms.length === 0 || textTerms.length > 0) return null
+          return (
+            <div
+              onClick={() => {
+                const matchedIds = new Set(
+                  allNodes.filter(n => {
+                    const nodeTags = n.tags.map(t => t.toLowerCase())
+                    return tagTerms.every(tt => nodeTags.some(nt => nt.includes(tt)))
+                  }).map(n => n.id)
+                )
+                onTagIsolate(matchedIds, tagTerms)
+                onClose()
+              }}
+              style={{
+                padding: '8px 16px',
+                cursor: 'pointer',
+                background: '#0f1a0f',
+                borderTop: '1px solid #313244',
+                borderLeft: '2px solid #a6e3a1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ color: '#a6e3a1', fontSize: 13 }}>
+                # Filter: {tagTerms.map(t => `#${t}`).join(' ')}
+              </span>
+              <span style={{ color: '#585b70', fontSize: 11 }}>Enter ↵</span>
+            </div>
+          )
+        })()}
+
         {results.length > 0 && (
           <div style={{ borderTop: '1px solid #313244', maxHeight: 280, overflowY: 'auto' }}>
             {results.map((node, i) => (
