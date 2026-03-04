@@ -123,7 +123,7 @@ function buildGraph(): GraphData {
     for (const entry of entries) {
       if (entry.name.startsWith('.')) continue
       const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() || (entry.isSymbolicLink() && fs.statSync(full).isDirectory())) {
         walk(full)
       } else if (entry.name.endsWith('.md')) {
         mdFiles.push(full)
