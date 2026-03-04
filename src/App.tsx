@@ -106,22 +106,43 @@ function App() {
     return degrees
   }, [graphData])
 
-  // Compute visible nodes (factoring in collapsed state)
-  const visibleNodes: Set<string> = (() => {
-    if (!graphData) return new Set()
-    const hidden = new Set<string>()
-
-    for (const collapsedId of collapsedNodes) {
-      for (const link of graphData.links) {
-        const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
-        const tgtId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
-        if (srcId === collapsedId && !collapsedNodes.has(tgtId)) hidden.add(tgtId)
-        if (tgtId === collapsedId && !collapsedNodes.has(srcId)) hidden.add(srcId)
+  // Cluster centre per folder = highest-degree node (used for collapse + label threshold)
+  const folderCentresMap = useMemo(() => {
+    if (!graphData || nodeDegrees.size === 0) return new Map<string, string>()
+    const centres = new Map<string, string>()
+    const bestDeg = new Map<string, number>()
+    for (const node of graphData.nodes) {
+      const deg = nodeDegrees.get(node.id) ?? 0
+      if (deg > (bestDeg.get(node.folder) ?? -1)) {
+        centres.set(node.folder, node.id)
+        bestDeg.set(node.folder, deg)
       }
     }
+    return centres
+  }, [graphData, nodeDegrees])
 
-    return new Set(graphData.nodes.map(n => n.id).filter(id => !hidden.has(id)))
-  })()
+  // Visible nodes: when a folder is collapsed only show its centre node
+  const visibleNodes = useMemo(() => {
+    if (!graphData) return new Set<string>()
+    if (collapsedNodes.size === 0 || folderCentresMap.size === 0) {
+      return new Set(graphData.nodes.map(n => n.id))
+    }
+    // Which folders have any collapsed member?
+    const collapsedFolders = new Set<string>()
+    for (const nodeId of collapsedNodes) {
+      const node = graphData.nodes.find(n => n.id === nodeId)
+      if (node) collapsedFolders.add(node.folder)
+    }
+    const visible = new Set<string>()
+    for (const node of graphData.nodes) {
+      if (collapsedFolders.has(node.folder)) {
+        if (folderCentresMap.get(node.folder) === node.id) visible.add(node.id)
+      } else {
+        visible.add(node.id)
+      }
+    }
+    return visible
+  }, [graphData, collapsedNodes, folderCentresMap])
 
   // Handle spread slider change
   const handleSpreadChange = useCallback((value: number) => {
@@ -227,34 +248,14 @@ function App() {
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
         navigateArrow('down')
-      } else if (e.key === '[' && e.shiftKey) {
-        if (!graphData) return
-        setCollapsedNodes(new Set(graphData.nodes.map(n => n.id)))
       } else if (e.key === '[') {
-        if (!graphData) return
-        const incomingDegree = new Map<string, number>()
-        const outgoingDegree = new Map<string, number>()
-        graphData.nodes.forEach(n => {
-          incomingDegree.set(n.id, 0)
-          outgoingDegree.set(n.id, 0)
-        })
-        graphData.links.forEach(l => {
-          const s = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id
-          const t = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id
-          outgoingDegree.set(s, (outgoingDegree.get(s) || 0) + 1)
-          incomingDegree.set(t, (incomingDegree.get(t) || 0) + 1)
-        })
-        const newCollapsed = new Set(collapsedNodes)
-        graphData.nodes.forEach(n => {
-          const degree = (incomingDegree.get(n.id) || 0) + (outgoingDegree.get(n.id) || 0)
-          if (degree <= 1) newCollapsed.add(n.id)
-        })
-        setCollapsedNodes(newCollapsed)
+        // Collapse all folders to their centre nodes (Shift+[ and [ behave the same)
+        setCollapsedNodes(new Set(folderCentresMap.values()))
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [graphData, collapsedNodes, reheat, cancelElectron, navigateArrow])
+  }, [graphData, reheat, cancelElectron, navigateArrow, folderCentresMap])
 
   // Single click → full markdown view in sidebar
   const handleNodeClick = useCallback((node: GraphNode) => {
@@ -263,16 +264,29 @@ function App() {
     graphRef.current?.flyTo(node.id)
   }, [])
 
-  // Double click → toggle collapse/expand for node
-  const handleNodeDoubleClick = useCallback((node: GraphNode) => {
+  // Toggle folder collapse: double-click or right-click collapses/expands the whole folder
+  const toggleFolderCollapse = useCallback((node: GraphNode) => {
+    const folder = node.folder
+    const centre = folderCentresMap.get(folder)
     setCollapsedNodes(prev => {
+      const isFolderCollapsed = graphData?.nodes.some(n => n.folder === folder && prev.has(n.id)) ?? false
       const next = new Set(prev)
-      if (next.has(node.id)) next.delete(node.id)
-      else next.add(node.id)
+      if (isFolderCollapsed) {
+        // Expand: remove all folder members from collapsed set
+        graphData?.nodes.forEach(n => { if (n.folder === folder) next.delete(n.id) })
+      } else {
+        // Collapse: add the centre node (triggers folder-only-centre visibility)
+        if (centre) next.add(centre)
+      }
       return next
     })
+  }, [graphData, folderCentresMap])
+
+  // Double click → toggle collapse/expand for folder
+  const handleNodeDoubleClick = useCallback((node: GraphNode) => {
+    toggleFolderCollapse(node)
     reheat()
-  }, [reheat])
+  }, [toggleFolderCollapse, reheat])
 
   const handleNodeHover = useCallback((node: GraphNode | null, x: number, y: number) => {
     setHoveredNode(node)
@@ -280,16 +294,11 @@ function App() {
   }, [])
 
   const handleNodeRightClick = useCallback((node: GraphNode) => {
-    setCollapsedNodes(prev => {
-      const next = new Set(prev)
-      if (next.has(node.id)) next.delete(node.id)
-      else next.add(node.id)
-      return next
-    })
+    toggleFolderCollapse(node)
     setFlashNodeId(node.id)
     setTimeout(() => setFlashNodeId(null), 300)
     reheat()
-  }, [reheat])
+  }, [toggleFolderCollapse, reheat])
 
   const handleResetAll = useCallback(() => {
     graphRef.current?.resetCamera()
