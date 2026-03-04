@@ -120,7 +120,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (!canvas) return
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(canvas.clientWidth, canvas.clientHeight)
     renderer.setClearColor(0x000000, 1)
     renderer.toneMapping = THREE.ACESFilmicToneMapping
