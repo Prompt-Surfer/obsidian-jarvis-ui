@@ -450,7 +450,6 @@ function App() {
         visibleNodeCount={visibleCount}
         simDone={simDone}
         breadcrumb={navBreadcrumb}
-        onMaxZoomOut={() => graphRef.current?.resetCamera()}
       />
 
       <Settings
@@ -469,6 +468,7 @@ function App() {
         onMinSizeChange={setMinNodeSize}
         onMaxSizeChange={setMaxNodeSize}
         onResetAll={handleResetAll}
+        onResetPosition={() => graphRef.current?.resetCamera()}
       />
 
       <SearchBar

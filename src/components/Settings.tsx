@@ -16,6 +16,7 @@ interface SettingsProps {
   onMinSizeChange: (value: number) => void
   onMaxSizeChange: (value: number) => void
   onResetAll: () => void
+  onResetPosition: () => void
 }
 
 export function Settings({
@@ -34,6 +35,7 @@ export function Settings({
   onMinSizeChange,
   onMaxSizeChange,
   onResetAll,
+  onResetPosition,
 }: SettingsProps) {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
@@ -155,6 +157,9 @@ export function Settings({
 
           <div style={{ borderTop: '1px solid #1a3a4a', paddingTop: 14, marginBottom: 0 }}>
             {toggleBtn(false, '[ RESET ALL ]', onResetAll)}
+            <div style={{ marginTop: 8 }}>
+              {toggleBtn(false, '[ ↺ POS ]', onResetPosition)}
+            </div>
           </div>
         </div>
       )}

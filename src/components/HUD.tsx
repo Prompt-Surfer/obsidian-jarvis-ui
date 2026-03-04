@@ -6,10 +6,9 @@ interface HUDProps {
   visibleNodeCount: number
   simDone: boolean
   breadcrumb?: string | null
-  onMaxZoomOut?: () => void
 }
 
-export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrumb, onMaxZoomOut }: HUDProps) {
+export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrumb }: HUDProps) {
   const [fps, setFps] = useState(0)
   const frameTimesRef = useRef<number[]>([])
   const lastFrameRef = useRef(performance.now())
@@ -58,27 +57,7 @@ export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrum
           {breadcrumb}
         </div>
       )}
-      {onMaxZoomOut && (
-        <button
-          onClick={onMaxZoomOut}
-          title="Zoom to fit all nodes"
-          style={{
-            marginTop: 8,
-            background: 'rgba(0,0,0,0.6)',
-            border: '1px solid #1a3a4a',
-            color: '#00a8cc',
-            borderRadius: 4,
-            padding: '3px 8px',
-            cursor: 'pointer',
-            fontFamily: '"Courier New", monospace',
-            fontSize: 11,
-            pointerEvents: 'auto',
-            letterSpacing: '0.06em',
-          }}
-        >
-          ⊖ MAX
-        </button>
-      )}
+
     </div>
   )
 }
