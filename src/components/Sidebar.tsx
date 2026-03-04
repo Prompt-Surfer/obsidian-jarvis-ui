@@ -123,6 +123,23 @@ function renderMarkdown(content: string, allNodes: GraphNode[], onNavigate: (id:
               </span>
             )
           }
+          // Intercept relative/local links as vault-internal navigation
+          if (href && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('mailto:') && !href.startsWith('#')) {
+            const filename = href.split('/').pop() || ''
+            const noteName = decodeURIComponent(filename).replace(/\.md$/i, '').replace(/\.[^.]+$/, '')
+            if (noteName) {
+              const nodeId = noteName.toLowerCase().replace(/\s+/g, '-')
+              return (
+                <span
+                  onClick={() => onNavigate(nodeId)}
+                  style={{ color: '#89dceb', cursor: 'pointer', textDecoration: 'underline' }}
+                  {...props}
+                >
+                  {children}
+                </span>
+              )
+            }
+          }
           return <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: '#89dceb' }} {...props}>{children}</a>
         },
         code: ({ children, className, ...props }) => {
