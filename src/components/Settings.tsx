@@ -132,7 +132,7 @@ export function Settings({
           </div>
 
           {sliderRow(`OPACITY: ${nodeOpacity.toFixed(2)}`, nodeOpacity, 0.1, 1.0, 0.05, onOpacityChange)}
-          {sliderRow(`SPREAD: ${Math.round(spread * 100)}%`, spread, 1.0, 3.0, 0.1, onSpreadChange)}
+          {sliderRow(`SPREAD: ${spread.toFixed(1)}x`, spread, 1.0, 10.0, 0.1, onSpreadChange)}
           {sliderRow(`MIN SIZE: ${minNodeSize.toFixed(1)}x`, minNodeSize, 0.5, 2.0, 0.1, onMinSizeChange)}
 
           <div style={{ marginBottom: 14 }}>
