@@ -71,5 +71,17 @@ export function useForce3D(graphData: GraphData | null, orphanPattern: 'ring' | 
     workerRef.current?.postMessage({ type: 'setFilter', visibleIds })
   }, [])
 
-  return { positions, simDone, reheat, setSpread, setFilter }
+  const pinNodes = useCallback((pinned: Array<{ id: string; x: number; y: number; z: number }>) => {
+    workerRef.current?.postMessage({ type: 'pinNodes', pinned })
+  }, [])
+
+  const moveNodes = useCallback((pinned: Array<{ id: string; x: number; y: number; z: number }>) => {
+    workerRef.current?.postMessage({ type: 'moveNodes', pinned })
+  }, [])
+
+  const unpinNodes = useCallback((ids: string[]) => {
+    workerRef.current?.postMessage({ type: 'unpinNodes', ids })
+  }, [])
+
+  return { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes }
 }

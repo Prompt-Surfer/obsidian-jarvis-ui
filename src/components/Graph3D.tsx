@@ -32,6 +32,9 @@ interface Graph3DProps {
   onNodeRightClick: (node: GraphNode) => void
   onFlyTo: (nodeId: string) => void
   flashNodeId?: string | null
+  onPinNodes?: (pinned: Array<{ id: string; x: number; y: number; z: number }>) => void
+  onMoveNodes?: (pinned: Array<{ id: string; x: number; y: number; z: number }>) => void
+  onUnpinNodes?: (ids: string[]) => void
   electronScene?: THREE.Scene
 }
 
@@ -108,6 +111,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   onNodeHover,
   onNodeRightClick: _onNodeRightClick,
   flashNodeId,
+  onPinNodes,
+  onMoveNodes,
+  onUnpinNodes,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -715,6 +721,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
             }
           }
           applyRightDragToScene()
+          // Update worker sim positions so connected nodes react in real time
+          onMoveNodes?.(drag.nodeIds.map(id => {
+            const p = drag.overridePositions.get(id)!
+            return { id, x: p.x, y: p.y, z: p.z }
+          }))
         }
       }
       return
@@ -788,7 +799,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
 
     onNodeHover(nearestNode, e.clientX, e.clientY)
-  }, [getHitNode, onNodeHover, graphData, visibleNodes, tagIsolationIds, timeFilterIds])
+  }, [getHitNode, onNodeHover, graphData, visibleNodes, tagIsolationIds, timeFilterIds, getWorldPosOnPlane, applyRightDragToScene, onMoveNodes])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     // Ignore if this was a drag (mouse moved > 5px from mousedown position)
@@ -967,6 +978,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         lastWorldPos: startWorldPos,
       }
 
+      // Pin dragged nodes in the force sim so ticks don't snap them back
+      onPinNodes?.(dragNodeIds.map(id => {
+        const p = overridePositions.get(id)!
+        return { id, x: p.x, y: p.y, z: p.z }
+      }))
+
       // Brightness boost for dragged cluster
       const mesh = instancedMeshRef.current
       if (mesh) {
@@ -982,7 +999,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
       }
     }
-  }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds, getWorldPosOnPlane])
+  }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds, getWorldPosOnPlane, onPinNodes])
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     const drag = rightDragRef.current
@@ -1001,9 +1018,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         }
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
       }
+      // Release pinned nodes in sim — let forces settle from final drag position
+      onUnpinNodes?.(drag.nodeIds)
       rightDragRef.current = null
     }
-  }, [graphData])
+  }, [graphData, onUnpinNodes])
 
   return (
     <canvas

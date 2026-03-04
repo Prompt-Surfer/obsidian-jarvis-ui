@@ -78,6 +78,38 @@ self.onmessage = (e: MessageEvent) => {
     return
   }
 
+  // Pin nodes at specific positions (drag start / drag move)
+  if (type === 'pinNodes' || type === 'moveNodes') {
+    const pinned = (e.data as { pinned?: Array<{ id: string; x: number; y: number; z: number }> }).pinned ?? []
+    for (const p of pinned) {
+      const node = simNodes.find(n => n.id === p.id)
+      if (node) { node.fx = p.x; node.fy = p.y; node.fz = p.z; node.x = p.x; node.y = p.y; node.z = p.z }
+    }
+    // Resume sim so connected nodes respond to the moved anchor
+    if (simulation && !tickRunning) {
+      tickCount = 0
+      simulation.alpha(0.3)
+      runTick()
+    }
+    // Immediately emit positions for smooth visuals
+    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0 })
+    return
+  }
+
+  // Release pinned nodes after drag end
+  if (type === 'unpinNodes') {
+    const ids = (e.data as { ids?: string[] }).ids ?? []
+    for (const id of ids) {
+      const node = simNodes.find(n => n.id === id)
+      if (node) { delete node.fx; delete node.fy; delete node.fz; node.vx = 0; node.vy = 0; node.vz = 0 }
+    }
+    if (simulation) {
+      simulation.alpha(0.15)
+      if (!tickRunning) { tickCount = 0; runTick() }
+    }
+    return
+  }
+
   if (type === 'init') {
     tickRunning = false
     tickCount = 0

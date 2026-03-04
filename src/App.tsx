@@ -58,7 +58,7 @@ function App() {
   const [orphanPattern, setOrphanPattern] = useState<'ring' | 'centroid'>(() => {
     try { return (localStorage.getItem('jarvis-orphan-pattern') as 'ring' | 'centroid') ?? 'ring' } catch { return 'ring' }
   })
-  const { positions, simDone, reheat, setSpread, setFilter } = useForce3D(graphData, orphanPattern)
+  const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes } = useForce3D(graphData, orphanPattern)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
 
   const graphRef = useRef<Graph3DHandle>(null)
@@ -520,6 +520,9 @@ function App() {
         onNodeRightClick={handleNodeRightClick}
         onFlyTo={nodeId => graphRef.current?.flyTo(nodeId)}
         flashNodeId={flashNodeId}
+        onPinNodes={pinNodes}
+        onMoveNodes={moveNodes}
+        onUnpinNodes={unpinNodes}
       />
 
       <HUD
