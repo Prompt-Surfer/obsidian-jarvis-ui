@@ -82,6 +82,7 @@ function App() {
   })
   const [allTags, setAllTags] = useState<string[]>([])
   const [flashNodeId, setFlashNodeId] = useState<string | null>(null)
+  const [navBreadcrumb, setNavBreadcrumb] = useState<string | null>(null)
 
   // Fetch all tags for search autocomplete
   useEffect(() => {
@@ -140,6 +141,60 @@ function App() {
     setTagIsolationTags([])
   }, [])
 
+  // Arrow key navigation helper
+  const navigateArrow = useCallback((direction: 'left' | 'right' | 'up' | 'down') => {
+    if (!graphData || !selectedNode) return
+
+    const folder = selectedNode.folder
+    const siblings = graphData.nodes
+      .filter(n => n.folder === folder)
+      .sort((a, b) => a.label.localeCompare(b.label))
+    const idx = siblings.findIndex(n => n.id === selectedNode.id)
+
+    let target: (typeof graphData.nodes)[0] | undefined
+
+    if (direction === 'left') {
+      target = siblings[(idx - 1 + siblings.length) % siblings.length]
+    } else if (direction === 'right') {
+      target = siblings[(idx + 1) % siblings.length]
+    } else if (direction === 'up') {
+      // Highest-degree node in same folder = cluster centre
+      target = siblings.reduce((best, n) => {
+        return (nodeDegrees.get(n.id) ?? 0) > (nodeDegrees.get(best.id) ?? 0) ? n : best
+      }, siblings[0])
+    } else {
+      // First child = linked neighbour with highest degree
+      const linkedIds = new Set<string>()
+      graphData.links.forEach(l => {
+        const s = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id
+        const t = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id
+        if (s === selectedNode.id) linkedIds.add(t)
+        if (t === selectedNode.id) linkedIds.add(s)
+      })
+      const neighbours = graphData.nodes.filter(n => linkedIds.has(n.id) && n.id !== selectedNode.id)
+      if (neighbours.length > 0) {
+        target = neighbours.reduce((best, n) => {
+          return (nodeDegrees.get(n.id) ?? 0) > (nodeDegrees.get(best.id) ?? 0) ? n : best
+        }, neighbours[0])
+      }
+    }
+
+    if (!target) return
+
+    setSelectedNode(target)
+    setSidebarFullView(true)
+    graphRef.current?.flyTo(target.id)
+
+    // Update HUD breadcrumb for left/right navigation
+    if (direction === 'left' || direction === 'right') {
+      const newIdx = siblings.findIndex(n => n.id === target!.id)
+      const folderName = folder.split('/').pop()?.toUpperCase() || folder.toUpperCase()
+      setNavBreadcrumb(`[←] ${newIdx + 1}/${siblings.length} ${folderName} [→]`)
+    } else {
+      setNavBreadcrumb(null)
+    }
+  }, [graphData, selectedNode, nodeDegrees])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -160,6 +215,18 @@ function App() {
       } else if (e.key === ']') {
         setCollapsedNodes(new Set())
         reheat()
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        navigateArrow('left')
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        navigateArrow('right')
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        navigateArrow('up')
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        navigateArrow('down')
       } else if (e.key === '[' && e.shiftKey) {
         if (!graphData) return
         setCollapsedNodes(new Set(graphData.nodes.map(n => n.id)))
@@ -187,7 +254,7 @@ function App() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [graphData, collapsedNodes, reheat, cancelElectron])
+  }, [graphData, collapsedNodes, reheat, cancelElectron, navigateArrow])
 
   // Single click → full markdown view in sidebar
   const handleNodeClick = useCallback((node: GraphNode) => {
@@ -365,6 +432,7 @@ function App() {
         visibleNodeCount={visibleCount}
         simDone={simDone}
         onResetCamera={handleResetCamera}
+        breadcrumb={navBreadcrumb}
       />
 
       <Settings

@@ -6,9 +6,10 @@ interface HUDProps {
   visibleNodeCount: number
   simDone: boolean
   onResetCamera: () => void
+  breadcrumb?: string | null
 }
 
-export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, onResetCamera }: HUDProps) {
+export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, onResetCamera, breadcrumb }: HUDProps) {
   const [fps, setFps] = useState(0)
   const frameTimesRef = useRef<number[]>([])
   const lastFrameRef = useRef(performance.now())
@@ -52,6 +53,11 @@ export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, onResetCa
         <div style={{ marginTop: 4, color: simDone ? '#00d4ff' : '#ff6b35' }}>
           {simDone ? '■ SIM STABLE' : '◌ SIMULATING'}
         </div>
+        {breadcrumb && (
+          <div style={{ marginTop: 4, color: '#00d4ff', fontSize: 10, letterSpacing: '0.06em' }}>
+            {breadcrumb}
+          </div>
+        )}
       </div>
       <button
         onClick={onResetCamera}
