@@ -104,14 +104,17 @@ function App() {
     }
   }, [simDone])
 
-  // Propagate time/tag filter changes to force simulation center
+  // Propagate time/tag/search filter changes to force simulation center
   useEffect(() => {
     if (!graphData) return
     const active = graphData.nodes
-      .filter(n => (!timeFilterIds || timeFilterIds.has(n.id)))
+      .filter(n =>
+        (!timeFilterIds || timeFilterIds.has(n.id)) &&
+        (!tagIsolationIds || tagIsolationIds.has(n.id))
+      )
       .map(n => n.id)
     setFilter(active)
-  }, [graphData, timeFilterIds, setFilter])
+  }, [graphData, timeFilterIds, tagIsolationIds, setFilter])
 
   // Compute node degrees from links
   const nodeDegrees = useMemo(() => {
