@@ -167,7 +167,7 @@ export function Settings({
           <div style={{ borderTop: '1px solid #1a3a4a', paddingTop: 14, marginBottom: 0 }}>
             {toggleBtn(false, '[ RESET ALL ]', onResetAll)}
             <div style={{ marginTop: 8 }}>
-              {toggleBtn(false, '[ ↺ POS ]', onResetPosition)}
+              {toggleBtn(false, '[ Reset View ]', onResetPosition)}
             </div>
           </div>
         </div>
