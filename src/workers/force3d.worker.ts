@@ -30,6 +30,7 @@ let simNodes: WorkerNode[] = []
 let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 300
+let orphanPattern: 'ring' | 'centroid' = 'ring'
 
 function getNodePositions(nodes: WorkerNode[]) {
   return nodes.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 }))
@@ -62,11 +63,18 @@ self.onmessage = (e: MessageEvent) => {
     type: string
     nodes?: Array<{ id: string; folder: string }>
     links?: Array<{ source: string; target: string }>
+    orphanPattern?: 'ring' | 'centroid'
+  }
+
+  if (type === 'setOrphanPattern') {
+    orphanPattern = (e.data as { orphanPattern?: 'ring' | 'centroid' }).orphanPattern ?? 'ring'
+    return
   }
 
   if (type === 'init') {
     tickRunning = false
     tickCount = 0
+    if (e.data.orphanPattern) orphanPattern = e.data.orphanPattern
 
     simNodes = (nodes ?? []).map((n) => ({
       id: n.id,
@@ -134,29 +142,73 @@ self.onmessage = (e: MessageEvent) => {
       degreeMap.set(l.source, (degreeMap.get(l.source) ?? 0) + 1)
       degreeMap.set(l.target, (degreeMap.get(l.target) ?? 0) + 1)
     }
-    // Group orphan nodes by folder
+    // Collect all degree-0 orphan nodes sorted deterministically by id
+    const allOrphans: WorkerNode[] = simNodes
+      .filter(n => (degreeMap.get(n.id) ?? 0) === 0)
+      .sort((a, b) => a.id.localeCompare(b.id))
+
+    // Group orphan nodes by folder (used by centroid affinity force)
     const orphansByFolder = new Map<string, WorkerNode[]>()
-    for (const node of simNodes) {
-      if ((degreeMap.get(node.id) ?? 0) === 0) {
-        const f = node.folder
-        if (!orphansByFolder.has(f)) orphansByFolder.set(f, [])
-        orphansByFolder.get(f)!.push(node)
-      }
+    for (const node of allOrphans) {
+      const f = node.folder
+      if (!orphansByFolder.has(f)) orphansByFolder.set(f, [])
+      orphansByFolder.get(f)!.push(node)
     }
-    // Weak colour-affinity force: same-folder orphans attract each other
-    const colorAffinityForce = (alpha: number) => {
-      const k = alpha * 0.012
-      for (const members of orphansByFolder.values()) {
-        if (members.length < 2) continue
-        // Compute centroid of this folder's orphans
-        let cx = 0, cy = 0, cz = 0
-        for (const n of members) { cx += n.x; cy += n.y; cz += n.z }
-        cx /= members.length; cy /= members.length; cz /= members.length
-        // Pull each orphan toward the folder centroid
-        for (const n of members) {
-          n.vx += (cx - n.x) * k
-          n.vy += (cy - n.y) * k
-          n.vz += (cz - n.z) * k
+
+    // Ring-slot target positions (computed once, used as attractors during sim)
+    const ringTargets = new Map<string, { x: number; y: number; z: number }>()
+
+    if (orphanPattern === 'ring' && allOrphans.length > 0) {
+      const ORPHANS_PER_RING = 50
+      const RING_BASE_RADIUS = 350
+      const RING_SPACING = 80
+      const RING_TILT = 0.18 // slight tilt in radians for 3D effect
+
+      allOrphans.forEach((node, idx) => {
+        const ring = Math.floor(idx / ORPHANS_PER_RING)
+        const posInRing = idx % ORPHANS_PER_RING
+        const countInRing = Math.min(ORPHANS_PER_RING, allOrphans.length - ring * ORPHANS_PER_RING)
+        const angle = (posInRing / countInRing) * Math.PI * 2
+        const radius = RING_BASE_RADIUS + ring * RING_SPACING
+
+        // Place on a tilted horizontal plane (rotate around X axis by RING_TILT)
+        const x = Math.cos(angle) * radius
+        const y = Math.sin(angle) * radius * Math.sin(RING_TILT)
+        const z = Math.sin(angle) * radius * Math.cos(RING_TILT)
+
+        ringTargets.set(node.id, { x, y, z })
+        // Initialise node near its ring slot
+        node.x = x + (Math.random() - 0.5) * 20
+        node.y = y + (Math.random() - 0.5) * 20
+        node.z = z + (Math.random() - 0.5) * 20
+      })
+    }
+
+    // Orphan force: ring attractor (if ring mode) or centroid affinity (if centroid mode)
+    const orphanForce = (alpha: number) => {
+      if (orphanPattern === 'ring') {
+        // Pull each orphan toward its ring slot with soft spring
+        const k = alpha * 0.06
+        for (const node of allOrphans) {
+          const target = ringTargets.get(node.id)
+          if (!target) continue
+          node.vx += (target.x - node.x) * k
+          node.vy += (target.y - node.y) * k
+          node.vz += (target.z - node.z) * k
+        }
+      } else {
+        // centroid mode: same-folder orphans attract each other (original behavior)
+        const k = alpha * 0.012
+        for (const members of orphansByFolder.values()) {
+          if (members.length < 2) continue
+          let cx = 0, cy = 0, cz = 0
+          for (const n of members) { cx += n.x; cy += n.y; cz += n.z }
+          cx /= members.length; cy /= members.length; cz /= members.length
+          for (const n of members) {
+            n.vx += (cx - n.x) * k
+            n.vy += (cy - n.y) * k
+            n.vz += (cz - n.z) * k
+          }
         }
       }
     }
@@ -171,7 +223,7 @@ self.onmessage = (e: MessageEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('isolated', isolatedForce as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .force('colorAffinity', colorAffinityForce as any)
+      .force('orphan', orphanForce as any)
       .alphaDecay(0.02)
       .velocityDecay(0.4)
       .stop()

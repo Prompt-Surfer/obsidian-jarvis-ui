@@ -55,7 +55,10 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
-  const { positions, simDone, reheat, setSpread, setFilter } = useForce3D(graphData)
+  const [orphanPattern, setOrphanPattern] = useState<'ring' | 'centroid'>(() => {
+    try { return (localStorage.getItem('jarvis-orphan-pattern') as 'ring' | 'centroid') ?? 'ring' } catch { return 'ring' }
+  })
+  const { positions, simDone, reheat, setSpread, setFilter } = useForce3D(graphData, orphanPattern)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
 
   const graphRef = useRef<Graph3DHandle>(null)
@@ -365,6 +368,8 @@ function App() {
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
+    setOrphanPattern('ring')
+    try { localStorage.setItem('jarvis-orphan-pattern', 'ring') } catch { /* storage unavailable */ }
     reheat()
   }, [setSpread, reheat])
 
@@ -529,6 +534,11 @@ function App() {
         onZoomToNodeToggle={(v) => {
           setZoomToNode(v)
           try { localStorage.setItem('jarvis-zoom-to-node', String(v)) } catch { /* storage unavailable */ }
+        }}
+        orphanPattern={orphanPattern}
+        onOrphanPatternChange={(v) => {
+          setOrphanPattern(v)
+          try { localStorage.setItem('jarvis-orphan-pattern', v) } catch { /* storage unavailable */ }
         }}
       />
 

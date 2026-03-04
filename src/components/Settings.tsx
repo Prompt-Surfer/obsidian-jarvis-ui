@@ -19,6 +19,8 @@ interface SettingsProps {
   onResetPosition: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
+  orphanPattern: 'ring' | 'centroid'
+  onOrphanPatternChange: (v: 'ring' | 'centroid') => void
 }
 
 export function Settings({
@@ -40,6 +42,8 @@ export function Settings({
   onResetPosition,
   zoomToNode,
   onZoomToNodeToggle,
+  orphanPattern,
+  onOrphanPatternChange,
 }: SettingsProps) {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
@@ -162,6 +166,28 @@ export function Settings({
               onChange={e => onMaxSizeChange(Number(e.target.value))}
               style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
             />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>ORPHAN PATTERN</div>
+            <select
+              value={orphanPattern}
+              onChange={e => onOrphanPatternChange(e.target.value as 'ring' | 'centroid')}
+              style={{
+                width: '100%',
+                background: 'rgba(0,0,0,0.7)',
+                border: '1px solid #1a3a4a',
+                color: '#00a8cc',
+                borderRadius: 4,
+                padding: '4px 8px',
+                fontFamily: '"Courier New", monospace',
+                fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >
+              <option value="ring">Ring (Jupiter's rings)</option>
+              <option value="centroid">Centroid (folder clusters)</option>
+            </select>
           </div>
 
           <div style={{ borderTop: '1px solid #1a3a4a', paddingTop: 14, marginBottom: 0 }}>
