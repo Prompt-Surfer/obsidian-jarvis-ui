@@ -450,6 +450,7 @@ function App() {
         visibleNodeCount={visibleCount}
         simDone={simDone}
         breadcrumb={navBreadcrumb}
+        onMaxZoomOut={() => graphRef.current?.resetCamera()}
       />
 
       <Settings
