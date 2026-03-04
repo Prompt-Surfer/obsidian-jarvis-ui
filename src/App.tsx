@@ -83,6 +83,9 @@ function App() {
   const [allTags, setAllTags] = useState<string[]>([])
   const [flashNodeId, setFlashNodeId] = useState<string | null>(null)
   const [navBreadcrumb, setNavBreadcrumb] = useState<string | null>(null)
+  const [zoomToNode, setZoomToNode] = useState(() => {
+    try { return localStorage.getItem('jarvis-zoom-to-node') !== 'false' } catch { return true }
+  })
 
   // Fetch all tags for search autocomplete
   useEffect(() => {
@@ -215,7 +218,7 @@ function App() {
 
     setSelectedNode(target)
     setSidebarFullView(true)
-    graphRef.current?.flyTo(target.id)
+    if (zoomToNode) graphRef.current?.flyTo(target.id)
 
     // Update HUD breadcrumb for left/right navigation
     if (direction === 'left' || direction === 'right') {
@@ -272,8 +275,8 @@ function App() {
   const handleNodeClick = useCallback((node: GraphNode) => {
     setSelectedNode(node)
     setSidebarFullView(true)
-    graphRef.current?.flyTo(node.id)
-  }, [])
+    if (zoomToNode) graphRef.current?.flyTo(node.id)
+  }, [zoomToNode])
 
   // Toggle folder collapse: double-click or right-click collapses/expands the whole folder
   const toggleFolderCollapse = useCallback((node: GraphNode) => {
@@ -480,6 +483,11 @@ function App() {
         onMaxSizeChange={setMaxNodeSize}
         onResetAll={handleResetAll}
         onResetPosition={() => graphRef.current?.resetCamera()}
+        zoomToNode={zoomToNode}
+        onZoomToNodeToggle={(v) => {
+          setZoomToNode(v)
+          try { localStorage.setItem('jarvis-zoom-to-node', String(v)) } catch { /* storage unavailable */ }
+        }}
       />
 
       <SearchBar

@@ -17,6 +17,8 @@ interface SettingsProps {
   onMaxSizeChange: (value: number) => void
   onResetAll: () => void
   onResetPosition: () => void
+  zoomToNode: boolean
+  onZoomToNodeToggle: (v: boolean) => void
 }
 
 export function Settings({
@@ -36,6 +38,8 @@ export function Settings({
   onMaxSizeChange,
   onResetAll,
   onResetPosition,
+  zoomToNode,
+  onZoomToNodeToggle,
 }: SettingsProps) {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
@@ -134,6 +138,11 @@ export function Settings({
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>LABELS</div>
             {toggleBtn(labelsEnabled, `[ LABELS ${labelsEnabled ? 'ON' : 'OFF'} ]`, () => onLabelsToggle(!labelsEnabled))}
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>ZOOM TO NODE</div>
+            {toggleBtn(zoomToNode, `[ ZOOM TO NODE ${zoomToNode ? 'ON' : 'OFF'} ]`, () => onZoomToNodeToggle(!zoomToNode))}
           </div>
 
           {sliderRow(`OPACITY: ${nodeOpacity.toFixed(2)}`, nodeOpacity, 0.1, 1.0, 0.05, onOpacityChange)}
