@@ -529,17 +529,32 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     requestAnimationFrame(animFly)
   }, [positions])
 
-  // resetCamera handler — smooth tween back to default view
+  // resetCamera handler — fit all nodes in view using bounding box centroid
   const resetCamera = useCallback(() => {
     const camera = cameraRef.current
     const controls = controlsRef.current
     if (!camera || !controls) return
 
+    // Compute bounding sphere of all node positions
+    const pts: THREE.Vector3[] = []
+    for (const [, pos] of positionsRef.current) {
+      pts.push(new THREE.Vector3(pos.x, pos.y, pos.z))
+    }
+
+    const endTarget = new THREE.Vector3()
+    let dist = 600
+    if (pts.length > 0) {
+      const box = new THREE.Box3().setFromPoints(pts)
+      const sphere = new THREE.Sphere()
+      box.getBoundingSphere(sphere)
+      endTarget.copy(sphere.center)
+      const fov = camera.fov * Math.PI / 180
+      dist = (sphere.radius * 1.1) / Math.tan(fov / 2)
+    }
+    const endPos = new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
+
     const startPos = camera.position.clone()
     const startTarget = controls.target.clone()
-    const endPos = new THREE.Vector3(0, 0, 600)
-    const endTarget = new THREE.Vector3(0, 0, 0)
-
     const duration = 500
     const start = performance.now()
 
