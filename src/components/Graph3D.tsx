@@ -15,11 +15,13 @@ interface Graph3DProps {
   hoveredNodeId: string | null
   searchResults: string[] | null
   timeFilterIds: Set<string> | null
+  tagIsolationIds: Set<string> | null
   collapsedNodes: Set<string>
   visibleNodes: Set<string>
   nodeOpacity: number
   bloomEnabled: boolean
   starsEnabled: boolean
+  labelsEnabled: boolean
   nodeDegrees: Map<string, number>
   minNodeSize: number
   maxNodeSize: number
@@ -43,6 +45,26 @@ export interface Graph3DHandle {
 const NODE_RADIUS = 4
 const NODE_SEGMENTS = 8
 
+function createLabelSprite(text: string): THREE.Sprite {
+  const W = 256, H = 48
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')!
+  const label = text.length > 22 ? text.slice(0, 20) + '…' : text
+  ctx.font = '14px "Courier New", monospace'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = '#00a8cc'
+  ctx.globalAlpha = 0.8
+  ctx.fillText(label, W / 2, H / 2)
+  const texture = new THREE.CanvasTexture(canvas)
+  const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(40, 7.5, 1)
+  return sprite
+}
+
 export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   graphData,
   positions,
@@ -50,10 +72,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   hoveredNodeId,
   searchResults,
   timeFilterIds,
+  tagIsolationIds,
   visibleNodes,
   nodeOpacity,
   bloomEnabled,
   starsEnabled,
+  labelsEnabled,
   nodeDegrees,
   minNodeSize,
   maxNodeSize,
@@ -74,6 +98,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const lineSegmentsRef = useRef<THREE.LineSegments | null>(null)
   const nodeIndexMapRef = useRef<Map<string, number>>(new Map())
   const starsRef = useRef<THREE.Points | null>(null)
+  const labelsMapRef = useRef<Map<string, THREE.Sprite>>(new Map())
   const frameRef = useRef<number>(0)
   const lastClickTimeRef = useRef<number>(0)
   const lastClickNodeRef = useRef<string | null>(null)
@@ -81,7 +106,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const projRef = useRef(new THREE.Vector3())
   const [, forceUpdate] = useState(0)
 
-  // Keep positionsRef in sync with positions prop (avoids stale closure in mousemove)
+  // Keep positionsRef in sync for proximity detection
   useEffect(() => {
     positionsRef.current = positions
   }, [positions])
@@ -228,6 +253,34 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     forceUpdate(x => x + 1)
   }, [graphData, nodeOpacity])
 
+  // Build label sprites for hub nodes (separate effect, depends on degrees)
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !graphData || nodeDegrees.size === 0) return
+
+    // Clean up old sprites
+    for (const sprite of labelsMapRef.current.values()) {
+      scene.remove(sprite)
+      ;(sprite.material as THREE.SpriteMaterial).map?.dispose()
+      sprite.material.dispose()
+    }
+    labelsMapRef.current.clear()
+
+    // Threshold: degree >= 3 OR top 20%, whichever is higher
+    let maxDeg = 1
+    for (const [, d] of nodeDegrees) if (d > maxDeg) maxDeg = d
+    const threshold = Math.max(3, Math.ceil(maxDeg * 0.2))
+
+    graphData.nodes.forEach(node => {
+      const degree = nodeDegrees.get(node.id) ?? 0
+      if (degree < threshold) return
+      const sprite = createLabelSprite(node.label)
+      sprite.visible = false
+      scene.add(sprite)
+      labelsMapRef.current.set(node.id, sprite)
+    })
+  }, [graphData, nodeDegrees])
+
   // Update positions each frame from simulation
   useEffect(() => {
     const mesh = instancedMeshRef.current
@@ -248,11 +301,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const pos = positions.get(node.id)
       if (!pos) return
 
-      // Visibility
+      // Visibility: respect time filter, collapse state, and tag isolation
       const inTimeFilter = !timeFilterIds || timeFilterIds.has(node.id)
       const inSearch = !searchResults || searchResults.includes(node.id)
       const isVisible = visibleNodes.has(node.id)
-      const visible = inTimeFilter && isVisible
+      const inTagIsolation = !tagIsolationIds || tagIsolationIds.has(node.id)
+      const visible = inTimeFilter && isVisible && inTagIsolation
 
       // Size by degree (linear interpolation)
       const degree = nodeDegrees.get(node.id) ?? 0
@@ -295,8 +349,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const src = positions.get(srcId)
       const dst = positions.get(dstId)
 
-      const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId))
-      const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId))
+      const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId)) && (!tagIsolationIds || tagIsolationIds.has(srcId))
+      const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId)) && (!tagIsolationIds || tagIsolationIds.has(dstId))
       const linkVisible = srcVisible && dstVisible
 
       if (src && dst && linkVisible) {
@@ -310,7 +364,17 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * 0.6
 
-  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize])
+    // Update label sprite positions and visibility
+    for (const [nodeId, sprite] of labelsMapRef.current) {
+      const pos = positions.get(nodeId)
+      if (!pos) continue
+      sprite.position.set(pos.x, pos.y + NODE_RADIUS * 3, pos.z)
+      const inTagIso = !tagIsolationIds || tagIsolationIds.has(nodeId)
+      const inTimeF = !timeFilterIds || timeFilterIds.has(nodeId)
+      sprite.visible = labelsEnabled && inTimeF && visibleNodes.has(nodeId) && inTagIso
+    }
+
+  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, labelsEnabled])
 
   // Animate loop
   useEffect(() => {

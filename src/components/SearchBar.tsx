@@ -8,9 +8,10 @@ interface SearchBarProps {
   onResults: (results: string[] | null) => void
   onNavigate: (nodeId: string) => void
   onClose: () => void
+  onTagIsolate?: (ids: Set<string>, tags: string[]) => void
 }
 
-export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, onClose }: SearchBarProps) {
+export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, onClose, onTagIsolate }: SearchBarProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GraphNode[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -84,8 +85,25 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setSelectedIdx(i => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' && results.length > 0) {
-      onNavigate(results[selectedIdx].id)
+    } else if (e.key === 'Enter') {
+      // Tag-only query → isolate matching nodes (no navigation)
+      const terms = query.trim().toLowerCase().split(/\s+/).filter(t => t.length > 0)
+      const isTagOnly = terms.length > 0 && terms.every(t => t.startsWith('#'))
+      if (isTagOnly && onTagIsolate) {
+        const tagTerms = terms.map(t => t.slice(1))
+        const matchedIds = new Set(
+          allNodes
+            .filter(n => {
+              const nodeTags = n.tags.map(t => t.toLowerCase())
+              return tagTerms.every(tt => nodeTags.some(nt => nt.includes(tt)))
+            })
+            .map(n => n.id)
+        )
+        onTagIsolate(matchedIds, tagTerms)
+        onClose()
+      } else if (results.length > 0) {
+        onNavigate(results[selectedIdx].id)
+      }
     }
   }
 

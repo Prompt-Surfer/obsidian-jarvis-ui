@@ -4,12 +4,14 @@ interface SettingsProps {
   bloomEnabled: boolean
   nodeOpacity: number
   starsEnabled: boolean
+  labelsEnabled: boolean
   spread: number
   minNodeSize: number
   maxNodeSize: number
   onBloomToggle: (enabled: boolean) => void
   onOpacityChange: (value: number) => void
   onStarsToggle: (enabled: boolean) => void
+  onLabelsToggle: (enabled: boolean) => void
   onSpreadChange: (value: number) => void
   onMinSizeChange: (value: number) => void
   onMaxSizeChange: (value: number) => void
@@ -19,12 +21,14 @@ export function Settings({
   bloomEnabled,
   nodeOpacity,
   starsEnabled,
+  labelsEnabled,
   spread,
   minNodeSize,
   maxNodeSize,
   onBloomToggle,
   onOpacityChange,
   onStarsToggle,
+  onLabelsToggle,
   onSpreadChange,
   onMinSizeChange,
   onMaxSizeChange,
@@ -111,6 +115,11 @@ export function Settings({
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>STARS</div>
             {toggleBtn(starsEnabled, `[ STARS ${starsEnabled ? 'ON' : 'OFF'} ]`, () => onStarsToggle(!starsEnabled))}
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>LABELS</div>
+            {toggleBtn(labelsEnabled, `[ LABELS ${labelsEnabled ? 'ON' : 'OFF'} ]`, () => onLabelsToggle(!labelsEnabled))}
           </div>
 
           {sliderRow(`OPACITY: ${nodeOpacity.toFixed(2)}`, nodeOpacity, 0.1, 1.0, 0.05, onOpacityChange)}
