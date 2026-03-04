@@ -45,6 +45,26 @@ export interface Graph3DHandle {
 const NODE_RADIUS = 4
 const NODE_SEGMENTS = 8
 
+function createSelectedTitleSprite(text: string): THREE.Sprite {
+  const W = 512, H = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')!
+  const label = text.length > 32 ? text.slice(0, 30) + '…' : text
+  ctx.font = 'bold 16px "Courier New", monospace'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = '#00ccff'
+  ctx.globalAlpha = 0.95
+  ctx.fillText(label, W / 2, H / 2)
+  const texture = new THREE.CanvasTexture(canvas)
+  const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(80, 12, 1)
+  return sprite
+}
+
 function createLabelSprite(text: string): THREE.Sprite {
   const W = 256, H = 48
   const canvas = document.createElement('canvas')
@@ -108,6 +128,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const proximityNodeRef = useRef<GraphNode | null>(null)
   const mouseDownPosRef = useRef({ x: 0, y: 0 })
   const lastMaxDistUpdateRef = useRef(0)
+  const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
+  const selectedTitleSpriteRef = useRef<THREE.Sprite | null>(null)
   const [, forceUpdate] = useState(0)
 
   // Keep positionsRef in sync for proximity detection
@@ -180,6 +202,15 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     annotLine.renderOrder = 999
     scene.add(annotLine)
     annotLineRef.current = annotLine
+
+    // Selected node bracket (wireframe cube, thin cyan, low opacity)
+    const bracketGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1))
+    const bracketMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.4, depthTest: false })
+    const selectedBracket = new THREE.LineSegments(bracketGeo, bracketMat)
+    selectedBracket.visible = false
+    selectedBracket.renderOrder = 997
+    scene.add(selectedBracket)
+    selectedBracketRef.current = selectedBracket
 
     // Resize handler
     const onResize = () => {
@@ -290,6 +321,59 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     })
   }, [graphData])
 
+  // Selected node: 3D wireframe bracket + floating title sprite
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+
+    const bracket = selectedBracketRef.current
+
+    if (!selectedNodeId || !graphData) {
+      if (bracket) bracket.visible = false
+      return () => { /* no sprite to clean up */ }
+    }
+
+    const node = graphData.nodes.find(n => n.id === selectedNodeId)
+    if (!node) {
+      if (bracket) bracket.visible = false
+      return () => { /* no sprite to clean up */ }
+    }
+
+    // Create floating title sprite
+    const sprite = createSelectedTitleSprite(node.label)
+    sprite.visible = false
+    scene.add(sprite)
+    selectedTitleSpriteRef.current = sprite
+
+    // Size bracket proportional to node size
+    if (bracket) {
+      let maxDeg = 1
+      for (const [, d] of nodeDegrees) if (d > maxDeg) maxDeg = d
+      const deg = nodeDegrees.get(selectedNodeId) ?? 0
+      const t = maxDeg > 1 ? deg / maxDeg : 0
+      const sizeMult = minNodeSize + (maxNodeSize - minNodeSize) * t
+      const bracketSize = NODE_RADIUS * sizeMult * 3
+      bracket.scale.set(bracketSize, bracketSize, bracketSize)
+      bracket.visible = true
+    }
+
+    // Position immediately if position data is available
+    const selPos = positionsRef.current.get(selectedNodeId)
+    if (selPos) {
+      if (bracket) bracket.position.set(selPos.x, selPos.y, selPos.z)
+      sprite.position.set(selPos.x, selPos.y + NODE_RADIUS * 5.5, selPos.z)
+      sprite.visible = true
+    }
+
+    return () => {
+      scene.remove(sprite)
+      ;(sprite.material as THREE.SpriteMaterial).map?.dispose()
+      sprite.material.dispose()
+      selectedTitleSpriteRef.current = null
+      if (bracket) bracket.visible = false
+    }
+  }, [selectedNodeId, graphData, nodeDegrees, minNodeSize, maxNodeSize])
+
   // Update positions each frame from simulation
   useEffect(() => {
     const mesh = instancedMeshRef.current
@@ -395,6 +479,19 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         bsBox.getBoundingSphere(bsSphere)
         const fovRad = cameraRef.current.fov * Math.PI / 180
         controlsRef.current.maxDistance = (bsSphere.radius * 1.1) / Math.tan(fovRad / 2)
+      }
+    }
+
+    // Update selected node bracket and title sprite positions
+    if (selectedNodeId) {
+      const selPos = positions.get(selectedNodeId)
+      if (selPos) {
+        if (selectedBracketRef.current?.visible) {
+          selectedBracketRef.current.position.set(selPos.x, selPos.y, selPos.z)
+        }
+        if (selectedTitleSpriteRef.current?.visible) {
+          selectedTitleSpriteRef.current.position.set(selPos.x, selPos.y + NODE_RADIUS * 5.5, selPos.z)
+        }
       }
     }
 
