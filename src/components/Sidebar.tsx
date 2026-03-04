@@ -18,7 +18,7 @@ const MAX_WIDTH = 800
 
 function getPersistedWidth(): number {
   try {
-    const v = localStorage.getItem('jarvis-sidebar-width')
+    const v = localStorage.getItem('jarvis-note-width')
     if (v) {
       const n = parseInt(v, 10)
       if (n >= MIN_WIDTH && n <= MAX_WIDTH) return n
@@ -200,7 +200,7 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
     const onUp = () => {
       setDragging(false)
       // Persist on release
-      try { localStorage.setItem('jarvis-sidebar-width', String(width)) } catch { /* storage unavailable */ }
+      try { localStorage.setItem('jarvis-note-width', String(width)) } catch { /* storage unavailable */ }
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
