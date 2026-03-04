@@ -107,8 +107,6 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
     }
   }
 
-  if (!visible) return null
-
   return (
     <div style={{
       position: 'fixed',
