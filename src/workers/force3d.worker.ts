@@ -127,6 +127,40 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
+    // Identify degree-0 orphan nodes (no links at all)
+    const degreeMap = new Map<string, number>()
+    for (const id of allNodeIds) degreeMap.set(id, 0)
+    for (const l of links ?? []) {
+      degreeMap.set(l.source, (degreeMap.get(l.source) ?? 0) + 1)
+      degreeMap.set(l.target, (degreeMap.get(l.target) ?? 0) + 1)
+    }
+    // Group orphan nodes by folder
+    const orphansByFolder = new Map<string, WorkerNode[]>()
+    for (const node of simNodes) {
+      if ((degreeMap.get(node.id) ?? 0) === 0) {
+        const f = node.folder
+        if (!orphansByFolder.has(f)) orphansByFolder.set(f, [])
+        orphansByFolder.get(f)!.push(node)
+      }
+    }
+    // Weak colour-affinity force: same-folder orphans attract each other
+    const colorAffinityForce = (alpha: number) => {
+      const k = alpha * 0.012
+      for (const members of orphansByFolder.values()) {
+        if (members.length < 2) continue
+        // Compute centroid of this folder's orphans
+        let cx = 0, cy = 0, cz = 0
+        for (const n of members) { cx += n.x; cy += n.y; cz += n.z }
+        cx /= members.length; cy /= members.length; cz /= members.length
+        // Pull each orphan toward the folder centroid
+        for (const n of members) {
+          n.vx += (cx - n.x) * k
+          n.vy += (cy - n.y) * k
+          n.vz += (cz - n.z) * k
+        }
+      }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,6 +170,8 @@ self.onmessage = (e: MessageEvent) => {
       .force('collide', forceCollide(12))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('isolated', isolatedForce as any)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .force('colorAffinity', colorAffinityForce as any)
       .alphaDecay(0.02)
       .velocityDecay(0.4)
       .stop()
