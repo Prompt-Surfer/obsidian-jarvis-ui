@@ -2,3 +2,6 @@ node_modules/
 dist/
 .env
 *.log
+memory/
+PRD.md
+docs/
