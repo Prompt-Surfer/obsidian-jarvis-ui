@@ -9,6 +9,7 @@ interface SidebarProps {
   allNodes: GraphNode[]
   onClose: () => void
   onNavigate: (nodeId: string) => void
+  onTagFilter?: (tag: string) => void
 }
 
 const DEFAULT_WIDTH = 380
@@ -149,7 +150,7 @@ function renderMarkdown(content: string, allNodes: GraphNode[], onNavigate: (id:
   )
 }
 
-export function Sidebar({ node, fullView, allNodes, onClose, onNavigate }: SidebarProps) {
+export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFilter }: SidebarProps) {
   const [markdownContent, setMarkdownContent] = useState<string | null>(null)
   const [loadingMd, setLoadingMd] = useState(false)
   const [width, setWidth] = useState(getPersistedWidth)
@@ -262,7 +263,12 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate }: Sideb
             <div style={STYLES.section}>
               <div style={STYLES.label}>Tags</div>
               {node.tags.map(tag => (
-                <span key={tag} style={STYLES.tag} onClick={() => onNavigate(`tag:${tag}`)}>
+                <span
+                  key={tag}
+                  style={{ ...STYLES.tag, cursor: 'pointer' }}
+                  title={`Filter graph by #${tag}`}
+                  onClick={() => onTagFilter ? onTagFilter(tag) : onNavigate(`tag:${tag}`)}
+                >
                   #{tag}
                 </span>
               ))}

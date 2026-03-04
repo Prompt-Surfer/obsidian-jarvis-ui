@@ -493,6 +493,10 @@ function App() {
         allNodes={graphData.nodes}
         onClose={() => { setSelectedNode(null); setSidebarFullView(false) }}
         onNavigate={navigateToNode}
+        onTagFilter={(tag) => {
+          const ids = new Set(graphData.nodes.filter(n => n.tags.includes(tag)).map(n => n.id))
+          handleTagIsolate(ids, [tag])
+        }}
       />
 
       {/* Active tag isolation pill */}
