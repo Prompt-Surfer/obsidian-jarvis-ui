@@ -118,6 +118,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const lineSegmentsRef = useRef<THREE.LineSegments | null>(null)
   const nodeIndexMapRef = useRef<Map<string, number>>(new Map())
   const starsRef = useRef<THREE.Points | null>(null)
+  const galaxySpritesRef = useRef<THREE.Sprite[]>([])
   const labelsMapRef = useRef<Map<string, THREE.Sprite>>(new Map())
   const annotLineRef = useRef<THREE.Line | null>(null)
   const frameRef = useRef<number>(0)
@@ -178,10 +179,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     composerRef.current = composer
     bloomPassRef.current = bloomPass
 
-    // Stars — 200 fixed points in world space, default OFF
+    // Stars — 2000 fixed points in world space, default OFF
     const starGeo = new THREE.BufferGeometry()
-    const starPositions = new Float32Array(200 * 3)
-    for (let i = 0; i < 200; i++) {
+    const starPositions = new Float32Array(2000 * 3)
+    for (let i = 0; i < 2000; i++) {
       starPositions[i * 3]     = (Math.random() - 0.5) * 4000
       starPositions[i * 3 + 1] = (Math.random() - 0.5) * 4000
       starPositions[i * 3 + 2] = (Math.random() - 0.5) * 4000
@@ -192,6 +193,39 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     stars.visible = false
     scene.add(stars)
     starsRef.current = stars
+
+    // Galaxy sprites — 3 canvas radial-gradient textures at different depths
+    function makeGalaxyTexture(size: number): THREE.Texture {
+      const cvs = document.createElement('canvas')
+      cvs.width = size; cvs.height = size
+      const gctx = cvs.getContext('2d')!
+      const c = size / 2
+      const gr = gctx.createRadialGradient(c, c, 0, c, c, c)
+      gr.addColorStop(0,    'rgba(140,210,255,0.85)')
+      gr.addColorStop(0.18, 'rgba(80,140,220,0.45)')
+      gr.addColorStop(0.45, 'rgba(30,60,130,0.15)')
+      gr.addColorStop(1,    'rgba(0,0,0,0)')
+      gctx.fillStyle = gr
+      gctx.fillRect(0, 0, size, size)
+      return new THREE.CanvasTexture(cvs)
+    }
+    const galaxyData = [
+      { x: -1600, y:  900, z: -2200, sx: 1400, sy: 900 },
+      { x:  2000, y: -700, z: -3200, sx: 1000, sy: 700 },
+      { x:   300, y: -1500, z: -2700, sx: 1600, sy: 1100 },
+    ]
+    const galSprites: THREE.Sprite[] = []
+    for (const gd of galaxyData) {
+      const galTex = makeGalaxyTexture(512)
+      const galMat = new THREE.SpriteMaterial({ map: galTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55 })
+      const galSprite = new THREE.Sprite(galMat)
+      galSprite.position.set(gd.x, gd.y, gd.z)
+      galSprite.scale.set(gd.sx, gd.sy, 1)
+      galSprite.visible = false
+      scene.add(galSprite)
+      galSprites.push(galSprite)
+    }
+    galaxySpritesRef.current = galSprites
 
     // Annotation line: cursor → closest proximity node (solid cyan, drawn on top)
     const annotGeo = new THREE.BufferGeometry()
@@ -230,9 +264,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
   }, [])
 
-  // Toggle stars visibility
+  // Toggle stars and galaxy visibility
   useEffect(() => {
     if (starsRef.current) starsRef.current.visible = starsEnabled
+    for (const gs of galaxySpritesRef.current) gs.visible = starsEnabled
   }, [starsEnabled])
 
   // Update bloom
