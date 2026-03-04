@@ -82,8 +82,9 @@ export function Settings({
   return (
     <div style={{
       position: 'fixed',
-      top: 16,
+      top: '50%',
       left: 16,
+      transform: 'translateY(-50%)',
       zIndex: 150,
       fontFamily: '"Courier New", monospace',
       fontSize: 12,
@@ -105,9 +106,9 @@ export function Settings({
       {open && (
         <div style={{
           position: 'absolute',
-          top: '100%',
-          left: 0,
-          marginTop: 8,
+          top: 0,
+          left: '100%',
+          marginLeft: 8,
           background: 'rgba(0,0,0,0.92)',
           border: '1px solid #1a3a4a',
           borderRadius: 6,
@@ -115,6 +116,8 @@ export function Settings({
           width: 224,
           boxShadow: '0 0 15px #00d4ff22',
           color: '#00a8cc',
+          maxHeight: '80vh',
+          overflowY: 'auto',
         }}>
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>BLOOM</div>
