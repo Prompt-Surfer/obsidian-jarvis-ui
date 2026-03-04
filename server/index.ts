@@ -1,5 +1,6 @@
 import express from 'express'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -8,7 +9,7 @@ void __filename // ESM compat shim
 
 const app = express()
 const PORT = 3001
-const VAULT_PATH = process.env.VAULT_PATH || '~/obsidian/otacon-vault'
+const VAULT_PATH = process.env.VAULT_PATH || path.join(os.homedir(), 'obsidian', 'otacon-vault')
 
 app.use(express.json())
 app.use((_req, res, next) => {

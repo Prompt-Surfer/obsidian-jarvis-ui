@@ -395,7 +395,7 @@ function App() {
       }}>
         <div>
           <div style={{ marginBottom: 8 }}>◌ LOADING VAULT GRAPH...</div>
-          <div style={{ color: '#00a8cc', fontSize: 12 }}>~/obsidian/otacon-vault</div>
+          <div style={{ color: '#00a8cc', fontSize: 12 }}>{import.meta.env.VITE_VAULT_PATH ?? 'Scanning vault...'}</div>
         </div>
       </div>
     )
