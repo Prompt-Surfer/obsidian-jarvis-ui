@@ -58,6 +58,7 @@ function App() {
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
 
   const graphRef = useRef<Graph3DHandle>(null)
+  const hasAutoResetRef = useRef(false)
 
   // UI State
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
@@ -94,6 +95,14 @@ function App() {
       .then(d => setAllTags(d.tags || []))
       .catch(() => {})
   })
+
+  // fix(1): Auto-reset camera to fit all nodes once simulation stabilises
+  useEffect(() => {
+    if (simDone && !hasAutoResetRef.current) {
+      hasAutoResetRef.current = true
+      setTimeout(() => graphRef.current?.resetCamera(), 200)
+    }
+  }, [simDone])
 
   // Propagate time/tag filter changes to force simulation center
   useEffect(() => {
