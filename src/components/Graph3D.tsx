@@ -106,7 +106,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   onNodeClick,
   onNodeDoubleClick,
   onNodeHover,
-  onNodeRightClick,
+  onNodeRightClick: _onNodeRightClick,
   flashNodeId,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -525,7 +525,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       if (selectedNodeId) {
         const hlPos = (hlLines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
         let hlCount = 0
-        graphData.links.forEach((link, i) => {
+        graphData.links.forEach((link) => {
           const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
           const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
           if (srcId !== selectedNodeId && dstId !== selectedNodeId) return
