@@ -142,7 +142,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     nodeIds: string[]
     nodeStartPositions: Map<string, { x: number; y: number; z: number }>
     overridePositions: Map<string, { x: number; y: number; z: number }>
-    lastWorldPos: THREE.Vector3
+    lastScreenX: number
+    lastScreenY: number
   } | null>(null)
   const lastMaxDistUpdateRef = useRef(0)
   const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
@@ -701,33 +702,47 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   }, [graphData])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // Handle right-drag
+    // Handle right-drag — pure 2D screen-space movement (no depth bleed)
     const drag = rightDragRef.current
     if (drag?.active && (e.buttons & 2)) {
-      // Use the z-depth of the primary drag node for the intersection plane
+      const camera = cameraRef.current
+      const canvas = canvasRef.current
+      if (!camera || !canvas) return
+
+      // Screen delta (pixels)
+      const sdx = e.clientX - drag.lastScreenX
+      const sdy = e.clientY - drag.lastScreenY
+      drag.lastScreenX = e.clientX
+      drag.lastScreenY = e.clientY
+
+      // World units per pixel: perspective scale at node's depth
       const primaryId = drag.nodeIds[0]
       const primaryPos = drag.overridePositions.get(primaryId) ?? drag.nodeStartPositions.get(primaryId)
-      if (primaryPos) {
-        const worldPos = getWorldPosOnPlane(e.clientX, e.clientY, primaryPos.z)
-        if (worldPos) {
-          const dx = worldPos.x - drag.lastWorldPos.x
-          const dy = worldPos.y - drag.lastWorldPos.y
-          const dz = worldPos.z - drag.lastWorldPos.z
-          drag.lastWorldPos.set(worldPos.x, worldPos.y, worldPos.z)
-          for (const nodeId of drag.nodeIds) {
-            const op = drag.overridePositions.get(nodeId)
-            if (op) {
-              op.x += dx; op.y += dy; op.z += dz
-            }
-          }
-          applyRightDragToScene()
-          // Update worker sim positions so connected nodes react in real time
-          onMoveNodes?.(drag.nodeIds.map(id => {
-            const p = drag.overridePositions.get(id)!
-            return { id, x: p.x, y: p.y, z: p.z }
-          }))
-        }
-      }
+      if (!primaryPos) return
+
+      const nodeVec = new THREE.Vector3(primaryPos.x, primaryPos.y, primaryPos.z)
+      const dist = camera.position.distanceTo(nodeVec)
+      const fovRad = (camera as THREE.PerspectiveCamera).fov * Math.PI / 180
+      const scale = (2 * dist * Math.tan(fovRad / 2)) / canvas.clientHeight
+
+      // Camera right/up vectors (columns 0 and 1 of camera world matrix)
+      // Moving along these is always perpendicular to camera view = zero depth change
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0)
+      const up    = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1)
+
+      const wx = right.x * sdx * scale + up.x * (-sdy) * scale
+      const wy = right.y * sdx * scale + up.y * (-sdy) * scale
+      const wz = right.z * sdx * scale + up.z * (-sdy) * scale
+
+      const op = drag.overridePositions.get(primaryId)
+      if (op) { op.x += wx; op.y += wy; op.z += wz }
+
+      applyRightDragToScene()
+      // Sync worker sim so connected nodes follow in real time
+      onMoveNodes?.(drag.nodeIds.map(id => {
+        const p = drag.overridePositions.get(id)!
+        return { id, x: p.x, y: p.y, z: p.z }
+      }))
       return
     }
 
@@ -799,7 +814,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
 
     onNodeHover(nearestNode, e.clientX, e.clientY)
-  }, [getHitNode, onNodeHover, graphData, visibleNodes, tagIsolationIds, timeFilterIds, getWorldPosOnPlane, applyRightDragToScene, onMoveNodes])
+  }, [getHitNode, onNodeHover, graphData, visibleNodes, tagIsolationIds, timeFilterIds, applyRightDragToScene, onMoveNodes])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     // Ignore if this was a drag (mouse moved > 5px from mousedown position)
@@ -953,14 +968,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const overridePositions = new Map<string, { x: number; y: number; z: number }>()
       overridePositions.set(nearestNode.id, { x: primaryPos.x, y: primaryPos.y, z: primaryPos.z })
 
-      const startWorldPos = getWorldPosOnPlane(e.clientX, e.clientY, primaryPos.z) ?? new THREE.Vector3()
-
       rightDragRef.current = {
         active: true,
         nodeIds: [nearestNode.id],
         nodeStartPositions: new Map([[nearestNode.id, { x: primaryPos.x, y: primaryPos.y, z: primaryPos.z }]]),
         overridePositions,
-        lastWorldPos: startWorldPos,
+        lastScreenX: e.clientX,
+        lastScreenY: e.clientY,
       }
 
       // Pin only the grabbed node; sim link forces pull connected nodes naturally
@@ -981,7 +995,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
       }
     }
-  }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds, getWorldPosOnPlane, onPinNodes])
+  }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds, onPinNodes])
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     const drag = rightDragRef.current
