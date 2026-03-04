@@ -116,6 +116,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const bloomPassRef = useRef<UnrealBloomPass | null>(null)
   const instancedMeshRef = useRef<THREE.InstancedMesh | null>(null)
   const lineSegmentsRef = useRef<THREE.LineSegments | null>(null)
+  const selectedEdgeLinesRef = useRef<THREE.LineSegments | null>(null)
   const nodeIndexMapRef = useRef<Map<string, number>>(new Map())
   const starsRef = useRef<THREE.Points | null>(null)
   const galaxySpritesRef = useRef<THREE.Sprite[]>([])
@@ -322,22 +323,31 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     scene.add(mesh)
     instancedMeshRef.current = mesh
 
-    // LineSegments for links (vertexColors for per-edge highlight)
+    // LineSegments for links — original style unchanged
     const linkPositions = new Float32Array(graphData.links.length * 6)
-    const linkColors = new Float32Array(graphData.links.length * 6) // RGB per vertex
-    for (let i = 0; i < linkColors.length; i += 6) {
-      // default dim blue-grey
-      linkColors[i]=0.10; linkColors[i+1]=0.23; linkColors[i+2]=0.29
-      linkColors[i+3]=0.10; linkColors[i+4]=0.23; linkColors[i+5]=0.29
-    }
     const linkGeo = new THREE.BufferGeometry()
     linkGeo.setAttribute('position', new THREE.BufferAttribute(linkPositions, 3))
-    linkGeo.setAttribute('color', new THREE.BufferAttribute(linkColors, 3))
-    const linkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6 })
+    const linkMat = new THREE.LineBasicMaterial({ color: 0x1a3a4a, transparent: true, opacity: 0.5 })
     const lines = new THREE.LineSegments(linkGeo, linkMat)
     lines.frustumCulled = false
     scene.add(lines)
     lineSegmentsRef.current = lines
+
+    // Highlight overlay: bright cyan lines drawn on top of connected edges only
+    if (selectedEdgeLinesRef.current) {
+      scene.remove(selectedEdgeLinesRef.current)
+      selectedEdgeLinesRef.current.geometry.dispose()
+    }
+    const hlPositions = new Float32Array(graphData.links.length * 6)
+    const hlGeo = new THREE.BufferGeometry()
+    hlGeo.setAttribute('position', new THREE.BufferAttribute(hlPositions, 3))
+    hlGeo.setDrawRange(0, 0) // hidden until a node is selected
+    const hlMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false })
+    const hlLines = new THREE.LineSegments(hlGeo, hlMat)
+    hlLines.frustumCulled = false
+    hlLines.renderOrder = 1
+    scene.add(hlLines)
+    selectedEdgeLinesRef.current = hlLines
 
     forceUpdate(x => x + 1)
   }, [graphData, nodeOpacity])
@@ -476,19 +486,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 
-    // Build set of edge indices connected to selected node
-    const connectedEdges = new Set<number>()
-    if (selectedNodeId) {
-      graphData.links.forEach((link, i) => {
-        const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
-        const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
-        if (srcId === selectedNodeId || dstId === selectedNodeId) connectedEdges.add(i)
-      })
-    }
-
-    // Update link positions + vertex colors
+    // Update link positions (original style — no color changes)
     const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
-    const colorArray = (lines.geometry.attributes.color as THREE.BufferAttribute).array as Float32Array
     graphData.links.forEach((link, i) => {
       const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
       const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
@@ -505,23 +504,34 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       } else {
         for (let k = 0; k < 6; k++) posArray[i * 6 + k] = 0
       }
-
-      // Per-edge color: bright cyan for connected, dim for others
-      let r: number, g: number, b: number
-      if (!selectedNodeId) {
-        r = 0.10; g = 0.23; b = 0.29  // default
-      } else if (connectedEdges.has(i)) {
-        r = 0.00; g = 0.80; b = 1.00  // bright cyan bloom
-      } else {
-        r = 0.04; g = 0.09; b = 0.12  // dimmed
-      }
-      colorArray[i*6]=r; colorArray[i*6+1]=g; colorArray[i*6+2]=b
-      colorArray[i*6+3]=r; colorArray[i*6+4]=g; colorArray[i*6+5]=b
     });
     (lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
-    ;(lines.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true
 
     ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * 0.6
+
+    // Update highlight overlay: only connected edges when a node is selected
+    const hlLines = selectedEdgeLinesRef.current
+    if (hlLines) {
+      if (selectedNodeId) {
+        const hlPos = (hlLines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+        let hlCount = 0
+        graphData.links.forEach((link, i) => {
+          const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
+          const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
+          if (srcId !== selectedNodeId && dstId !== selectedNodeId) return
+          const src = positions.get(srcId); const dst = positions.get(dstId)
+          if (!src || !dst) return
+          const base = hlCount * 6
+          hlPos[base]=src.x; hlPos[base+1]=src.y; hlPos[base+2]=src.z
+          hlPos[base+3]=dst.x; hlPos[base+4]=dst.y; hlPos[base+5]=dst.z
+          hlCount++
+        })
+        ;(hlLines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+        hlLines.geometry.setDrawRange(0, hlCount * 2)
+      } else {
+        hlLines.geometry.setDrawRange(0, 0)
+      }
+    }
 
     // Update label sprite positions and visibility
     for (const [nodeId, sprite] of labelsMapRef.current) {
