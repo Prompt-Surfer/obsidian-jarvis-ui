@@ -946,43 +946,25 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
       if (!nearestNode) return
 
-      // Collect the closest node + its direct neighbours
-      const dragNodeIds: string[] = [nearestNode.id]
-      graphData.links.forEach(link => {
-        const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
-        const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
-        if (srcId === nearestNode!.id && !dragNodeIds.includes(dstId)) dragNodeIds.push(dstId)
-        if (dstId === nearestNode!.id && !dragNodeIds.includes(srcId)) dragNodeIds.push(srcId)
-      })
-
-      const nodeStartPositions = new Map<string, { x: number; y: number; z: number }>()
-      const overridePositions = new Map<string, { x: number; y: number; z: number }>()
-      for (const nodeId of dragNodeIds) {
-        const pos = positionsRef.current.get(nodeId)
-        if (pos) {
-          nodeStartPositions.set(nodeId, { x: pos.x, y: pos.y, z: pos.z })
-          overridePositions.set(nodeId, { x: pos.x, y: pos.y, z: pos.z })
-        }
-      }
-
+      // Only drag the grabbed node — connected nodes follow naturally via sim link forces
       const primaryPos = positionsRef.current.get(nearestNode.id)
-      const startWorldPos = primaryPos
-        ? getWorldPosOnPlane(e.clientX, e.clientY, primaryPos.z) ?? new THREE.Vector3()
-        : new THREE.Vector3()
+      if (!primaryPos) return
+
+      const overridePositions = new Map<string, { x: number; y: number; z: number }>()
+      overridePositions.set(nearestNode.id, { x: primaryPos.x, y: primaryPos.y, z: primaryPos.z })
+
+      const startWorldPos = getWorldPosOnPlane(e.clientX, e.clientY, primaryPos.z) ?? new THREE.Vector3()
 
       rightDragRef.current = {
         active: true,
-        nodeIds: dragNodeIds,
-        nodeStartPositions,
+        nodeIds: [nearestNode.id],
+        nodeStartPositions: new Map([[nearestNode.id, { x: primaryPos.x, y: primaryPos.y, z: primaryPos.z }]]),
         overridePositions,
         lastWorldPos: startWorldPos,
       }
 
-      // Pin dragged nodes in the force sim so ticks don't snap them back
-      onPinNodes?.(dragNodeIds.map(id => {
-        const p = overridePositions.get(id)!
-        return { id, x: p.x, y: p.y, z: p.z }
-      }))
+      // Pin only the grabbed node; sim link forces pull connected nodes naturally
+      onPinNodes?.([{ id: nearestNode.id, x: primaryPos.x, y: primaryPos.y, z: primaryPos.z }])
 
       // Brightness boost for dragged cluster
       const mesh = instancedMeshRef.current

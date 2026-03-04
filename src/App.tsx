@@ -58,7 +58,7 @@ function App() {
   const [orphanPattern, setOrphanPattern] = useState<'ring' | 'centroid'>(() => {
     try { return (localStorage.getItem('jarvis-orphan-pattern') as 'ring' | 'centroid') ?? 'ring' } catch { return 'ring' }
   })
-  const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes } = useForce3D(graphData, orphanPattern)
+  const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, orphanPattern)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
 
   const graphRef = useRef<Graph3DHandle>(null)
@@ -387,8 +387,9 @@ function App() {
     setCollapsedNodes(new Set())
     setOrphanPattern('ring')
     try { localStorage.setItem('jarvis-orphan-pattern', 'ring') } catch { /* storage unavailable */ }
+    resetPins() // clear all dragged node pins so layout reflows naturally
     reheat()
-  }, [setSpread, reheat])
+  }, [setSpread, reheat, resetPins])
 
   const navigateToNode = useCallback((nodeId: string) => {
     if (!graphData) return

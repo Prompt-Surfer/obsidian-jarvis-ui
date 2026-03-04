@@ -78,21 +78,47 @@ self.onmessage = (e: MessageEvent) => {
     return
   }
 
-  // Pin nodes at specific positions (drag start / drag move)
-  if (type === 'pinNodes' || type === 'moveNodes') {
+  // Pin nodes at specific positions (drag start)
+  if (type === 'pinNodes') {
     const pinned = (e.data as { pinned?: Array<{ id: string; x: number; y: number; z: number }> }).pinned ?? []
     for (const p of pinned) {
       const node = simNodes.find(n => n.id === p.id)
       if (node) { node.fx = p.x; node.fy = p.y; node.fz = p.z; node.x = p.x; node.y = p.y; node.z = p.z }
     }
-    // Resume sim so connected nodes respond to the moved anchor
-    if (simulation && !tickRunning) {
-      tickCount = 0
-      simulation.alpha(0.3)
-      runTick()
+    if (simulation) {
+      tickCount = 0; simulation.alpha(0.4)
+      if (!tickRunning) runTick()
     }
-    // Immediately emit positions for smooth visuals
     self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0 })
+    return
+  }
+
+  // Move pinned node during drag — keep sim hot so connected nodes actively follow
+  if (type === 'moveNodes') {
+    const pinned = (e.data as { pinned?: Array<{ id: string; x: number; y: number; z: number }> }).pinned ?? []
+    for (const p of pinned) {
+      const node = simNodes.find(n => n.id === p.id)
+      if (node) { node.fx = p.x; node.fy = p.y; node.fz = p.z; node.x = p.x; node.y = p.y; node.z = p.z }
+    }
+    // Reheat each move so connected nodes keep following (alpha never decays to 0 during drag)
+    if (simulation) {
+      if (simulation.alpha() < 0.25) simulation.alpha(0.35)
+      if (!tickRunning) { tickCount = 0; runTick() }
+    }
+    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0 })
+    return
+  }
+
+  // Clear ALL pinned nodes (Reset All) — let sim find new natural equilibrium
+  if (type === 'resetPins') {
+    for (const node of simNodes) {
+      delete node.fx; delete node.fy; delete node.fz
+      node.vx = 0; node.vy = 0; node.vz = 0
+    }
+    if (simulation) {
+      tickCount = 0; simulation.alpha(0.6)
+      if (!tickRunning) runTick()
+    }
     return
   }
 

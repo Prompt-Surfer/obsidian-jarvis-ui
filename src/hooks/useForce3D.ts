@@ -83,5 +83,9 @@ export function useForce3D(graphData: GraphData | null, orphanPattern: 'ring' | 
     workerRef.current?.postMessage({ type: 'unpinNodes', ids })
   }, [])
 
-  return { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes }
+  const resetPins = useCallback(() => {
+    workerRef.current?.postMessage({ type: 'resetPins' })
+  }, [])
+
+  return { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins }
 }
