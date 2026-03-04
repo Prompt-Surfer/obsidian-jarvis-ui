@@ -96,15 +96,16 @@ self.onmessage = (e: MessageEvent) => {
     return
   }
 
-  // Release pinned nodes after drag end
+  // Finalise drag — keep fx/fy/fz pinned at dropped position; reheat lightly so surrounding nodes settle
   if (type === 'unpinNodes') {
     const ids = (e.data as { ids?: string[] }).ids ?? []
     for (const id of ids) {
       const node = simNodes.find(n => n.id === id)
-      if (node) { delete node.fx; delete node.fy; delete node.fz; node.vx = 0; node.vy = 0; node.vz = 0 }
+      // Keep fx/fy/fz — node stays at dropped position; only zero velocity
+      if (node) { node.vx = 0; node.vy = 0; node.vz = 0 }
     }
     if (simulation) {
-      simulation.alpha(0.15)
+      simulation.alpha(0.12)
       if (!tickRunning) { tickCount = 0; runTick() }
     }
     return
