@@ -269,10 +269,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     forceUpdate(x => x + 1)
   }, [graphData, nodeOpacity])
 
-  // Build label sprites for hub nodes (separate effect, depends on degrees)
+  // Build label sprites for all nodes (separate effect, depends on graphData)
   useEffect(() => {
     const scene = sceneRef.current
-    if (!scene || !graphData || nodeDegrees.size === 0) return
+    if (!scene || !graphData) return
 
     // Clean up old sprites
     for (const sprite of labelsMapRef.current.values()) {
@@ -282,20 +282,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     labelsMapRef.current.clear()
 
-    // Threshold: degree >= 3 OR top 20%, whichever is higher
-    let maxDeg = 1
-    for (const [, d] of nodeDegrees) if (d > maxDeg) maxDeg = d
-    const threshold = Math.max(3, Math.ceil(maxDeg * 0.2))
-
     graphData.nodes.forEach(node => {
-      const degree = nodeDegrees.get(node.id) ?? 0
-      if (degree < threshold) return
       const sprite = createLabelSprite(node.label)
       sprite.visible = false
       scene.add(sprite)
       labelsMapRef.current.set(node.id, sprite)
     })
-  }, [graphData, nodeDegrees])
+  }, [graphData])
 
   // Update positions each frame from simulation
   useEffect(() => {
