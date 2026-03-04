@@ -369,7 +369,7 @@ function App() {
             if (arrived) {
               setSelectedNode(arrived)
               setSidebarFullView(true)
-              graphRef.current?.flyTo(arrivedId)
+              if (zoomToNode) graphRef.current?.flyTo(arrivedId)
             }
           },
           onNodeFlash: (flashId) => {
@@ -383,8 +383,8 @@ function App() {
 
     setSelectedNode(targetNode)
     setSidebarFullView(true)
-    graphRef.current?.flyTo(targetNode.id)
-  }, [graphData, selectedNode, positions, animateElectron])
+    if (zoomToNode) graphRef.current?.flyTo(targetNode.id)
+  }, [graphData, selectedNode, positions, animateElectron, zoomToNode])
 
   const handleSearchNavigate = useCallback((nodeId: string) => {
     setSearchVisible(false)
