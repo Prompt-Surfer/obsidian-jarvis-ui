@@ -107,6 +107,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const projRef = useRef(new THREE.Vector3())
   const proximityNodeRef = useRef<GraphNode | null>(null)
   const mouseDownPosRef = useRef({ x: 0, y: 0 })
+  const lastMaxDistUpdateRef = useRef(0)
   const [, forceUpdate] = useState(0)
 
   // Keep positionsRef in sync for proximity detection
@@ -389,6 +390,21 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       sprite.visible = labelsEnabled && inTimeF && visibleNodes.has(nodeId) && inTagIso
     }
 
+    // Throttled: clamp controls.maxDistance to bounding sphere fit (at most every 2s)
+    const nowMs = Date.now()
+    if (nowMs - lastMaxDistUpdateRef.current > 2000 || lastMaxDistUpdateRef.current === 0) {
+      lastMaxDistUpdateRef.current = nowMs
+      const bsPts: THREE.Vector3[] = []
+      for (const [, p] of positions) bsPts.push(new THREE.Vector3(p.x, p.y, p.z))
+      if (bsPts.length > 0 && controlsRef.current && cameraRef.current) {
+        const bsBox = new THREE.Box3().setFromPoints(bsPts)
+        const bsSphere = new THREE.Sphere()
+        bsBox.getBoundingSphere(bsSphere)
+        const fovRad = cameraRef.current.fov * Math.PI / 180
+        controlsRef.current.maxDistance = (bsSphere.radius * 1.1) / Math.tan(fovRad / 2)
+      }
+    }
+
   }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, labelsEnabled])
 
   // Animate loop
@@ -599,6 +615,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const fov = camera.fov * Math.PI / 180
       dist = (sphere.radius * 1.1) / Math.tan(fov / 2)
     }
+    controls.maxDistance = dist
     const endPos = new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
 
     const startPos = camera.position.clone()
