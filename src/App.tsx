@@ -160,6 +160,9 @@ function App() {
       } else if (e.key === ']') {
         setCollapsedNodes(new Set())
         reheat()
+      } else if (e.key === '[' && e.shiftKey) {
+        if (!graphData) return
+        setCollapsedNodes(new Set(graphData.nodes.map(n => n.id)))
       } else if (e.key === '[') {
         if (!graphData) return
         const incomingDegree = new Map<string, number>()
