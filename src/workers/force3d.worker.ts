@@ -31,6 +31,7 @@ let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 300
 let orphanPattern: 'ring' | 'centroid' = 'ring'
+let currentSpread = 1.5
 
 function getNodePositions(nodes: WorkerNode[]) {
   return nodes.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 }))
@@ -160,7 +161,7 @@ self.onmessage = (e: MessageEvent) => {
 
     if (orphanPattern === 'ring' && allOrphans.length > 0) {
       const ORPHANS_PER_RING = 50
-      const RING_BASE_RADIUS = 350
+      const RING_BASE_RADIUS = 350  // base radius at spread=1; scales with currentSpread
       const RING_SPACING = 80
       const RING_TILT = 0.18 // slight tilt in radians for 3D effect
 
@@ -169,32 +170,33 @@ self.onmessage = (e: MessageEvent) => {
         const posInRing = idx % ORPHANS_PER_RING
         const countInRing = Math.min(ORPHANS_PER_RING, allOrphans.length - ring * ORPHANS_PER_RING)
         const angle = (posInRing / countInRing) * Math.PI * 2
-        const radius = RING_BASE_RADIUS + ring * RING_SPACING
+        // Store base radius (spread=1); multiply by currentSpread when applying force
+        const baseRadius = RING_BASE_RADIUS + ring * RING_SPACING
 
-        // Place on a tilted horizontal plane (rotate around X axis by RING_TILT)
-        const x = Math.cos(angle) * radius
-        const y = Math.sin(angle) * radius * Math.sin(RING_TILT)
-        const z = Math.sin(angle) * radius * Math.cos(RING_TILT)
+        // Unit-direction stored; actual position = dir * baseRadius * currentSpread
+        const ux = Math.cos(angle)
+        const uy = Math.sin(angle) * Math.sin(RING_TILT)
+        const uz = Math.sin(angle) * Math.cos(RING_TILT)
 
-        ringTargets.set(node.id, { x, y, z })
-        // Initialise node near its ring slot
-        node.x = x + (Math.random() - 0.5) * 20
-        node.y = y + (Math.random() - 0.5) * 20
-        node.z = z + (Math.random() - 0.5) * 20
+        ringTargets.set(node.id, { x: ux * baseRadius, y: uy * baseRadius, z: uz * baseRadius })
+        // Initialise near ring slot scaled to current spread
+        node.x = ux * baseRadius * currentSpread + (Math.random() - 0.5) * 20
+        node.y = uy * baseRadius * currentSpread + (Math.random() - 0.5) * 20
+        node.z = uz * baseRadius * currentSpread + (Math.random() - 0.5) * 20
       })
     }
 
     // Orphan force: ring attractor (if ring mode) or centroid affinity (if centroid mode)
     const orphanForce = (alpha: number) => {
       if (orphanPattern === 'ring') {
-        // Pull each orphan toward its ring slot with soft spring
+        // Pull each orphan toward its ring slot, scaled by currentSpread
         const k = alpha * 0.06
         for (const node of allOrphans) {
           const target = ringTargets.get(node.id)
           if (!target) continue
-          node.vx += (target.x - node.x) * k
-          node.vy += (target.y - node.y) * k
-          node.vz += (target.z - node.z) * k
+          node.vx += (target.x * currentSpread - node.x) * k
+          node.vy += (target.y * currentSpread - node.y) * k
+          node.vz += (target.z * currentSpread - node.z) * k
         }
       } else {
         // centroid mode: same-folder orphans attract each other (original behavior)
@@ -231,6 +233,7 @@ self.onmessage = (e: MessageEvent) => {
     runTick()
   } else if (type === 'setSpread') {
     const spread = (e.data as { spread?: number }).spread ?? 1.0
+    currentSpread = spread  // ring targets scale with spread
     if (simulation) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lf = simulation.force('link') as any
