@@ -33,7 +33,14 @@ export function Settings({
   onMinSizeChange,
   onMaxSizeChange,
 }: SettingsProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
+  })
+  const toggleOpen = (v: boolean) => {
+    setOpen(v)
+    try { localStorage.setItem('jarvis-settings-open', String(v)) } catch { // storage unavailable
+    }
+  }
 
   const toggleBtn = (active: boolean, label: string, onClick: () => void) => (
     <button
@@ -80,7 +87,7 @@ export function Settings({
       fontSize: 12,
     }}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => toggleOpen(!open)}
         title="Settings"
         style={{
           background: open ? '#00d4ff22' : 'rgba(0,0,0,0.7)',

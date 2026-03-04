@@ -77,7 +77,9 @@ function App() {
   const [spread, setSpreadState] = useState(1.0)
   const [minNodeSize, setMinNodeSize] = useState(1.0)
   const [maxNodeSize, setMaxNodeSize] = useState(2.0)
-  const [shortcutsVisible, setShortcutsVisible] = useState(true)
+  const [shortcutsVisible, setShortcutsVisible] = useState(() => {
+    try { return localStorage.getItem('jarvis-shortcuts-open') !== 'false' } catch { return true }
+  })
   const [allTags, setAllTags] = useState<string[]>([])
   const [flashNodeId, setFlashNodeId] = useState<string | null>(null)
 
@@ -449,7 +451,12 @@ function App() {
       }}>
         <div style={{ textAlign: 'right', marginBottom: 4 }}>
           <button
-            onClick={() => setShortcutsVisible(v => !v)}
+            onClick={() => {
+              const next = !shortcutsVisible
+              setShortcutsVisible(next)
+              try { localStorage.setItem('jarvis-shortcuts-open', String(next)) } catch { // storage unavailable
+    }
+            }}
             style={{
               background: 'rgba(0,0,0,0.7)',
               border: '1px solid #1a3a4a',
