@@ -99,6 +99,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const nodeIndexMapRef = useRef<Map<string, number>>(new Map())
   const starsRef = useRef<THREE.Points | null>(null)
   const labelsMapRef = useRef<Map<string, THREE.Sprite>>(new Map())
+  const annotLineRef = useRef<THREE.Line | null>(null)
   const frameRef = useRef<number>(0)
   const lastClickTimeRef = useRef<number>(0)
   const lastClickNodeRef = useRef<string | null>(null)
@@ -165,6 +166,16 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     stars.visible = false
     scene.add(stars)
     starsRef.current = stars
+
+    // Annotation line: cursor → closest proximity node (solid cyan, drawn on top)
+    const annotGeo = new THREE.BufferGeometry()
+    annotGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3))
+    const annotMat = new THREE.LineBasicMaterial({ color: 0x00d4ff, depthTest: false })
+    const annotLine = new THREE.Line(annotGeo, annotMat)
+    annotLine.visible = false
+    annotLine.renderOrder = 999
+    scene.add(annotLine)
+    annotLineRef.current = annotLine
 
     // Resize handler
     const onResize = () => {
@@ -465,6 +476,31 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
 
     proximityNodeRef.current = nearestNode
+
+    // Update annotation line: cursor world pos → nearest node
+    const annotLine = annotLineRef.current
+    if (annotLine) {
+      if (nearestNode) {
+        const nodePos = positionsRef.current.get(nearestNode.id)
+        if (nodePos && camera && canvas) {
+          const nr = canvas.getBoundingClientRect()
+          const mx = ((e.clientX - nr.left) / nr.width) * 2 - 1
+          const my = -((e.clientY - nr.top) / nr.height) * 2 + 1
+          raycasterRef.current.setFromCamera(new THREE.Vector2(mx, my), camera)
+          const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -nodePos.z)
+          const cursor3D = new THREE.Vector3()
+          raycasterRef.current.ray.intersectPlane(plane, cursor3D)
+          const pts = (annotLine.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+          pts[0] = cursor3D.x; pts[1] = cursor3D.y; pts[2] = cursor3D.z
+          pts[3] = nodePos.x; pts[4] = nodePos.y; pts[5] = nodePos.z
+          ;(annotLine.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+          annotLine.visible = true
+        }
+      } else {
+        annotLine.visible = false
+      }
+    }
+
     onNodeHover(nearestNode, e.clientX, e.clientY)
   }, [getHitNode, onNodeHover, graphData, visibleNodes])
 
@@ -586,7 +622,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       onMouseMove={handleMouseMove}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      onMouseLeave={() => { proximityNodeRef.current = null; onNodeHover(null, 0, 0) }}
+      onMouseLeave={() => {
+        proximityNodeRef.current = null
+        if (annotLineRef.current) annotLineRef.current.visible = false
+        onNodeHover(null, 0, 0)
+      }}
     />
   )
 })
