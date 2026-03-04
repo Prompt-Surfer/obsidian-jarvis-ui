@@ -74,9 +74,9 @@ function App() {
   const [nodeOpacity, setNodeOpacity] = useState(1.0)
   const [starsEnabled, setStarsEnabled] = useState(false)
   const [labelsEnabled, setLabelsEnabled] = useState(true)
-  const [spread, setSpreadState] = useState(1.0)
+  const [spread, setSpreadState] = useState(1.5)
   const [minNodeSize, setMinNodeSize] = useState(1.0)
-  const [maxNodeSize, setMaxNodeSize] = useState(2.0)
+  const [maxNodeSize, setMaxNodeSize] = useState(3.0)
   const [shortcutsVisible, setShortcutsVisible] = useState(() => {
     try { return localStorage.getItem('jarvis-shortcuts-open') !== 'false' } catch { return true }
   })
@@ -313,11 +313,11 @@ function App() {
 
   const handleResetAll = useCallback(() => {
     graphRef.current?.resetCamera()
-    setSpreadState(1.0)
-    setSpread(1.0)
+    setSpreadState(1.5)
+    setSpread(1.5)
     setNodeOpacity(1.0)
     setMinNodeSize(1.0)
-    setMaxNodeSize(2.0)
+    setMaxNodeSize(3.0)
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
