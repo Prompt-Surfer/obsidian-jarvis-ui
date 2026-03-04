@@ -101,13 +101,13 @@ function App() {
       .catch(() => {})
   })
 
-  // fix(1): Auto-reset camera to fit all nodes once simulation stabilises
+  // fix(1): Auto-reset camera immediately on first positions tick (no delay — avoids close-up flash)
   useEffect(() => {
-    if (simDone && !hasAutoResetRef.current) {
+    if (positions.size > 0 && !hasAutoResetRef.current) {
       hasAutoResetRef.current = true
-      setTimeout(() => graphRef.current?.resetCamera(), 200)
+      graphRef.current?.resetCamera()
     }
-  }, [simDone])
+  }, [positions])
 
   // Propagate time/tag/search filter changes to force simulation center
   useEffect(() => {

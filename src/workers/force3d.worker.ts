@@ -69,6 +69,12 @@ self.onmessage = (e: MessageEvent) => {
 
   if (type === 'setOrphanPattern') {
     orphanPattern = (e.data as { orphanPattern?: 'ring' | 'centroid' }).orphanPattern ?? 'ring'
+    // Reheat sim so orphans animate to new positions
+    if (simulation) {
+      tickCount = 0
+      simulation.alpha(0.6)
+      if (!tickRunning) runTick()
+    }
     return
   }
 
