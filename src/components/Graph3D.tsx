@@ -49,6 +49,10 @@ export interface Graph3DHandle {
 const NODE_RADIUS = 4
 const NODE_SEGMENTS = 8
 
+// Enable render-loop profiling via ?perf query param in dev
+const DEBUG = import.meta.env.DEV && typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('perf')
+
 function createSelectedTitleSprite(text: string): THREE.Sprite {
   const W = 512, H = 64
   const canvas = document.createElement('canvas')
@@ -149,6 +153,16 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
   const selectedTitleSpriteRef = useRef<THREE.Sprite | null>(null)
   const [, forceUpdate] = useState(0)
+
+  // Change-detection refs: skip expensive Three.js matrix+link updates when positions unchanged
+  const lastPositionsRef = useRef<Map<string, NodePosition> | null>(null)
+  const lastVisibleNodesRef = useRef<Set<string> | null>(null)
+  const lastSizeParamsRef = useRef({ minNodeSize: -1, maxNodeSize: -1 })
+  const lastFiltersRef = useRef({
+    timeFilterIds: null as Set<string> | null,
+    tagIsolationIds: null as Set<string> | null,
+    focusModeNodeIds: null as Set<string> | null,
+  })
 
   // Keep positionsRef in sync for proximity detection
   useEffect(() => {
@@ -458,6 +472,27 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const color = new THREE.Color()
     const nodes = graphData.nodes
 
+    // Detect which changes occurred — skip expensive matrix+link updates when only
+    // colors/interaction state changed (hover, selection, search highlight, opacity)
+    const positionsChanged = positions !== lastPositionsRef.current
+    const visibleNodesChanged = visibleNodes !== lastVisibleNodesRef.current
+    const sizeChanged =
+      minNodeSize !== lastSizeParamsRef.current.minNodeSize ||
+      maxNodeSize !== lastSizeParamsRef.current.maxNodeSize
+    const filtersChanged =
+      timeFilterIds !== lastFiltersRef.current.timeFilterIds ||
+      tagIsolationIds !== lastFiltersRef.current.tagIsolationIds ||
+      focusModeNodeIds !== lastFiltersRef.current.focusModeNodeIds
+    // Matrix update needed when positions, visibility, size, or filter layout changes
+    const needsMatrixUpdate = positionsChanged || visibleNodesChanged || sizeChanged || filtersChanged
+
+    if (needsMatrixUpdate) {
+      lastPositionsRef.current = positions
+      lastVisibleNodesRef.current = visibleNodes
+      lastSizeParamsRef.current = { minNodeSize, maxNodeSize }
+      lastFiltersRef.current = { timeFilterIds, tagIsolationIds, focusModeNodeIds }
+    }
+
     // Compute max degree for size scaling
     let maxDegree = 1
     for (const [, deg] of nodeDegrees) {
@@ -476,26 +511,23 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const inFocusMode = !focusModeNodeIds || focusModeNodeIds.has(node.id)
       const visible = inTimeFilter && isVisible && inTagIsolation && inFocusMode
 
-      // Size by degree (linear interpolation)
-      const degree = nodeDegrees.get(node.id) ?? 0
-      const t = maxDegree > 1 ? degree / maxDegree : 0
-      const sizeMultiplier = minNodeSize + (maxNodeSize - minNodeSize) * t
-      const scale = visible ? sizeMultiplier : 0
+      // Matrix (position + scale): only when layout-affecting deps changed
+      if (needsMatrixUpdate) {
+        const degree = nodeDegrees.get(node.id) ?? 0
+        const t = maxDegree > 1 ? degree / maxDegree : 0
+        const sizeMultiplier = minNodeSize + (maxNodeSize - minNodeSize) * t
+        const scale = visible ? sizeMultiplier : 0
 
-      dummy.position.set(pos.x, pos.y, pos.z)
-      dummy.scale.set(scale, scale, scale)
-      dummy.updateMatrix()
-      mesh.setMatrixAt(i, dummy.matrix)
-
-      // Color
-      let baseColor: number
-      if (node.id === selectedNodeId) {
-        baseColor = getNodeColor(node.type, node.folder) // keep folder colour, bracket+edge bloom marks selection
-      } else if (node.id === flashNodeId) {
-        baseColor = 0xffffff
-      } else {
-        baseColor = getNodeColor(node.type, node.folder)
+        dummy.position.set(pos.x, pos.y, pos.z)
+        dummy.scale.set(scale, scale, scale)
+        dummy.updateMatrix()
+        mesh.setMatrixAt(i, dummy.matrix)
       }
+
+      // Color: always update (cheap — responds to hover/selection/search/opacity changes)
+      const baseColor = node.id === flashNodeId
+        ? 0xffffff
+        : getNodeColor(node.type, node.folder)
 
       const opacity = !inSearch && searchResults !== null
         ? 0.1
@@ -506,29 +538,31 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       mesh.setColorAt(i, color)
     })
 
-    mesh.instanceMatrix.needsUpdate = true
+    if (needsMatrixUpdate) mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 
-    // Update link positions (original style — no color changes)
-    const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
-    graphData.links.forEach((link, i) => {
-      const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
-      const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
-      const src = positions.get(srcId)
-      const dst = positions.get(dstId)
+    // Update link positions — only when positions/visibility changed (skip on hover/selection)
+    if (needsMatrixUpdate) {
+      const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+      graphData.links.forEach((link, i) => {
+        const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
+        const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
+        const src = positions.get(srcId)
+        const dst = positions.get(dstId)
 
-      const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId)) && (!tagIsolationIds || tagIsolationIds.has(srcId)) && (!focusModeNodeIds || focusModeNodeIds.has(srcId))
-      const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId)) && (!tagIsolationIds || tagIsolationIds.has(dstId)) && (!focusModeNodeIds || focusModeNodeIds.has(dstId))
-      const linkVisible = srcVisible && dstVisible
+        const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId)) && (!tagIsolationIds || tagIsolationIds.has(srcId)) && (!focusModeNodeIds || focusModeNodeIds.has(srcId))
+        const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId)) && (!tagIsolationIds || tagIsolationIds.has(dstId)) && (!focusModeNodeIds || focusModeNodeIds.has(dstId))
+        const linkVisible = srcVisible && dstVisible
 
-      if (src && dst && linkVisible) {
-        posArray[i * 6] = src.x; posArray[i * 6 + 1] = src.y; posArray[i * 6 + 2] = src.z
-        posArray[i * 6 + 3] = dst.x; posArray[i * 6 + 4] = dst.y; posArray[i * 6 + 5] = dst.z
-      } else {
-        for (let k = 0; k < 6; k++) posArray[i * 6 + k] = 0
-      }
-    });
-    (lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+        if (src && dst && linkVisible) {
+          posArray[i * 6] = src.x; posArray[i * 6 + 1] = src.y; posArray[i * 6 + 2] = src.z
+          posArray[i * 6 + 3] = dst.x; posArray[i * 6 + 4] = dst.y; posArray[i * 6 + 5] = dst.z
+        } else {
+          for (let k = 0; k < 6; k++) posArray[i * 6 + k] = 0
+        }
+      })
+      ;(lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+    }
 
     ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * 0.6
 
@@ -556,11 +590,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
-    // Update label sprite positions and visibility
+    // Label positions: only update when positions changed (sprites don't move otherwise)
+    // Label visibility: always update (labelsEnabled, filters, visibleNodes can change independently)
     for (const [nodeId, sprite] of labelsMapRef.current) {
       const pos = positions.get(nodeId)
       if (!pos) continue
-      sprite.position.set(pos.x, pos.y + NODE_RADIUS * 3, pos.z)
+      if (positionsChanged) {
+        sprite.position.set(pos.x, pos.y + NODE_RADIUS * 3, pos.z)
+      }
       const inTagIso = !tagIsolationIds || tagIsolationIds.has(nodeId)
       const inTimeF = !timeFilterIds || timeFilterIds.has(nodeId)
       const inFocusM = !focusModeNodeIds || focusModeNodeIds.has(nodeId)
@@ -604,12 +641,19 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (!composer || !controls) return
 
     let animId: number
+    let frameCount = 0
     const localControls = controls
     const localComposer = composer
     function loop() {
       animId = requestAnimationFrame(loop)
+      frameCount++
       localControls.update()
       localComposer.render()
+      // Periodic draw-call profiling (only in dev with ?perf flag)
+      if (DEBUG && frameCount % 60 === 0) {
+        const r = rendererRef.current
+        if (r) console.debug(`[perf] frame=${frameCount} drawCalls=${r.info.render.calls} triangles=${r.info.render.triangles} programs=${r.info.programs?.length ?? 0}`)
+      }
     }
     animId = requestAnimationFrame(loop)
     frameRef.current = animId

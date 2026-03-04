@@ -97,13 +97,13 @@ function App() {
     try { return localStorage.getItem('jarvis-zoom-to-node') !== 'false' } catch { return true }
   })
 
-  // Fetch all tags for search autocomplete
+  // Fetch all tags for search autocomplete (once on mount)
   useEffect(() => {
     fetch('/api/tags')
       .then(r => r.json())
       .then(d => setAllTags(d.tags || []))
       .catch(() => {})
-  })
+  }, [])
 
   // fix(1): Auto-reset camera immediately on first positions tick (no delay — avoids close-up flash)
   useEffect(() => {

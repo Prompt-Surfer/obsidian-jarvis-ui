@@ -29,7 +29,8 @@ let simulation: WorkerSimulation | null = null
 let simNodes: WorkerNode[] = []
 let tickCount = 0
 let tickRunning = false
-const MAX_TICKS = 300
+const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
+const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'ring' | 'centroid' | 'jupiter' | 'milkyway' = 'ring'
 let currentSpread = 1.5
 
@@ -38,9 +39,10 @@ function getNodePositions(nodes: WorkerNode[]) {
 }
 
 function runTick() {
-  if (!simulation || tickCount >= MAX_TICKS) {
+  // Stop when max ticks reached OR simulation has converged (alpha below threshold)
+  if (!simulation || tickCount >= MAX_TICKS || simulation.alpha() < ALPHA_MIN) {
     tickRunning = false
-    self.postMessage({ type: 'end', nodes: getNodePositions(simNodes) })
+    self.postMessage({ type: 'end', nodes: getNodePositions(simNodes), tickCount })
     return
   }
   tickRunning = true
@@ -53,6 +55,7 @@ function runTick() {
       nodes: getNodePositions(simNodes),
       tickCount,
       alpha: simulation.alpha(),
+      firstTick: tickCount === 1,
     })
   }
 
@@ -142,16 +145,28 @@ self.onmessage = (e: MessageEvent) => {
     tickCount = 0
     if (e.data.graphShape) graphShape = e.data.graphShape
 
-    simNodes = (nodes ?? []).map((n) => ({
-      id: n.id,
-      folder: n.folder,
-      x: (Math.random() - 0.5) * 400,
-      y: (Math.random() - 0.5) * 400,
-      z: (Math.random() - 0.5) * 400,
-      vx: 0,
-      vy: 0,
-      vz: 0,
-    }))
+    // Warm restart: if existing positions are provided (shape-only change), reuse them
+    // so nodes start near their previous locations instead of random scatter
+    const warmPositions = new Map<string, { x: number; y: number; z: number }>()
+    if (e.data.existingPositions) {
+      for (const p of e.data.existingPositions as Array<{ id: string; x: number; y: number; z: number }>) {
+        warmPositions.set(p.id, { x: p.x, y: p.y, z: p.z })
+      }
+    }
+
+    simNodes = (nodes ?? []).map((n) => {
+      const warm = warmPositions.get(n.id)
+      return {
+        id: n.id,
+        folder: n.folder,
+        x: warm?.x ?? (Math.random() - 0.5) * 400,
+        y: warm?.y ?? (Math.random() - 0.5) * 400,
+        z: warm?.z ?? (Math.random() - 0.5) * 400,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+      }
+    })
 
     const simLinks: WorkerLink[] = (links ?? []).map(l => ({
       source: l.source,
