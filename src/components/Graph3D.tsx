@@ -129,6 +129,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const projRef = useRef(new THREE.Vector3())
   const proximityNodeRef = useRef<GraphNode | null>(null)
   const mouseDownPosRef = useRef({ x: 0, y: 0 })
+  const rightDragRef = useRef<{
+    active: boolean
+    nodeIds: string[]
+    nodeStartPositions: Map<string, { x: number; y: number; z: number }>
+    overridePositions: Map<string, { x: number; y: number; z: number }>
+    lastWorldPos: THREE.Vector3
+  } | null>(null)
   const lastMaxDistUpdateRef = useRef(0)
   const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
   const selectedTitleSpriteRef = useRef<THREE.Sprite | null>(null)
@@ -622,7 +629,87 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     return { node, index: instanceId }
   }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds])
 
+  // Helper: get world position on a plane perpendicular to camera at given z depth
+  const getWorldPosOnPlane = useCallback((clientX: number, clientY: number, planeZ: number): THREE.Vector3 | null => {
+    const camera = cameraRef.current
+    const canvas = canvasRef.current
+    if (!camera || !canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const mx = ((clientX - rect.left) / rect.width) * 2 - 1
+    const my = -((clientY - rect.top) / rect.height) * 2 + 1
+    raycasterRef.current.setFromCamera(new THREE.Vector2(mx, my), camera)
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ)
+    const point = new THREE.Vector3()
+    if (!raycasterRef.current.ray.intersectPlane(plane, point)) return null
+    return point
+  }, [])
+
+  // Apply right-drag overrides directly to Three.js objects
+  const applyRightDragToScene = useCallback(() => {
+    const drag = rightDragRef.current
+    if (!drag?.active || !graphData) return
+    const mesh = instancedMeshRef.current
+    const lines = lineSegmentsRef.current
+    if (!mesh) return
+
+    const dummy = new THREE.Object3D()
+    for (const nodeId of drag.nodeIds) {
+      const idx = nodeIndexMapRef.current.get(nodeId)
+      const pos = drag.overridePositions.get(nodeId)
+      if (idx === undefined || !pos) continue
+      mesh.getMatrixAt(idx, dummy.matrix)
+      dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale)
+      dummy.position.set(pos.x, pos.y, pos.z)
+      dummy.updateMatrix()
+      mesh.setMatrixAt(idx, dummy.matrix)
+    }
+    mesh.instanceMatrix.needsUpdate = true
+
+    // Update link positions for affected links
+    if (lines) {
+      const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+      graphData.links.forEach((link, i) => {
+        const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
+        const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
+        const isDragSrc = drag.nodeIds.includes(srcId)
+        const isDragDst = drag.nodeIds.includes(dstId)
+        if (!isDragSrc && !isDragDst) return
+        const srcPos = isDragSrc ? drag.overridePositions.get(srcId) : positionsRef.current.get(srcId)
+        const dstPos = isDragDst ? drag.overridePositions.get(dstId) : positionsRef.current.get(dstId)
+        if (!srcPos || !dstPos) return
+        posArray[i * 6] = srcPos.x; posArray[i * 6 + 1] = srcPos.y; posArray[i * 6 + 2] = srcPos.z
+        posArray[i * 6 + 3] = dstPos.x; posArray[i * 6 + 4] = dstPos.y; posArray[i * 6 + 5] = dstPos.z
+      })
+      ;(lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+    }
+  }, [graphData])
+
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // Handle right-drag
+    const drag = rightDragRef.current
+    if (drag?.active && (e.buttons & 2)) {
+      // Use the z-depth of the primary drag node for the intersection plane
+      const primaryId = drag.nodeIds[0]
+      const primaryPos = drag.overridePositions.get(primaryId) ?? drag.nodeStartPositions.get(primaryId)
+      if (primaryPos) {
+        const worldPos = getWorldPosOnPlane(e.clientX, e.clientY, primaryPos.z)
+        if (worldPos) {
+          const dx = worldPos.x - drag.lastWorldPos.x
+          const dy = worldPos.y - drag.lastWorldPos.y
+          const dz = worldPos.z - drag.lastWorldPos.z
+          drag.lastWorldPos.set(worldPos.x, worldPos.y, worldPos.z)
+          for (const nodeId of drag.nodeIds) {
+            const op = drag.overridePositions.get(nodeId)
+            if (op) {
+              op.x += dx; op.y += dy; op.z += dz
+            }
+          }
+          applyRightDragToScene()
+        }
+      }
+      return
+    }
+
     const hit = getHitNode(e)
     if (hit) {
       onNodeHover(hit.node, e.clientX, e.clientY)
@@ -725,10 +812,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   }, [getHitNode, onNodeClick, onNodeDoubleClick])
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    const hit = getHitNode(e)
-    if (hit) onNodeRightClick(hit.node)
-  }, [getHitNode, onNodeRightClick])
+    e.preventDefault() // suppress browser context menu; right-drag is handled in onMouseDown
+  }, [])
 
   // flyTo handler
   const flyTo = useCallback((nodeId: string) => {
@@ -810,18 +895,123 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     getCamera: () => cameraRef.current,
   }), [flyTo, resetCamera])
 
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    mouseDownPosRef.current = { x: e.clientX, y: e.clientY }
+
+    if (e.button === 2 && graphData) {
+      // Right-click: find closest node via proximity detection and start drag
+      const camera = cameraRef.current
+      const canvas = canvasRef.current
+      if (!camera || !canvas) return
+
+      const rect = canvas.getBoundingClientRect()
+      const THRESHOLD = 80
+      let nearestNode: GraphNode | null = null
+      let minDist = THRESHOLD
+
+      for (const node of graphData.nodes) {
+        if (!visibleNodes.has(node.id)) continue
+        if (tagIsolationIds && !tagIsolationIds.has(node.id)) continue
+        if (timeFilterIds && !timeFilterIds.has(node.id)) continue
+        const pos = positionsRef.current.get(node.id)
+        if (!pos) continue
+        projRef.current.set(pos.x, pos.y, pos.z).project(camera)
+        if (projRef.current.z > 1) continue
+        const screenX = (projRef.current.x + 1) / 2 * rect.width + rect.left
+        const screenY = (-projRef.current.y + 1) / 2 * rect.height + rect.top
+        const dist = Math.sqrt((e.clientX - screenX) ** 2 + (e.clientY - screenY) ** 2)
+        if (dist < minDist) { minDist = dist; nearestNode = node }
+      }
+
+      if (!nearestNode) return
+
+      // Collect the closest node + its direct neighbours
+      const dragNodeIds: string[] = [nearestNode.id]
+      graphData.links.forEach(link => {
+        const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
+        const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
+        if (srcId === nearestNode!.id && !dragNodeIds.includes(dstId)) dragNodeIds.push(dstId)
+        if (dstId === nearestNode!.id && !dragNodeIds.includes(srcId)) dragNodeIds.push(srcId)
+      })
+
+      const nodeStartPositions = new Map<string, { x: number; y: number; z: number }>()
+      const overridePositions = new Map<string, { x: number; y: number; z: number }>()
+      for (const nodeId of dragNodeIds) {
+        const pos = positionsRef.current.get(nodeId)
+        if (pos) {
+          nodeStartPositions.set(nodeId, { x: pos.x, y: pos.y, z: pos.z })
+          overridePositions.set(nodeId, { x: pos.x, y: pos.y, z: pos.z })
+        }
+      }
+
+      const primaryPos = positionsRef.current.get(nearestNode.id)
+      const startWorldPos = primaryPos
+        ? getWorldPosOnPlane(e.clientX, e.clientY, primaryPos.z) ?? new THREE.Vector3()
+        : new THREE.Vector3()
+
+      rightDragRef.current = {
+        active: true,
+        nodeIds: dragNodeIds,
+        nodeStartPositions,
+        overridePositions,
+        lastWorldPos: startWorldPos,
+      }
+
+      // Brightness boost for dragged cluster
+      const mesh = instancedMeshRef.current
+      if (mesh) {
+        const color = new THREE.Color()
+        for (const nodeId of dragNodeIds) {
+          const idx = nodeIndexMapRef.current.get(nodeId)
+          if (idx === undefined) continue
+          const node = graphData.nodes[idx]
+          if (!node) continue
+          color.set(getNodeColor(node.type, node.folder)).multiplyScalar(2.0)
+          mesh.setColorAt(idx, color)
+        }
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      }
+    }
+  }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds, getWorldPosOnPlane])
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    const drag = rightDragRef.current
+    if (drag?.active && e.button === 2) {
+      // Restore normal colours and clear drag state
+      const mesh = instancedMeshRef.current
+      if (mesh && graphData) {
+        const color = new THREE.Color()
+        for (const nodeId of drag.nodeIds) {
+          const idx = nodeIndexMapRef.current.get(nodeId)
+          if (idx === undefined) continue
+          const node = graphData.nodes[idx]
+          if (!node) continue
+          color.set(getNodeColor(node.type, node.folder))
+          mesh.setColorAt(idx, color)
+        }
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      }
+      rightDragRef.current = null
+    }
+  }, [graphData])
+
   return (
     <canvas
       ref={canvasRef}
       style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
-      onMouseDown={e => { mouseDownPosRef.current = { x: e.clientX, y: e.clientY } }}
+      onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onMouseLeave={() => {
         proximityNodeRef.current = null
         if (annotLineRef.current) annotLineRef.current.visible = false
         onNodeHover(null, 0, 0)
+        // Clear any active right-drag on mouse leave
+        if (rightDragRef.current?.active) {
+          rightDragRef.current = null
+        }
       }}
     />
   )
