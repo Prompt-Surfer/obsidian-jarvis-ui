@@ -140,7 +140,7 @@ export function Settings({
             <input
               type="range"
               min={0.5}
-              max={5.0}
+              max={2.0}
               step={0.1}
               value={maxNodeSize}
               onChange={e => onMaxSizeChange(Number(e.target.value))}
