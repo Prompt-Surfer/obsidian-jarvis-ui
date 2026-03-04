@@ -90,6 +90,18 @@ self.onmessage = (e: MessageEvent) => {
     }
     const orphanIds = new Set<string>(simNodes.filter(n => !linkedIds.has(n.id)).map(n => n.id))
 
+    // Weak radial pull for orphan nodes toward global centroid (origin)
+    const orphanForce = (alpha: number) => {
+      const k = alpha * 0.04
+      for (const node of simNodes) {
+        if (orphanIds.has(node.id)) {
+          node.vx -= node.x * k
+          node.vy -= node.y * k
+          node.vz -= node.z * k
+        }
+      }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,18 +109,8 @@ self.onmessage = (e: MessageEvent) => {
       .force('charge', forceManyBody().strength(-120))
       .force('center', forceCenter(0, 0, 0).strength(0.05))
       .force('collide', forceCollide(12))
-      // Weak radial pull for orphan nodes toward global centroid (origin)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .force('orphan', (alpha: number) => {
-        const k = alpha * 0.04
-        for (const node of simNodes) {
-          if (orphanIds.has(node.id)) {
-            node.vx -= node.x * k
-            node.vy -= node.y * k
-            node.vz -= node.z * k
-          }
-        }
-      } as any)
+      .force('orphan', orphanForce as any)
       .alphaDecay(0.02)
       .velocityDecay(0.4)
       .stop()
