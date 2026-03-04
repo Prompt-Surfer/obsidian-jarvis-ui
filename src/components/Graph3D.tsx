@@ -16,6 +16,7 @@ interface Graph3DProps {
   searchResults: string[] | null
   timeFilterIds: Set<string> | null
   tagIsolationIds: Set<string> | null
+  focusModeNodeIds: Set<string> | null
   collapsedNodes: Set<string>
   visibleNodes: Set<string>
   nodeOpacity: number
@@ -93,6 +94,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   searchResults,
   timeFilterIds,
   tagIsolationIds,
+  focusModeNodeIds,
   visibleNodes,
   nodeOpacity,
   bloomEnabled,
@@ -453,12 +455,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const pos = positions.get(node.id)
       if (!pos) return
 
-      // Visibility: respect time filter, collapse state, and tag isolation
+      // Visibility: respect time filter, collapse state, tag isolation, and focus mode
       const inTimeFilter = !timeFilterIds || timeFilterIds.has(node.id)
       const inSearch = !searchResults || searchResults.includes(node.id)
       const isVisible = visibleNodes.has(node.id)
       const inTagIsolation = !tagIsolationIds || tagIsolationIds.has(node.id)
-      const visible = inTimeFilter && isVisible && inTagIsolation
+      const inFocusMode = !focusModeNodeIds || focusModeNodeIds.has(node.id)
+      const visible = inTimeFilter && isVisible && inTagIsolation && inFocusMode
 
       // Size by degree (linear interpolation)
       const degree = nodeDegrees.get(node.id) ?? 0
@@ -501,8 +504,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const src = positions.get(srcId)
       const dst = positions.get(dstId)
 
-      const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId)) && (!tagIsolationIds || tagIsolationIds.has(srcId))
-      const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId)) && (!tagIsolationIds || tagIsolationIds.has(dstId))
+      const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId)) && (!tagIsolationIds || tagIsolationIds.has(srcId)) && (!focusModeNodeIds || focusModeNodeIds.has(srcId))
+      const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId)) && (!tagIsolationIds || tagIsolationIds.has(dstId)) && (!focusModeNodeIds || focusModeNodeIds.has(dstId))
       const linkVisible = srcVisible && dstVisible
 
       if (src && dst && linkVisible) {
@@ -547,7 +550,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       sprite.position.set(pos.x, pos.y + NODE_RADIUS * 3, pos.z)
       const inTagIso = !tagIsolationIds || tagIsolationIds.has(nodeId)
       const inTimeF = !timeFilterIds || timeFilterIds.has(nodeId)
-      sprite.visible = labelsEnabled && inTimeF && visibleNodes.has(nodeId) && inTagIso
+      const inFocusM = !focusModeNodeIds || focusModeNodeIds.has(nodeId)
+      sprite.visible = labelsEnabled && inTimeF && visibleNodes.has(nodeId) && inTagIso && inFocusM
     }
 
     // Throttled: clamp controls.maxDistance to bounding sphere fit (at most every 2s)
@@ -578,7 +582,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
-  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, labelsEnabled])
+  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, focusModeNodeIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, labelsEnabled])
 
   // Animate loop
   useEffect(() => {

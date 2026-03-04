@@ -13,10 +13,11 @@ import { useElectron } from './hooks/useElectron'
 // Defined outside App to avoid unnecessary re-renders
 const SHORTCUTS = [
   { key: '/', label: 'SEARCH', desc: 'Open search bar' },
-  { key: 'ESC', label: 'CLOSE', desc: 'Close sidebar / dismiss search' },
+  { key: 'ESC', label: 'CLOSE', desc: 'Close sidebar / dismiss search / exit focus mode' },
+  { key: 'H', label: 'FOCUS', desc: 'Focus mode: hide all except selected + connected' },
   { key: ']', label: 'EXPAND', desc: 'Expand all visible nodes outward' },
   { key: '[', label: 'COLLAPSE', desc: 'Collapse outermost layer inward' },
-  { key: 'RIGHT-CLICK', label: 'TOGGLE', desc: 'Toggle expand/collapse for node' },
+  { key: 'RIGHT-DRAG', label: 'DRAG', desc: 'Drag closest node + its neighbours' },
 ]
 
 function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string; desc: string }) {
@@ -84,6 +85,7 @@ function App() {
   const [allTags, setAllTags] = useState<string[]>([])
   const [flashNodeId, setFlashNodeId] = useState<string | null>(null)
   const [navBreadcrumb, setNavBreadcrumb] = useState<string | null>(null)
+  const [focusMode, setFocusMode] = useState(false)
   const [zoomToNode, setZoomToNode] = useState(() => {
     try { return localStorage.getItem('jarvis-zoom-to-node') !== 'false' } catch { return true }
   })
@@ -144,6 +146,19 @@ function App() {
     }
     return centres
   }, [graphData, nodeDegrees])
+
+  // Focus-mode: connected node IDs for selected node (used by H key)
+  const focusModeNodeIds = useMemo(() => {
+    if (!focusMode || !selectedNode || !graphData) return null
+    const ids = new Set<string>([selectedNode.id])
+    graphData.links.forEach(l => {
+      const s = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id
+      const t = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id
+      if (s === selectedNode.id) ids.add(t)
+      if (t === selectedNode.id) ids.add(s)
+    })
+    return ids
+  }, [focusMode, selectedNode, graphData])
 
   // Visible nodes: when a folder is collapsed only show its centre node
   const visibleNodes = useMemo(() => {
@@ -251,7 +266,14 @@ function App() {
       if (e.key === '/') {
         e.preventDefault()
         setSearchVisible(v => !v)
+      } else if (e.key === 'h' || e.key === 'H') {
+        if (selectedNode) {
+          setFocusMode(v => !v)
+        } else {
+          setFocusMode(false)
+        }
       } else if (e.key === 'Escape') {
+        setFocusMode(false)
         setSearchVisible(false)
         setSelectedNode(null)
         setSidebarFullView(false)
@@ -282,6 +304,13 @@ function App() {
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [graphData, reheat, cancelElectron, navigateArrow, folderCentresMap])
+
+  // When node selection is cleared, exit focus mode
+  const clearSelection = useCallback(() => {
+    setSelectedNode(null)
+    setSidebarFullView(false)
+    setFocusMode(false)
+  }, [])
 
   // Single click → full markdown view in sidebar
   const handleNodeClick = useCallback((node: GraphNode) => {
@@ -453,6 +482,7 @@ function App() {
         searchResults={searchResults}
         timeFilterIds={timeFilterIds}
         tagIsolationIds={tagIsolationIds}
+        focusModeNodeIds={focusModeNodeIds}
         collapsedNodes={collapsedNodes}
         visibleNodes={visibleNodes}
         nodeOpacity={nodeOpacity}
@@ -475,7 +505,7 @@ function App() {
         linkCount={graphData.links.length}
         visibleNodeCount={visibleCount}
         simDone={simDone}
-        breadcrumb={navBreadcrumb}
+        breadcrumb={focusMode ? '[H] FOCUS MODE' : navBreadcrumb}
       />
 
       <Settings
@@ -523,7 +553,7 @@ function App() {
         node={selectedNode}
         fullView={sidebarFullView}
         allNodes={graphData.nodes}
-        onClose={() => { setSelectedNode(null); setSidebarFullView(false) }}
+        onClose={clearSelection}
         onNavigate={navigateToNode}
         onTagFilter={(tag) => {
           const ids = new Set(graphData.nodes.filter(n => n.tags.includes(tag)).map(n => n.id))
