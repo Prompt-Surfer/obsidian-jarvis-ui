@@ -82,6 +82,14 @@ self.onmessage = (e: MessageEvent) => {
       target: l.target,
     }))
 
+    // Identify orphan nodes (degree = 0) to apply weak radial pull toward origin
+    const linkedIds = new Set<string>()
+    for (const l of links ?? []) {
+      linkedIds.add(l.source)
+      linkedIds.add(l.target)
+    }
+    const orphanIds = new Set<string>(simNodes.filter(n => !linkedIds.has(n.id)).map(n => n.id))
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,6 +97,18 @@ self.onmessage = (e: MessageEvent) => {
       .force('charge', forceManyBody().strength(-120))
       .force('center', forceCenter(0, 0, 0).strength(0.05))
       .force('collide', forceCollide(12))
+      // Weak radial pull for orphan nodes toward global centroid (origin)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .force('orphan', (alpha: number) => {
+        const k = alpha * 0.04
+        for (const node of simNodes) {
+          if (orphanIds.has(node.id)) {
+            node.vx -= node.x * k
+            node.vy -= node.y * k
+            node.vz -= node.z * k
+          }
+        }
+      } as any)
       .alphaDecay(0.02)
       .velocityDecay(0.4)
       .stop()
