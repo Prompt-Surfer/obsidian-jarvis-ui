@@ -54,7 +54,7 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
-  const { positions, simDone, reheat, setSpread } = useForce3D(graphData)
+  const { positions, simDone, reheat, setSpread, setFilter } = useForce3D(graphData)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
 
   const graphRef = useRef<Graph3DHandle>(null)
@@ -90,7 +90,16 @@ function App() {
       .then(r => r.json())
       .then(d => setAllTags(d.tags || []))
       .catch(() => {})
-  }, [])
+  })
+
+  // Propagate time/tag filter changes to force simulation center
+  useEffect(() => {
+    if (!graphData) return
+    const active = graphData.nodes
+      .filter(n => (!timeFilterIds || timeFilterIds.has(n.id)))
+      .map(n => n.id)
+    setFilter(active)
+  }, [graphData, timeFilterIds, setFilter])
 
   // Compute node degrees from links
   const nodeDegrees = useMemo(() => {
@@ -155,12 +164,14 @@ function App() {
     setTagIsolationIds(ids)
     setTagIsolationTags(tags)
     setSearchResults(null) // clear dim-search when isolating
-  }, [])
+    setFilter([...ids])
+  }, [setFilter])
 
   const clearTagIsolation = useCallback(() => {
     setTagIsolationIds(null)
     setTagIsolationTags([])
-  }, [])
+    if (graphData) setFilter(graphData.nodes.map(n => n.id))
+  }, [graphData, setFilter])
 
   // Arrow key navigation helper
   const navigateArrow = useCallback((direction: 'left' | 'right' | 'up' | 'down') => {

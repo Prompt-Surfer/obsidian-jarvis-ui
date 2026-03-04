@@ -43,7 +43,7 @@ export function useForce3D(graphData: GraphData | null) {
 
     worker.postMessage({
       type: 'init',
-      nodes: graphData.nodes.map((n: GraphNode) => ({ id: n.id })),
+      nodes: graphData.nodes.map((n: GraphNode) => ({ id: n.id, folder: n.folder ?? '' })),
       links: graphData.links.map((l: GraphLink) => ({
         source: typeof l.source === 'string' ? l.source : (l.source as GraphNode).id,
         target: typeof l.target === 'string' ? l.target : (l.target as GraphNode).id,
@@ -65,5 +65,9 @@ export function useForce3D(graphData: GraphData | null) {
     setSimDone(false)
   }, [])
 
-  return { positions, simDone, reheat, setSpread }
+  const setFilter = useCallback((visibleIds: string[]) => {
+    workerRef.current?.postMessage({ type: 'setFilter', visibleIds })
+  }, [])
+
+  return { positions, simDone, reheat, setSpread, setFilter }
 }

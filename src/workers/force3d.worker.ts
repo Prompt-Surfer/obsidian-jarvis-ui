@@ -8,6 +8,7 @@ import {
 
 interface WorkerNode {
   id: string
+  folder: string
   x: number
   y: number
   z: number
@@ -59,7 +60,7 @@ function runTick() {
 self.onmessage = (e: MessageEvent) => {
   const { type, nodes, links } = e.data as {
     type: string
-    nodes?: Array<{ id: string }>
+    nodes?: Array<{ id: string; folder: string }>
     links?: Array<{ source: string; target: string }>
   }
 
@@ -69,6 +70,7 @@ self.onmessage = (e: MessageEvent) => {
 
     simNodes = (nodes ?? []).map((n) => ({
       id: n.id,
+      folder: n.folder,
       x: (Math.random() - 0.5) * 400,
       y: (Math.random() - 0.5) * 400,
       z: (Math.random() - 0.5) * 400,
@@ -154,6 +156,21 @@ self.onmessage = (e: MessageEvent) => {
     }
   } else if (type === 'reheat') {
     if (simulation) {
+      tickCount = 0
+      simulation.alpha(0.3)
+      if (!tickRunning) runTick()
+    }
+  } else if (type === 'setFilter') {
+    const visibleIds = new Set((e.data as { visibleIds?: string[] }).visibleIds ?? [])
+    if (simulation && visibleIds.size > 0) {
+      let cx = 0, cy = 0, cz = 0, cnt = 0
+      for (const node of simNodes) {
+        if (visibleIds.has(node.id)) { cx += node.x; cy += node.y; cz += node.z; cnt++ }
+      }
+      if (cnt > 0) { cx /= cnt; cy /= cnt; cz /= cnt }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cf = simulation.force('center') as any
+      if (cf?.x) { cf.x(cx); cf.y(cy); cf.z(cz) }
       tickCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()
