@@ -434,8 +434,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     const node = graphData.nodes[instanceId]
     if (!node || !visibleNodes.has(node.id)) return null
+    if (tagIsolationIds && !tagIsolationIds.has(node.id)) return null
+    if (timeFilterIds && !timeFilterIds.has(node.id)) return null
     return { node, index: instanceId }
-  }, [graphData, visibleNodes])
+  }, [graphData, visibleNodes, tagIsolationIds, timeFilterIds])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const hit = getHitNode(e)
@@ -459,6 +461,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     for (const node of graphData.nodes) {
       if (!visibleNodes.has(node.id)) continue
+      if (tagIsolationIds && !tagIsolationIds.has(node.id)) continue
+      if (timeFilterIds && !timeFilterIds.has(node.id)) continue
       const pos = positionsRef.current.get(node.id)
       if (!pos) continue
 
@@ -504,7 +508,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
 
     onNodeHover(nearestNode, e.clientX, e.clientY)
-  }, [getHitNode, onNodeHover, graphData, visibleNodes])
+  }, [getHitNode, onNodeHover, graphData, visibleNodes, tagIsolationIds, timeFilterIds])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     // Ignore if this was a drag (mouse moved > 5px from mousedown position)
