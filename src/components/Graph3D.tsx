@@ -174,6 +174,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     controls.zoomSpeed = 1.2
     controls.zoomToCursor = true
     controls.minDistance = NODE_RADIUS
+    // Disable right-click pan — right-click is used for node dragging
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: null as unknown as THREE.MOUSE, // null disables right-click in OrbitControls
+    }
     controlsRef.current = controls
 
     // Bloom post-processing
