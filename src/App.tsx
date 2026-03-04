@@ -219,6 +219,8 @@ function App() {
       else next.add(node.id)
       return next
     })
+    setFlashNodeId(node.id)
+    setTimeout(() => setFlashNodeId(null), 300)
     reheat()
   }, [reheat])
 
