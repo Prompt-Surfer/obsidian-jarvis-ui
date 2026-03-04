@@ -83,7 +83,7 @@ export function Settings({
     <div style={{
       position: 'fixed',
       top: 16,
-      right: 16,
+      left: 16,
       zIndex: 150,
       fontFamily: '"Courier New", monospace',
       fontSize: 12,
@@ -106,7 +106,7 @@ export function Settings({
         <div style={{
           position: 'absolute',
           top: '100%',
-          right: 0,
+          left: 0,
           marginTop: 8,
           background: 'rgba(0,0,0,0.92)',
           border: '1px solid #1a3a4a',
