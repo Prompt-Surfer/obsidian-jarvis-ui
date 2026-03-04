@@ -1,0 +1,138 @@
+import { useState } from 'react'
+
+interface SettingsProps {
+  bloomEnabled: boolean
+  nodeOpacity: number
+  starsEnabled: boolean
+  spread: number
+  minNodeSize: number
+  maxNodeSize: number
+  onBloomToggle: (enabled: boolean) => void
+  onOpacityChange: (value: number) => void
+  onStarsToggle: (enabled: boolean) => void
+  onSpreadChange: (value: number) => void
+  onMinSizeChange: (value: number) => void
+  onMaxSizeChange: (value: number) => void
+}
+
+export function Settings({
+  bloomEnabled,
+  nodeOpacity,
+  starsEnabled,
+  spread,
+  minNodeSize,
+  maxNodeSize,
+  onBloomToggle,
+  onOpacityChange,
+  onStarsToggle,
+  onSpreadChange,
+  onMinSizeChange,
+  onMaxSizeChange,
+}: SettingsProps) {
+  const [open, setOpen] = useState(false)
+
+  const toggleBtn = (active: boolean, label: string, onClick: () => void) => (
+    <button
+      onClick={onClick}
+      style={{
+        background: active ? '#00d4ff22' : 'rgba(0,0,0,0.5)',
+        border: `1px solid ${active ? '#00d4ff' : '#1a3a4a'}`,
+        color: active ? '#00d4ff' : '#585b70',
+        borderRadius: 4,
+        padding: '4px 12px',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        fontSize: 11,
+        letterSpacing: '0.08em',
+        width: '100%',
+      }}
+    >{label}</button>
+  )
+
+  const sliderRow = (label: string, value: number, min: number, max: number, step: number, onChange: (v: number) => void) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>
+        {label}
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
+      />
+    </div>
+  )
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 16,
+      right: 16,
+      zIndex: 150,
+      fontFamily: '"Courier New", monospace',
+      fontSize: 12,
+    }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Settings"
+        style={{
+          background: open ? '#00d4ff22' : 'rgba(0,0,0,0.7)',
+          border: `1px solid ${open ? '#00d4ff' : '#1a3a4a'}`,
+          color: open ? '#00d4ff' : '#00a8cc',
+          borderRadius: 4,
+          padding: '6px 10px',
+          cursor: 'pointer',
+          fontSize: 14,
+        }}
+      >⚙</button>
+
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          right: 0,
+          marginTop: 8,
+          background: 'rgba(0,0,0,0.92)',
+          border: '1px solid #1a3a4a',
+          borderRadius: 6,
+          padding: '14px 16px',
+          width: 224,
+          boxShadow: '0 0 15px #00d4ff22',
+          color: '#00a8cc',
+        }}>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>BLOOM</div>
+            {toggleBtn(bloomEnabled, `[ BLOOM ${bloomEnabled ? 'ON' : 'OFF'} ]`, () => onBloomToggle(!bloomEnabled))}
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>STARS</div>
+            {toggleBtn(starsEnabled, `[ STARS ${starsEnabled ? 'ON' : 'OFF'} ]`, () => onStarsToggle(!starsEnabled))}
+          </div>
+
+          {sliderRow(`OPACITY: ${nodeOpacity.toFixed(2)}`, nodeOpacity, 0.1, 1.0, 0.05, onOpacityChange)}
+          {sliderRow(`SPREAD: ${Math.round(spread * 100)}%`, spread, 1.0, 3.0, 0.1, onSpreadChange)}
+          {sliderRow(`MIN SIZE: ${minNodeSize.toFixed(1)}x`, minNodeSize, 0.5, 5.0, 0.1, onMinSizeChange)}
+
+          <div style={{ marginBottom: 0 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>
+              MAX SIZE: {maxNodeSize.toFixed(1)}x
+            </div>
+            <input
+              type="range"
+              min={0.5}
+              max={5.0}
+              step={0.1}
+              value={maxNodeSize}
+              onChange={e => onMaxSizeChange(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,504 @@
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import type { GraphNode, GraphData } from '../hooks/useVaultGraph'
+import type { NodePosition } from '../hooks/useForce3D'
+import { getNodeColor } from '../lib/colors'
+
+interface Graph3DProps {
+  graphData: GraphData
+  positions: Map<string, NodePosition>
+  selectedNodeId: string | null
+  hoveredNodeId: string | null
+  searchResults: string[] | null
+  timeFilterIds: Set<string> | null
+  collapsedNodes: Set<string>
+  visibleNodes: Set<string>
+  nodeOpacity: number
+  bloomEnabled: boolean
+  starsEnabled: boolean
+  nodeDegrees: Map<string, number>
+  minNodeSize: number
+  maxNodeSize: number
+  onNodeClick: (node: GraphNode) => void
+  onNodeDoubleClick: (node: GraphNode) => void
+  onNodeHover: (node: GraphNode | null, x: number, y: number) => void
+  onNodeRightClick: (node: GraphNode) => void
+  onFlyTo: (nodeId: string) => void
+  flashNodeId?: string | null
+  electronScene?: THREE.Scene
+}
+
+export interface Graph3DHandle {
+  flyTo: (nodeId: string) => void
+  resetCamera: () => void
+  reheat: () => void
+  getScene: () => THREE.Scene | null
+  getCamera: () => THREE.PerspectiveCamera | null
+}
+
+const NODE_RADIUS = 4
+const NODE_SEGMENTS = 8
+
+export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
+  graphData,
+  positions,
+  selectedNodeId,
+  hoveredNodeId,
+  searchResults,
+  timeFilterIds,
+  visibleNodes,
+  nodeOpacity,
+  bloomEnabled,
+  starsEnabled,
+  nodeDegrees,
+  minNodeSize,
+  maxNodeSize,
+  onNodeClick,
+  onNodeDoubleClick,
+  onNodeHover,
+  onNodeRightClick,
+  flashNodeId,
+}, ref) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const sceneRef = useRef<THREE.Scene | null>(null)
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
+  const controlsRef = useRef<OrbitControls | null>(null)
+  const composerRef = useRef<EffectComposer | null>(null)
+  const bloomPassRef = useRef<UnrealBloomPass | null>(null)
+  const instancedMeshRef = useRef<THREE.InstancedMesh | null>(null)
+  const lineSegmentsRef = useRef<THREE.LineSegments | null>(null)
+  const nodeIndexMapRef = useRef<Map<string, number>>(new Map())
+  const starsRef = useRef<THREE.Points | null>(null)
+  const frameRef = useRef<number>(0)
+  const lastClickTimeRef = useRef<number>(0)
+  const lastClickNodeRef = useRef<string | null>(null)
+  const positionsRef = useRef<Map<string, NodePosition>>(new Map())
+  const projRef = useRef(new THREE.Vector3())
+  const [, forceUpdate] = useState(0)
+
+  // Keep positionsRef in sync with positions prop (avoids stale closure in mousemove)
+  useEffect(() => {
+    positionsRef.current = positions
+  }, [positions])
+
+  // Build scene once
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight)
+    renderer.setClearColor(0x000000, 1)
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.2
+    rendererRef.current = renderer
+
+    const scene = new THREE.Scene()
+    sceneRef.current = scene
+
+    const camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 10000)
+    camera.position.set(0, 0, 600)
+    cameraRef.current = camera
+
+    const controls = new OrbitControls(camera, canvas)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.zoomSpeed = 1.2
+    controlsRef.current = controls
+
+    // Bloom post-processing
+    const composer = new EffectComposer(renderer)
+    const renderPass = new RenderPass(scene, camera)
+    composer.addPass(renderPass)
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(canvas.clientWidth, canvas.clientHeight),
+      1.5, 0.4, 0.2
+    )
+    composer.addPass(bloomPass)
+    composerRef.current = composer
+    bloomPassRef.current = bloomPass
+
+    // Stars — 200 fixed points in world space, default OFF
+    const starGeo = new THREE.BufferGeometry()
+    const starPositions = new Float32Array(200 * 3)
+    for (let i = 0; i < 200; i++) {
+      starPositions[i * 3]     = (Math.random() - 0.5) * 4000
+      starPositions[i * 3 + 1] = (Math.random() - 0.5) * 4000
+      starPositions[i * 3 + 2] = (Math.random() - 0.5) * 4000
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, sizeAttenuation: true, transparent: true, opacity: 0.45 })
+    const stars = new THREE.Points(starGeo, starMat)
+    stars.visible = false
+    scene.add(stars)
+    starsRef.current = stars
+
+    // Resize handler
+    const onResize = () => {
+      const w = window.innerWidth
+      const h = window.innerHeight
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      renderer.setSize(w, h)
+      composer.setSize(w, h)
+    }
+    window.addEventListener('resize', onResize)
+
+    return () => {
+      window.removeEventListener('resize', onResize)
+      cancelAnimationFrame(frameRef.current)
+      renderer.dispose()
+    }
+  }, [])
+
+  // Toggle stars visibility
+  useEffect(() => {
+    if (starsRef.current) starsRef.current.visible = starsEnabled
+  }, [starsEnabled])
+
+  // Update bloom
+  useEffect(() => {
+    if (bloomPassRef.current) {
+      bloomPassRef.current.strength = bloomEnabled ? 1.5 : 0
+    }
+  }, [bloomEnabled])
+
+  // Build instanced mesh when graph data is ready
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !graphData) return
+
+    // Remove old meshes
+    if (instancedMeshRef.current) {
+      scene.remove(instancedMeshRef.current)
+      instancedMeshRef.current.dispose()
+    }
+    if (lineSegmentsRef.current) {
+      scene.remove(lineSegmentsRef.current)
+      lineSegmentsRef.current.geometry.dispose()
+    }
+
+    const nodes = graphData.nodes
+    const count = nodes.length
+
+    // Build index map
+    const indexMap = new Map<string, number>()
+    nodes.forEach((n, i) => indexMap.set(n.id, i))
+    nodeIndexMapRef.current = indexMap
+
+    // InstancedMesh for nodes
+    const geo = new THREE.SphereGeometry(NODE_RADIUS, NODE_SEGMENTS, NODE_SEGMENTS)
+    const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: nodeOpacity })
+    const mesh = new THREE.InstancedMesh(geo, mat, count)
+    mesh.frustumCulled = false
+
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+
+    nodes.forEach((node, i) => {
+      dummy.position.set(0, 0, 0)
+      dummy.updateMatrix()
+      mesh.setMatrixAt(i, dummy.matrix)
+      color.set(getNodeColor(node.type, node.folder))
+      mesh.setColorAt(i, color)
+    })
+
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    scene.add(mesh)
+    instancedMeshRef.current = mesh
+
+    // LineSegments for links
+    const linkPositions = new Float32Array(graphData.links.length * 6)
+    const linkGeo = new THREE.BufferGeometry()
+    linkGeo.setAttribute('position', new THREE.BufferAttribute(linkPositions, 3))
+    const linkMat = new THREE.LineBasicMaterial({ color: 0x1a3a4a, transparent: true, opacity: 0.5 })
+    const lines = new THREE.LineSegments(linkGeo, linkMat)
+    lines.frustumCulled = false
+    scene.add(lines)
+    lineSegmentsRef.current = lines
+
+    forceUpdate(x => x + 1)
+  }, [graphData, nodeOpacity])
+
+  // Update positions each frame from simulation
+  useEffect(() => {
+    const mesh = instancedMeshRef.current
+    const lines = lineSegmentsRef.current
+    if (!mesh || !lines || positions.size === 0 || !graphData) return
+
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+    const nodes = graphData.nodes
+
+    // Compute max degree for size scaling
+    let maxDegree = 1
+    for (const [, deg] of nodeDegrees) {
+      if (deg > maxDegree) maxDegree = deg
+    }
+
+    nodes.forEach((node, i) => {
+      const pos = positions.get(node.id)
+      if (!pos) return
+
+      // Visibility
+      const inTimeFilter = !timeFilterIds || timeFilterIds.has(node.id)
+      const inSearch = !searchResults || searchResults.includes(node.id)
+      const isVisible = visibleNodes.has(node.id)
+      const visible = inTimeFilter && isVisible
+
+      // Size by degree (linear interpolation)
+      const degree = nodeDegrees.get(node.id) ?? 0
+      const t = maxDegree > 1 ? degree / maxDegree : 0
+      const sizeMultiplier = minNodeSize + (maxNodeSize - minNodeSize) * t
+      const scale = visible ? sizeMultiplier : 0
+
+      dummy.position.set(pos.x, pos.y, pos.z)
+      dummy.scale.set(scale, scale, scale)
+      dummy.updateMatrix()
+      mesh.setMatrixAt(i, dummy.matrix)
+
+      // Color
+      let baseColor: number
+      if (node.id === selectedNodeId) {
+        baseColor = 0xffffff
+      } else if (node.id === flashNodeId) {
+        baseColor = 0xffffff
+      } else {
+        baseColor = getNodeColor(node.type, node.folder)
+      }
+
+      const opacity = !inSearch && searchResults !== null
+        ? 0.1
+        : (visible ? nodeOpacity : 0)
+
+      color.set(baseColor).multiplyScalar(opacity > 0 ? 1 : 0)
+      if (node.id === hoveredNodeId) color.set(baseColor).multiplyScalar(1.5)
+      mesh.setColorAt(i, color)
+    })
+
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+
+    // Update link positions
+    const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+    graphData.links.forEach((link, i) => {
+      const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
+      const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
+      const src = positions.get(srcId)
+      const dst = positions.get(dstId)
+
+      const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId))
+      const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId))
+      const linkVisible = srcVisible && dstVisible
+
+      if (src && dst && linkVisible) {
+        posArray[i * 6] = src.x; posArray[i * 6 + 1] = src.y; posArray[i * 6 + 2] = src.z
+        posArray[i * 6 + 3] = dst.x; posArray[i * 6 + 4] = dst.y; posArray[i * 6 + 5] = dst.z
+      } else {
+        for (let k = 0; k < 6; k++) posArray[i * 6 + k] = 0
+      }
+    });
+    (lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+
+    ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * 0.6
+
+  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize])
+
+  // Animate loop
+  useEffect(() => {
+    const composer = composerRef.current
+    const controls = controlsRef.current
+    if (!composer || !controls) return
+
+    let animId: number
+    const localControls = controls
+    const localComposer = composer
+    function loop() {
+      animId = requestAnimationFrame(loop)
+      localControls.update()
+      localComposer.render()
+    }
+    animId = requestAnimationFrame(loop)
+    frameRef.current = animId
+    return () => cancelAnimationFrame(animId)
+  }, [composerRef.current, controlsRef.current])
+
+  // Mouse interaction
+  const raycasterRef = useRef(new THREE.Raycaster())
+  const mouseRef = useRef(new THREE.Vector2())
+
+  const getHitNode = useCallback((e: React.MouseEvent): { node: GraphNode; index: number } | null => {
+    const canvas = canvasRef.current
+    const camera = cameraRef.current
+    const mesh = instancedMeshRef.current
+    if (!canvas || !camera || !mesh || !graphData) return null
+
+    const rect = canvas.getBoundingClientRect()
+    mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+
+    raycasterRef.current.setFromCamera(mouseRef.current, camera)
+    raycasterRef.current.params.Points = { threshold: 10 }
+
+    const hits = raycasterRef.current.intersectObject(mesh)
+    if (!hits.length) return null
+
+    const instanceId = hits[0].instanceId
+    if (instanceId === undefined) return null
+
+    const node = graphData.nodes[instanceId]
+    if (!node || !visibleNodes.has(node.id)) return null
+    return { node, index: instanceId }
+  }, [graphData, visibleNodes])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const hit = getHitNode(e)
+    if (hit) {
+      onNodeHover(hit.node, e.clientX, e.clientY)
+      return
+    }
+
+    // Proximity detection: find nearest node in screen space within 80px threshold
+    const camera = cameraRef.current
+    const canvas = canvasRef.current
+    if (!camera || !canvas || !graphData) {
+      onNodeHover(null, 0, 0)
+      return
+    }
+
+    const rect = canvas.getBoundingClientRect()
+    const THRESHOLD = 80
+    let nearestNode: GraphNode | null = null
+    let minDist = THRESHOLD
+
+    for (const node of graphData.nodes) {
+      if (!visibleNodes.has(node.id)) continue
+      const pos = positionsRef.current.get(node.id)
+      if (!pos) continue
+
+      projRef.current.set(pos.x, pos.y, pos.z).project(camera)
+      if (projRef.current.z > 1) continue // behind camera
+
+      const screenX = (projRef.current.x + 1) / 2 * rect.width + rect.left
+      const screenY = (-projRef.current.y + 1) / 2 * rect.height + rect.top
+      const dx = e.clientX - screenX
+      const dy = e.clientY - screenY
+      const dist = Math.sqrt(dx * dx + dy * dy)
+
+      if (dist < minDist) {
+        minDist = dist
+        nearestNode = node
+      }
+    }
+
+    onNodeHover(nearestNode, e.clientX, e.clientY)
+  }, [getHitNode, onNodeHover, graphData, visibleNodes])
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    const hit = getHitNode(e)
+    if (!hit) return
+
+    const now = Date.now()
+    const isDouble = now - lastClickTimeRef.current < 350 && lastClickNodeRef.current === hit.node.id
+
+    lastClickTimeRef.current = now
+    lastClickNodeRef.current = hit.node.id
+
+    if (isDouble) {
+      onNodeDoubleClick(hit.node)
+    } else {
+      onNodeClick(hit.node)
+    }
+  }, [getHitNode, onNodeClick, onNodeDoubleClick])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const hit = getHitNode(e)
+    if (hit) onNodeRightClick(hit.node)
+  }, [getHitNode, onNodeRightClick])
+
+  // flyTo handler
+  const flyTo = useCallback((nodeId: string) => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    const pos = positions.get(nodeId)
+    if (!camera || !controls || !pos) return
+
+    const target = new THREE.Vector3(pos.x, pos.y, pos.z)
+    const startPos = camera.position.clone()
+    const startTarget = controls.target.clone()
+    const endPos = new THREE.Vector3(pos.x, pos.y, pos.z + 80)
+
+    let t = 0
+    const duration = 600
+    const start = performance.now()
+
+    const localCamera = camera
+    const localControls = controls
+    function animFly(now: number) {
+      t = Math.min((now - start) / duration, 1)
+      const ease = 1 - Math.pow(1 - t, 3)
+      localCamera.position.lerpVectors(startPos, endPos, ease)
+      localControls.target.lerpVectors(startTarget, target, ease)
+      localControls.update()
+      if (t < 1) requestAnimationFrame(animFly)
+    }
+    requestAnimationFrame(animFly)
+  }, [positions])
+
+  // resetCamera handler — smooth tween back to default view
+  const resetCamera = useCallback(() => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    if (!camera || !controls) return
+
+    const startPos = camera.position.clone()
+    const startTarget = controls.target.clone()
+    const endPos = new THREE.Vector3(0, 0, 600)
+    const endTarget = new THREE.Vector3(0, 0, 0)
+
+    const duration = 500
+    const start = performance.now()
+
+    const localCamera = camera
+    const localControls = controls
+    function animReset(now: number) {
+      const t = Math.min((now - start) / duration, 1)
+      const ease = 1 - Math.pow(1 - t, 3)
+      localCamera.position.lerpVectors(startPos, endPos, ease)
+      localControls.target.lerpVectors(startTarget, endTarget, ease)
+      localControls.update()
+      if (t < 1) requestAnimationFrame(animReset)
+    }
+    requestAnimationFrame(animReset)
+  }, [])
+
+  useImperativeHandle(ref, () => ({
+    flyTo,
+    resetCamera,
+    reheat: () => {},
+    getScene: () => sceneRef.current,
+    getCamera: () => cameraRef.current,
+  }), [flyTo, resetCamera])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
+      onMouseMove={handleMouseMove}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onMouseLeave={() => onNodeHover(null, 0, 0)}
+    />
+  )
+})
+
+Graph3D.displayName = 'Graph3D'
