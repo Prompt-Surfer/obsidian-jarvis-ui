@@ -467,7 +467,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       // Color
       let baseColor: number
       if (node.id === selectedNodeId) {
-        baseColor = 0xffffff
+        baseColor = getNodeColor(node.type, node.folder) // keep folder colour, bracket+edge bloom marks selection
       } else if (node.id === flashNodeId) {
         baseColor = 0xffffff
       } else {
