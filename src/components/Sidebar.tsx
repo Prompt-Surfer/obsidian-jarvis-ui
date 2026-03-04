@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { GraphNode } from '../hooks/useVaultGraph'
@@ -11,23 +11,22 @@ interface SidebarProps {
   onNavigate: (nodeId: string) => void
 }
 
+const DEFAULT_WIDTH = 380
+const MIN_WIDTH = 280
+const MAX_WIDTH = 800
+
+function getPersistedWidth(): number {
+  try {
+    const v = localStorage.getItem('jarvis-sidebar-width')
+    if (v) {
+      const n = parseInt(v, 10)
+      if (n >= MIN_WIDTH && n <= MAX_WIDTH) return n
+    }
+  } catch { /* storage unavailable */ }
+  return DEFAULT_WIDTH
+}
+
 const STYLES = {
-  sidebar: {
-    position: 'fixed' as const,
-    top: 0,
-    right: 0,
-    width: 380,
-    height: '100%',
-    background: '#1e1e2e',
-    borderLeft: '1px solid #313244',
-    color: '#cdd6f4',
-    fontFamily: '"Inter", sans-serif',
-    fontSize: 14,
-    overflowY: 'auto' as const,
-    zIndex: 200,
-    transition: 'transform 0.25s ease',
-    padding: 0,
-  },
   header: {
     padding: '20px 20px 12px',
     borderBottom: '1px solid #313244',
@@ -153,6 +152,11 @@ function renderMarkdown(content: string, allNodes: GraphNode[], onNavigate: (id:
 export function Sidebar({ node, fullView, allNodes, onClose, onNavigate }: SidebarProps) {
   const [markdownContent, setMarkdownContent] = useState<string | null>(null)
   const [loadingMd, setLoadingMd] = useState(false)
+  const [width, setWidth] = useState(getPersistedWidth)
+  const [dragging, setDragging] = useState(false)
+  const [handleHovered, setHandleHovered] = useState(false)
+  const dragStartXRef = useRef(0)
+  const dragStartWidthRef = useRef(0)
 
   useEffect(() => {
     if (!node || !fullView) {
@@ -166,6 +170,28 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate }: Sideb
       .catch(() => setLoadingMd(false))
   }, [node, fullView])
 
+  // Drag to resize
+  useEffect(() => {
+    if (!dragging) return
+
+    const onMove = (e: MouseEvent) => {
+      const dx = dragStartXRef.current - e.clientX
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragStartWidthRef.current + dx))
+      setWidth(newWidth)
+    }
+    const onUp = () => {
+      setDragging(false)
+      // Persist on release
+      try { localStorage.setItem('jarvis-sidebar-width', String(width)) } catch { /* storage unavailable */ }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [dragging, width])
+
   // Find backlinks
   const backlinks = node
     ? allNodes.filter(n => n.links.some(l => {
@@ -178,9 +204,46 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate }: Sideb
 
   return (
     <div style={{
-      ...STYLES.sidebar,
+      position: 'fixed',
+      top: 0,
+      right: 0,
+      width,
+      height: '100%',
+      background: '#1e1e2e',
+      borderLeft: '1px solid #313244',
+      color: '#cdd6f4',
+      fontFamily: '"Inter", sans-serif',
+      fontSize: 14,
+      overflowY: 'auto',
+      zIndex: 200,
+      transition: dragging ? 'none' : 'transform 0.25s ease',
+      padding: 0,
       transform: visible ? 'translateX(0)' : 'translateX(100%)',
+      userSelect: dragging ? 'none' : undefined,
     }}>
+      {/* Drag handle on left edge */}
+      <div
+        onMouseDown={e => {
+          e.preventDefault()
+          dragStartXRef.current = e.clientX
+          dragStartWidthRef.current = width
+          setDragging(true)
+        }}
+        onMouseEnter={() => setHandleHovered(true)}
+        onMouseLeave={() => setHandleHovered(false)}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: 6,
+          height: '100%',
+          cursor: 'col-resize',
+          zIndex: 10,
+          background: handleHovered || dragging ? '#00d4ff44' : 'transparent',
+          transition: 'background 0.15s',
+        }}
+      />
+
       {node && (
         <>
           <div style={STYLES.header}>
