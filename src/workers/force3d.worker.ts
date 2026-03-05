@@ -32,7 +32,7 @@ let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'centroid' | 'saturn' | 'milkyway' = 'centroid'
-let currentSpread = 1.5
+let currentSpread = 2.0
 
 function getNodePositions(nodes: WorkerNode[]) {
   return nodes.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 }))
@@ -144,6 +144,7 @@ self.onmessage = (e: MessageEvent) => {
     tickRunning = false
     tickCount = 0
     if (e.data.graphShape) graphShape = e.data.graphShape
+    if (e.data.spread != null) currentSpread = e.data.spread
 
     // Warm restart: if existing positions are provided (shape-only change), reuse them
     // so nodes start near their previous locations instead of random scatter

@@ -83,7 +83,7 @@ function App() {
   const [nodeOpacity, setNodeOpacity] = useState(1.0)
   const [starsEnabled, setStarsEnabled] = useState(false)
   const [labelsEnabled, setLabelsEnabled] = useState(true)
-  const [spread, setSpreadState] = useState(1.5)
+  const [spread, setSpreadState] = useState(2.0)
   const [minNodeSize, setMinNodeSize] = useState(1.0)
   const [maxNodeSize, setMaxNodeSize] = useState(3.0)
   const [shortcutsVisible, setShortcutsVisible] = useState(() => {
@@ -406,8 +406,8 @@ function App() {
 
   const handleResetAll = useCallback(() => {
     graphRef.current?.resetCamera()
-    setSpreadState(1.5)
-    setSpread(1.5)
+    setSpreadState(2.0)
+    setSpread(2.0)
     setNodeOpacity(1.0)
     setMinNodeSize(1.0)
     setMaxNodeSize(3.0)

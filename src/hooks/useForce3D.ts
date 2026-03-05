@@ -17,6 +17,9 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
   const [simDone, setSimDone] = useState(false)
   const workerRef = useRef<Worker | null>(null)
 
+  // Track current spread so worker init can use it (not stale default)
+  const spreadRef = useRef(2.0)
+
   // Latest positions ref — used to pass warm-restart positions to the next worker init
   const latestPositionsRef = useRef<Map<string, NodePosition>>(new Map())
   // RAF buffer — accumulate positions updates, apply at frame boundary (one setState per frame)
@@ -107,6 +110,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
       })),
       graphShape,
       existingPositions,
+      spread: spreadRef.current,
     })
 
     return () => {
@@ -125,6 +129,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
   }, [])
 
   const setSpread = useCallback((value: number) => {
+    spreadRef.current = value
     workerRef.current?.postMessage({ type: 'setSpread', spread: value })
     setSimDone(false)
   }, [])

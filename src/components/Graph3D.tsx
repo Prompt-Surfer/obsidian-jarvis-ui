@@ -923,17 +923,23 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       pts.push(new THREE.Vector3(pos.x, pos.y, pos.z))
     }
 
+    // Compute actual centroid of all node positions (not bounding sphere center which can drift)
     const endTarget = new THREE.Vector3()
     let dist = 600
     if (pts.length > 0) {
+      // Use arithmetic mean as orbit target — more stable for asymmetric layouts
+      let cx = 0, cy = 0, cz = 0
+      for (const p of pts) { cx += p.x; cy += p.y; cz += p.z }
+      endTarget.set(cx / pts.length, cy / pts.length, cz / pts.length)
+
+      // Distance: fit bounding sphere in view with padding
       const box = new THREE.Box3().setFromPoints(pts)
       const sphere = new THREE.Sphere()
       box.getBoundingSphere(sphere)
-      endTarget.copy(sphere.center)
       const fov = camera.fov * Math.PI / 180
-      dist = (sphere.radius * 1.1) / Math.tan(fov / 2)
+      dist = (sphere.radius * 2.5) / Math.tan(fov / 2)
     }
-    controls.maxDistance = dist
+    controls.maxDistance = dist * 3
     // Milky Way: view from 45° above XZ plane to see spiral structure
     const endPos = graphShape === 'milkyway'
       ? new THREE.Vector3(endTarget.x, endTarget.y + dist * 0.7, endTarget.z + dist * 0.7)
