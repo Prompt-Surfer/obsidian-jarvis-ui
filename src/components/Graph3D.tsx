@@ -947,14 +947,27 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
     controls.maxDistance = dist * 5
-    // Milky Way: view from ~50° above XZ plane (slightly higher than 45° to compensate for perspective)
-    const endPos = graphShape === 'milkyway'
-      ? new THREE.Vector3(
-          endTarget.x,
-          endTarget.y + dist * Math.sin(50 * Math.PI / 180),
-          endTarget.z + dist * Math.cos(50 * Math.PI / 180)
-        )
-      : new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
+    // Shape-specific camera angles
+    let endPos: THREE.Vector3
+    if (graphShape === 'milkyway') {
+      // 50° above XZ plane — see spiral structure from above
+      const angle = 50 * Math.PI / 180
+      endPos = new THREE.Vector3(
+        endTarget.x,
+        endTarget.y + dist * Math.sin(angle),
+        endTarget.z + dist * Math.cos(angle)
+      )
+    } else if (graphShape === 'saturn') {
+      // 30° above ring plane — classic astronomy photo angle, sees top of rings
+      const angle = 30 * Math.PI / 180
+      endPos = new THREE.Vector3(
+        endTarget.x,
+        endTarget.y + dist * Math.sin(angle),
+        endTarget.z + dist * Math.cos(angle)
+      )
+    } else {
+      endPos = new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
+    }
 
     const startPos = camera.position.clone()
     const startTarget = controls.target.clone()
