@@ -17,4 +17,9 @@ test('Milky Way + Saturn shape screenshots', async ({ page }) => {
   await page.click('button[title="Saturn"]', { force: true })
   await page.waitForTimeout(8000)
   await page.screenshot({ path: '/tmp/jarvis-saturn-final.png', fullPage: true })
+
+  // --- Brain screenshot ---
+  await page.click('button[title="Brain"]', { force: true })
+  await page.waitForTimeout(8000)
+  await page.screenshot({ path: '/tmp/jarvis-brain-final.png', fullPage: true })
 })

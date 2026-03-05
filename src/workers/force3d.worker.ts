@@ -31,7 +31,7 @@ let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
-let graphShape: 'centroid' | 'saturn' | 'milkyway' = 'centroid'
+let graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' = 'centroid'
 let currentSpread = 2.0
 
 function getNodePositions(nodes: WorkerNode[]) {
@@ -67,11 +67,11 @@ self.onmessage = (e: MessageEvent) => {
     type: string
     nodes?: Array<{ id: string; folder: string }>
     links?: Array<{ source: string; target: string }>
-    graphShape?: 'centroid' | 'saturn' | 'milkyway'
+    graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain'
   }
 
   if (type === 'setGraphShape') {
-    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' }).graphShape ?? 'centroid'
+    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' }).graphShape ?? 'centroid'
     // Reheat sim so nodes animate to new shape
     if (simulation) {
       tickCount = 0
@@ -316,9 +316,9 @@ self.onmessage = (e: MessageEvent) => {
     {
       const totalNodes = connectedCount + allOrphans.length
       const galaxyRadius = 120 + Math.sqrt(totalNodes) * 8  // overall disc radius
-      const NUM_ARMS = 2
+      const NUM_ARMS = 3           // 3 arms — balanced visibility and richness
       const SPIRAL_TIGHTNESS = 0.5   // controls how tightly wound the arms are
-      const ARM_ATTRACTION = 0.85   // 0=uniform disc, 1=nodes only on arms — high for bold arms
+      const ARM_ATTRACTION = 0.9    // 0=uniform disc, 1=nodes only on arms — high for bold arms
 
       // Collect all node IDs in one array: connected first, then orphans
       const allNodeIds: string[] = []
@@ -390,6 +390,99 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
+    // ── Brain target positions (3D brain silhouette) ───────────────────────
+    const brainTargets = new Map<string, { x: number; y: number; z: number }>()
+
+    {
+      const R = 150 + Math.sqrt(connectedCount) * 3
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5))
+
+      // Allocate connected nodes to brain regions
+      const cerebrumCount = Math.floor(connectedCount * 0.70)
+      const temporalCount = Math.floor(connectedCount * 0.15)
+      const cerebellumCount = Math.floor(connectedCount * 0.10)
+      const brainstemConnected = connectedCount - cerebrumCount - temporalCount - cerebellumCount
+
+      const allConnected: string[] = []
+      for (const cluster of allClusters) {
+        for (const id of cluster) allConnected.push(id)
+      }
+
+      let idx = 0
+
+      // 1. Cerebrum — oblate ellipsoid (wider than tall, flat bottom)
+      for (let i = 0; i < cerebrumCount; i++) {
+        const nodeId = allConnected[idx++]
+        const phi = Math.acos(1 - 2 * (i + 0.5) / cerebrumCount)
+        const theta = i * goldenAngle
+        const x = R * 1.3 * Math.sin(phi) * Math.cos(theta)
+        let y = R * 0.9 * Math.cos(phi)
+        const rawZ = R * 1.0 * Math.sin(phi) * Math.sin(theta)
+        if (y < 0) y *= 0.5  // flatten bottom
+        const zGap = rawZ >= 0 ? 3 : -3  // hemispheric gap
+        brainTargets.set(nodeId, { x, y, z: rawZ + zGap })
+      }
+
+      // 2. Temporal lobes — two bulges on lower sides
+      const temporalPerSide = Math.floor(temporalCount / 2)
+      for (let side = 0; side < 2; side++) {
+        const zSign = side === 0 ? 1 : -1
+        const cx = 0.3 * R, cy = -0.3 * R, cz = zSign * 0.7 * R
+        const lobeR = 0.4 * R
+        const count = side === 0 ? temporalPerSide : (temporalCount - temporalPerSide)
+        for (let i = 0; i < count; i++) {
+          if (idx >= allConnected.length) break
+          const nodeId = allConnected[idx++]
+          const phi = Math.acos(1 - 2 * (i + 0.5) / count)
+          const theta = i * goldenAngle
+          brainTargets.set(nodeId, {
+            x: cx + lobeR * Math.sin(phi) * Math.cos(theta),
+            y: cy + lobeR * 0.7 * Math.cos(phi),
+            z: cz + lobeR * Math.sin(phi) * Math.sin(theta),
+          })
+        }
+      }
+
+      // 3. Cerebellum — smaller rounded mass at lower back
+      const cblX = -0.8 * R, cblY = -0.6 * R, cblR = 0.35 * R
+      for (let i = 0; i < cerebellumCount; i++) {
+        if (idx >= allConnected.length) break
+        const nodeId = allConnected[idx++]
+        const phi = Math.acos(1 - 2 * (i + 0.5) / cerebellumCount)
+        const theta = i * goldenAngle
+        brainTargets.set(nodeId, {
+          x: cblX + cblR * Math.sin(phi) * Math.cos(theta),
+          y: cblY + cblR * 0.8 * Math.cos(phi),
+          z: cblR * 0.9 * Math.sin(phi) * Math.sin(theta),
+        })
+      }
+
+      // 4. Brainstem — cylinder downward (remaining connected + orphans)
+      const stemX = -0.5 * R, stemY = -1.2 * R
+      const stemH = 0.5 * R, stemR = 0.12 * R
+      const stemTotal = brainstemConnected + allOrphans.length
+
+      for (let i = 0; i < brainstemConnected; i++) {
+        if (idx >= allConnected.length) break
+        const nodeId = allConnected[idx++]
+        const t = (i + 0.5) / stemTotal
+        const angle = i * goldenAngle
+        const r = stemR * Math.sqrt(((i * 1.618) % 1))
+        brainTargets.set(nodeId, {
+          x: stemX + r * Math.cos(angle), y: stemY - t * stemH, z: r * Math.sin(angle),
+        })
+      }
+      for (let i = 0; i < allOrphans.length; i++) {
+        const sIdx = brainstemConnected + i
+        const t = (sIdx + 0.5) / stemTotal
+        const angle = sIdx * goldenAngle
+        const r = stemR * Math.sqrt(((sIdx * 1.618) % 1))
+        brainTargets.set(allOrphans[i].id, {
+          x: stemX + r * Math.cos(angle), y: stemY - t * stemH, z: r * Math.sin(angle),
+        })
+      }
+    }
+
     // ── Set initial positions based on active shape ─────────────────────────
     if (graphShape === 'saturn') {
       for (const node of simNodes) {
@@ -402,6 +495,14 @@ self.onmessage = (e: MessageEvent) => {
     } else if (graphShape === 'milkyway') {
       for (const node of simNodes) {
         const target = milkywayTargets.get(node.id)
+        if (!target) continue
+        node.x = target.x * currentSpread + (Math.random() - 0.5) * 20
+        node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
+        node.z = target.z * currentSpread + (Math.random() - 0.5) * 20
+      }
+    } else if (graphShape === 'brain') {
+      for (const node of simNodes) {
+        const target = brainTargets.get(node.id)
         if (!target) continue
         node.x = target.x * currentSpread + (Math.random() - 0.5) * 20
         node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
@@ -445,22 +546,33 @@ self.onmessage = (e: MessageEvent) => {
           node.vy += (target.y * currentSpread - node.y) * k
           node.vz += (target.z * currentSpread - node.z) * k
         }
+      } else if (graphShape === 'brain') {
+        // Pull all nodes toward brain anatomy targets (strong — shape formula dominates)
+        const k = alpha * 0.8
+        for (const node of simNodes) {
+          const target = brainTargets.get(node.id)
+          if (!target) continue
+          node.vx += (target.x * currentSpread - node.x) * k
+          node.vy += (target.y * currentSpread - node.y) * k
+          node.vz += (target.z * currentSpread - node.z) * k
+        }
       }
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const chargeStrength = (graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : -120
-    const centerStrength = (graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : 0.05
+    const isShapeDriven = graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain'
+    const chargeStrength = isShapeDriven ? 0 : -120
+    const centerStrength = isShapeDriven ? 0 : 0.05
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('link', forceLink(simLinks as any).id((d: unknown) => (d as WorkerNode).id)
         .distance(graphShape === 'milkyway' ? 20 : 60)
-        .strength((graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : 0.5))
+        .strength(isShapeDriven ? 0 : 0.5))
       .force('charge', forceManyBody().strength(chargeStrength))
       .force('center', forceCenter(0, 0, 0).strength(centerStrength))
-      .force('collide', (graphShape === 'milkyway' || graphShape === 'saturn') ? null : forceCollide(12))
+      .force('collide', isShapeDriven ? null : forceCollide(12))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('isolated', isolatedForce as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -479,7 +591,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = (graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : -120
+      const baseCharge = (graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain') ? 0 : -120
       if (cf?.strength) cf.strength(baseCharge * spread)
       tickCount = 0
       simulation.alpha(0.3)

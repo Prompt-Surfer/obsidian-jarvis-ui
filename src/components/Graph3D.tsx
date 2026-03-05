@@ -36,7 +36,7 @@ interface Graph3DProps {
   onMoveNodes?: (pinned: Array<{ id: string; x: number; y: number; z: number }>) => void
   onUnpinNodes?: (ids: string[]) => void
   electronScene?: THREE.Scene
-  graphShape?: 'centroid' | 'saturn' | 'milkyway'
+  graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain'
 }
 
 export interface Graph3DHandle {
@@ -966,6 +966,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         endTarget.x,
         endTarget.y + dist * Math.sin(angle),
         endTarget.z + dist * Math.cos(angle)
+      )
+    } else if (graphShape === 'brain') {
+      // 15° from the side — medical diagram view
+      const angle = 15 * Math.PI / 180
+      endPos = new THREE.Vector3(
+        endTarget.x + dist * Math.cos(angle),
+        endTarget.y + dist * Math.sin(angle) * 0.3,
+        endTarget.z + dist * 0.1
       )
     } else {
       endPos = new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
