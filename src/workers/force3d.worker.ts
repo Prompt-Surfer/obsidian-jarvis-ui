@@ -469,8 +469,8 @@ self.onmessage = (e: MessageEvent) => {
           node.vz += (target.z * currentSpread - node.z) * k
         }
       } else if (graphShape === 'milkyway') {
-        // Pull all nodes toward Milky Way spiral targets (very strong — shape formula dominates)
-        const k = alpha * 0.5
+        // Pull all nodes toward Milky Way spiral targets (extremely strong — shape formula dominates)
+        const k = alpha * 0.8
         for (const node of simNodes) {
           const target = milkywayTargets.get(node.id)
           if (!target) continue
@@ -482,18 +482,18 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const chargeStrength = graphShape === 'milkyway' ? -10 : graphShape === 'saturn' ? -15 : -120
-    const centerStrength = graphShape === 'milkyway' ? 0.005 : graphShape === 'saturn' ? 0.01 : 0.05
+    const chargeStrength = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -15 : -120
+    const centerStrength = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? 0.01 : 0.05
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('link', forceLink(simLinks as any).id((d: unknown) => (d as WorkerNode).id)
         .distance(graphShape === 'milkyway' ? 20 : 60)
-        .strength(graphShape === 'milkyway' ? 0.02 : 0.5))
+        .strength(graphShape === 'milkyway' ? 0 : 0.5))
       .force('charge', forceManyBody().strength(chargeStrength))
       .force('center', forceCenter(0, 0, 0).strength(centerStrength))
-      .force('collide', forceCollide(12))
+      .force('collide', graphShape === 'milkyway' ? null : forceCollide(12))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('isolated', isolatedForce as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -512,7 +512,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = graphShape === 'milkyway' ? -10 : graphShape === 'saturn' ? -15 : -120
+      const baseCharge = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -15 : -120
       if (cf?.strength) cf.strength(baseCharge * spread)
       tickCount = 0
       simulation.alpha(0.3)

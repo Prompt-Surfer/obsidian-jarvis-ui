@@ -923,29 +923,36 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       pts.push(new THREE.Vector3(pos.x, pos.y, pos.z))
     }
 
-    // Compute actual centroid of all node positions (not bounding sphere center which can drift)
+    // Compute actual centroid of all node positions
     const endTarget = new THREE.Vector3()
     let dist = 600
     if (pts.length > 0) {
-      // Use arithmetic mean as orbit target — more stable for asymmetric layouts
       let cx = 0, cy = 0, cz = 0
       for (const p of pts) { cx += p.x; cy += p.y; cz += p.z }
-      endTarget.set(cx / pts.length, cy / pts.length, cz / pts.length)
+      cx /= pts.length; cy /= pts.length; cz /= pts.length
+      endTarget.set(cx, cy, cz)
 
-      // Distance: fit bounding sphere in view with padding
-      const box = new THREE.Box3().setFromPoints(pts)
-      const sphere = new THREE.Sphere()
-      box.getBoundingSphere(sphere)
-      const fov = camera.fov * Math.PI / 180
-      dist = (sphere.radius * 1.4) / Math.tan(fov / 2)
+      if (graphShape === 'milkyway') {
+        // Use 80th percentile distance from centroid — excludes orphan outliers
+        const dists = pts.map(p => p.distanceTo(endTarget)).sort((a, b) => a - b)
+        const p80 = dists[Math.floor(dists.length * 0.80)] || 600
+        const fov = camera.fov * Math.PI / 180
+        dist = (p80 * 2.0) / Math.tan(fov / 2)
+      } else {
+        const box = new THREE.Box3().setFromPoints(pts)
+        const sphere = new THREE.Sphere()
+        box.getBoundingSphere(sphere)
+        const fov = camera.fov * Math.PI / 180
+        dist = (sphere.radius * 1.4) / Math.tan(fov / 2)
+      }
     }
     controls.maxDistance = dist * 5
-    // Milky Way: view from 45° above XZ plane to see spiral structure
+    // Milky Way: view from ~50° above XZ plane (slightly higher than 45° to compensate for perspective)
     const endPos = graphShape === 'milkyway'
       ? new THREE.Vector3(
           endTarget.x,
-          endTarget.y + dist * Math.sin(Math.PI / 4),
-          endTarget.z + dist * Math.cos(Math.PI / 4)
+          endTarget.y + dist * Math.sin(50 * Math.PI / 180),
+          endTarget.z + dist * Math.cos(50 * Math.PI / 180)
         )
       : new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
 

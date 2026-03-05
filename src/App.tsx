@@ -138,6 +138,9 @@ function App() {
     if (patternLoadingRef.current) {
       console.log('[patternLoading] clearing (sim finished)')
       setPatternLoading(false)
+      // Re-reset camera after sim converges — the first auto-reset fires on early unconverged
+      // positions, so the camera distance/angle can be wrong. This second reset uses final positions.
+      graphRef.current?.resetCamera()
     }
   }, [simDone]) // patternLoading intentionally read via ref to avoid premature-clear race
 
