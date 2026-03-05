@@ -316,9 +316,9 @@ self.onmessage = (e: MessageEvent) => {
     {
       const totalNodes = connectedCount + allOrphans.length
       const galaxyRadius = 120 + Math.sqrt(totalNodes) * 8  // overall disc radius
-      const NUM_ARMS = 3           // 3 arms — balanced visibility and richness
+      const NUM_ARMS = 2           // 2 arms — clearest spiral visibility
       const SPIRAL_TIGHTNESS = 0.5   // controls how tightly wound the arms are
-      const ARM_ATTRACTION = 0.9    // 0=uniform disc, 1=nodes only on arms — high for bold arms
+      const ARM_ATTRACTION = 0.85   // 0=uniform disc, 1=nodes only on arms — high for bold arms
 
       // Collect all node IDs in one array: connected first, then orphans
       const allNodeIds: string[] = []
