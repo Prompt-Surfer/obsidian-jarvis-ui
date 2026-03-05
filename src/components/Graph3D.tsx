@@ -937,12 +937,16 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const sphere = new THREE.Sphere()
       box.getBoundingSphere(sphere)
       const fov = camera.fov * Math.PI / 180
-      dist = (sphere.radius * 2.5) / Math.tan(fov / 2)
+      dist = (sphere.radius * 1.4) / Math.tan(fov / 2)
     }
-    controls.maxDistance = dist * 3
+    controls.maxDistance = dist * 5
     // Milky Way: view from 45° above XZ plane to see spiral structure
     const endPos = graphShape === 'milkyway'
-      ? new THREE.Vector3(endTarget.x, endTarget.y + dist * 0.7, endTarget.z + dist * 0.7)
+      ? new THREE.Vector3(
+          endTarget.x,
+          endTarget.y + dist * Math.sin(Math.PI / 4),
+          endTarget.z + dist * Math.cos(Math.PI / 4)
+        )
       : new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
 
     const startPos = camera.position.clone()

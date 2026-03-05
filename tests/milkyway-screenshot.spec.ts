@@ -1,7 +1,6 @@
 import { test } from '@playwright/test'
 
-test('Milky Way shape screenshot', async ({ page }) => {
-  // Use a larger viewport so settings panel is fully visible
+test('Milky Way + Saturn shape screenshots', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto('http://localhost:5173')
 
@@ -9,20 +8,13 @@ test('Milky Way shape screenshot', async ({ page }) => {
   await page.waitForSelector('canvas', { timeout: 15000 })
   await page.waitForTimeout(3000)
 
-  // Settings panel starts open by default. Click Milky Way button.
-  const milkyWayBtn = page.locator('button[title="Milky Way"]')
-  const count = await milkyWayBtn.count()
-
-  if (count === 0) {
-    await page.click('button:has-text("⚙")')
-    await page.waitForTimeout(500)
-  }
-
+  // --- Milky Way screenshot ---
   await page.click('button[title="Milky Way"]', { force: true })
+  await page.waitForTimeout(5000)
+  await page.screenshot({ path: '/tmp/jarvis-milkyway-final.png', fullPage: true })
 
-  // Wait for simulation to settle
-  await page.waitForTimeout(4000)
-
-  // Take screenshot
-  await page.screenshot({ path: '/tmp/jarvis-milkyway-screenshot.png', fullPage: true })
+  // --- Saturn screenshot ---
+  await page.click('button[title="Saturn"]', { force: true })
+  await page.waitForTimeout(5000)
+  await page.screenshot({ path: '/tmp/jarvis-saturn-final.png', fullPage: true })
 })

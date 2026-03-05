@@ -327,11 +327,11 @@ self.onmessage = (e: MessageEvent) => {
     const milkywayTargets = new Map<string, { x: number; y: number; z: number }>()
 
     {
-      const armScale = 40 + connectedCount * 0.3
+      const armScale = 50 + connectedCount * 0.35
       const NUM_ARMS = 4           // 4 spiral arms like real Milky Way
-      const SPIRAL_TURNS = 2.5     // how many full turns each arm makes
+      const SPIRAL_TURNS = 1.5     // fewer turns = more spread out arms
       const maxTheta = SPIRAL_TURNS * 2 * Math.PI
-      const SPIRAL_B = 0.25        // logarithmic spiral tightness — higher = more spread arms
+      const SPIRAL_B = 0.15        // low tightness — keeps arms visible without exponential blowup
 
       // Sort all connected nodes: by cluster (largest first) then by id within cluster
       const allConnectedSorted: string[] = []
@@ -340,13 +340,13 @@ self.onmessage = (e: MessageEvent) => {
         allConnectedSorted.push(...sorted)
       }
 
-      // Central bulge: dominant cluster (>15% of nodes) → dense elliptical center
+      // Central bulge: only the dominant cluster if it's >30% of connected nodes
       const dominantCluster = allClusters.length > 0 && connectedCount > 0 &&
-        allClusters[0].length > connectedCount * 0.15 ? allClusters[0] : null
+        allClusters[0].length > connectedCount * 0.30 ? allClusters[0] : null
       const dominantIds = new Set(dominantCluster ?? [])
 
       if (dominantCluster && dominantCluster.length > 0) {
-        const bulgeRadius = armScale * 1.8
+        const bulgeRadius = armScale * 0.6
         const goldenAngle = Math.PI * (3 - Math.sqrt(5))
 
         for (let j = 0; j < dominantCluster.length; j++) {
@@ -377,11 +377,11 @@ self.onmessage = (e: MessageEvent) => {
         const t = (posInArm + 0.5) / Math.max(nodesPerArm, 1)
         const theta = t * maxTheta + armOffset
 
-        // Logarithmic spiral: r = a × e^(b×θ)
-        const r = armScale * Math.exp(SPIRAL_B * (t * maxTheta))
+        // Logarithmic spiral: r = a × e^(b×θ), offset by bulge radius so arms start outside center
+        const r = armScale * (1.2 + Math.exp(SPIRAL_B * (t * maxTheta)))
 
         // Scatter perpendicular to arm direction for natural arm width
-        const armWidth = r * 0.12  // arm width proportional to radius
+        const armWidth = r * 0.06  // tight arm width for defined spiral structure
         const perpScatter = ((i * 1.6180339887498949) % 1 - 0.5) * armWidth
 
         // Perpendicular direction in XZ plane
@@ -469,8 +469,8 @@ self.onmessage = (e: MessageEvent) => {
           node.vz += (target.z * currentSpread - node.z) * k
         }
       } else if (graphShape === 'milkyway') {
-        // Pull all nodes toward Milky Way spiral targets (strong — shape formula dominates)
-        const k = alpha * 0.3
+        // Pull all nodes toward Milky Way spiral targets (very strong — shape formula dominates)
+        const k = alpha * 0.5
         for (const node of simNodes) {
           const target = milkywayTargets.get(node.id)
           if (!target) continue
@@ -482,14 +482,15 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const isShapeLayout = graphShape === 'saturn' || graphShape === 'milkyway'
-    const chargeStrength = isShapeLayout ? -15 : -120
-    const centerStrength = isShapeLayout ? 0.01 : 0.05
+    const chargeStrength = graphShape === 'milkyway' ? -10 : graphShape === 'saturn' ? -15 : -120
+    const centerStrength = graphShape === 'milkyway' ? 0.005 : graphShape === 'saturn' ? 0.01 : 0.05
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .force('link', forceLink(simLinks as any).id((d: unknown) => (d as WorkerNode).id).distance(60).strength(0.5))
+      .force('link', forceLink(simLinks as any).id((d: unknown) => (d as WorkerNode).id)
+        .distance(graphShape === 'milkyway' ? 20 : 60)
+        .strength(graphShape === 'milkyway' ? 0.02 : 0.5))
       .force('charge', forceManyBody().strength(chargeStrength))
       .force('center', forceCenter(0, 0, 0).strength(centerStrength))
       .force('collide', forceCollide(12))
@@ -511,7 +512,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = (graphShape === 'saturn' || graphShape === 'milkyway') ? -15 : -120
+      const baseCharge = graphShape === 'milkyway' ? -10 : graphShape === 'saturn' ? -15 : -120
       if (cf?.strength) cf.strength(baseCharge * spread)
       tickCount = 0
       simulation.alpha(0.3)
