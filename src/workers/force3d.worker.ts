@@ -310,9 +310,9 @@ self.onmessage = (e: MessageEvent) => {
     const milkywayTargets = new Map<string, { x: number; y: number; z: number }>()
 
     {
-      const armScale = 50 + connectedCount * 0.35
+      const armScale = 80 + connectedCount * 0.4
       const NUM_ARMS = 2           // 2 dominant arms like M51
-      const SPIRAL_TURNS = 1.5     // fewer turns = more spread out arms
+      const SPIRAL_TURNS = 0.75    // 3/4 turn per arm — prevents angular overlap with 2 arms
 
       // Sort all connected nodes: by cluster (largest first) then by id within cluster
       const allConnectedSorted: string[] = []
@@ -338,7 +338,7 @@ self.onmessage = (e: MessageEvent) => {
           // Elliptical: stretch X by 1.5 for bar shape
           const x = r * Math.cos(theta) * 1.5
           const z = r * Math.sin(theta)
-          const y = ((j * 1.6180339887498949) % 1 - 0.5) * 6  // near-zero Y scatter
+          const y = ((j * 1.6180339887498949) % 1 - 0.5) * 1  // near-zero Y scatter
 
           milkywayTargets.set(nodeId, { x, y, z })
         }
@@ -367,7 +367,7 @@ self.onmessage = (e: MessageEvent) => {
         const theta = t * SPIRAL_TURNS * 2 * Math.PI + armOffset
 
         // Scatter perpendicular to arm direction — very tight streams
-        const armWidth = r * 0.03 + 1
+        const armWidth = r * 0.015 + 1
         const perpScatter = ((i * 1.6180339887498949) % 1 - 0.5) * armWidth
 
         const dx = -Math.sin(theta) * perpScatter
@@ -375,7 +375,7 @@ self.onmessage = (e: MessageEvent) => {
 
         milkywayTargets.set(nodeId, {
           x: r * Math.cos(theta) + dx,
-          y: ((i * 2.6180339887498949) % 1 - 0.5) * 4,
+          y: ((i * 2.6180339887498949) % 1 - 0.5) * 1,
           z: r * Math.sin(theta) + dz,
         })
       }
