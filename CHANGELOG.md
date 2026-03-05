@@ -10,7 +10,7 @@
 - Slider labels renamed: "Node Size" and "Supernode Size"
 - Right-click drag: moves closest node + all connected neighbours as a rigid cluster; brightness boost during drag; browser context menu suppressed
 - `H` key: focus mode — hides all nodes except selected + direct neighbours; HUD shows `[H] FOCUS MODE`; ESC exits
-- Orphan ring pattern: degree-0 nodes arranged in concentric horizontal rings around the centroid (Jupiter's rings aesthetic); switchable to centroid (folder clustering) mode via Settings dropdown; persisted to `jarvis-orphan-pattern`
+- Orphan ring pattern: degree-0 nodes arranged in concentric horizontal rings around the centroid (Saturn's rings aesthetic); switchable to centroid (folder clustering) mode via Settings dropdown; persisted to `jarvis-orphan-pattern`
 
 ## Phase 6 — Visual Polish & Docs (v1.2.1)
 Menu centred vertically, 10x stars (2000) + 3 galaxy backdrops, camera-reset `[ Reset View ]` button in settings panel, dynamic centre of gravity shifts to filtered nodes, fly-to lands 3x further for comfortable framing, connected edges bloom cyan on node selection, default spread 1.5x / max size 3x, zoom-to-node toggle (default ON), orphan nodes group by folder colour, HUD buttons moved to settings panel.

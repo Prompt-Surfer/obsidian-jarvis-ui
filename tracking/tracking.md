@@ -24,7 +24,8 @@
 | P7-7 | Slider labels renamed: "Node Size" and "Supernode Size" | `88805de` |
 | P7-8 | Right-click drag moves closest node + connected neighbours as rigid cluster | `5f86e90` |
 | P7-9 | H key focus mode: hide all except selected + connected; HUD breadcrumb | `39cdb12` |
-| P7-10 | Orphan ring pattern (Jupiter's rings); orphanPattern setting in Settings | `0951f24` |
+| P7-10 | Orphan ring pattern (Saturn's rings); orphanPattern setting in Settings | `0951f24` |
+| P7-11 | Rename Jupiter→Saturn + redesign Saturn sphere+ring + Milky Way flat 2D spiral | `3992e03` |
 
 ---
 
