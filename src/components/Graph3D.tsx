@@ -187,7 +187,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const scene = new THREE.Scene()
     sceneRef.current = scene
 
-    const camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 10000)
+    const camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 200000)
     camera.position.set(0, 0, 600)
     cameraRef.current = camera
 
@@ -946,7 +946,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         dist = (sphere.radius * 1.4) / Math.tan(fov / 2)
       }
     }
-    controls.maxDistance = dist * 5
+    controls.maxDistance = 500000
     // Shape-specific camera angles
     let endPos: THREE.Vector3
     if (graphShape === 'milkyway') {
