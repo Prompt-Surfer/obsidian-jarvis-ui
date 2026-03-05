@@ -55,8 +55,8 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
-  const [graphShape, setGraphShape] = useState<'ring' | 'centroid' | 'jupiter' | 'milkyway'>(() => {
-    try { return (localStorage.getItem('jarvis-graph-shape') as 'ring' | 'centroid' | 'jupiter' | 'milkyway') ?? 'ring' } catch { return 'ring' }
+  const [graphShape, setGraphShape] = useState<'ring' | 'centroid' | 'saturn' | 'milkyway'>(() => {
+    try { return (localStorage.getItem('jarvis-graph-shape') as 'ring' | 'centroid' | 'saturn' | 'milkyway') ?? 'ring' } catch { return 'ring' }
   })
   const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()

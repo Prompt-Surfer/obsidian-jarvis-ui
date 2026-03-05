@@ -19,8 +19,8 @@ interface SettingsProps {
   onResetPosition: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
-  graphShape: 'ring' | 'centroid' | 'jupiter' | 'milkyway'
-  onGraphShapeChange: (v: 'ring' | 'centroid' | 'jupiter' | 'milkyway') => void
+  graphShape: 'ring' | 'centroid' | 'saturn' | 'milkyway'
+  onGraphShapeChange: (v: 'ring' | 'centroid' | 'saturn' | 'milkyway') => void
 }
 
 export function Settings({
@@ -174,7 +174,7 @@ export function Settings({
               {([
                 { value: 'ring', icon: '🔵', label: 'Ring' },
                 { value: 'centroid', icon: '⚪', label: 'Centroid' },
-                { value: 'jupiter', icon: '🪐', label: 'Jupiter' },
+                { value: 'saturn', icon: '🪐', label: 'Saturn' },
                 { value: 'milkyway', icon: '🌌', label: 'Milky Way' },
               ] as const).map(({ value, icon, label }) => (
                 <button

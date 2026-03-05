@@ -12,7 +12,7 @@ export interface NodePosition {
 const DEBUG = import.meta.env.DEV && typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('perf')
 
-export function useForce3D(graphData: GraphData | null, graphShape: 'ring' | 'centroid' | 'jupiter' | 'milkyway' = 'ring') {
+export function useForce3D(graphData: GraphData | null, graphShape: 'ring' | 'centroid' | 'saturn' | 'milkyway' = 'ring') {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
   const workerRef = useRef<Worker | null>(null)
