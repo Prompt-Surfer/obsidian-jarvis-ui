@@ -55,8 +55,8 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
-  const [graphShape, setGraphShape] = useState<'ring' | 'centroid' | 'saturn' | 'milkyway'>(() => {
-    try { return (localStorage.getItem('jarvis-graph-shape') as 'ring' | 'centroid' | 'saturn' | 'milkyway') ?? 'ring' } catch { return 'ring' }
+  const [graphShape, setGraphShape] = useState<'centroid' | 'saturn' | 'milkyway'>(() => {
+    try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'saturn' | 'milkyway') ?? 'centroid' } catch { return 'centroid' }
   })
   const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
@@ -414,8 +414,8 @@ function App() {
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
-    setGraphShape('ring')
-    try { localStorage.setItem('jarvis-graph-shape', 'ring') } catch { /* storage unavailable */ }
+    setGraphShape('centroid')
+    try { localStorage.setItem('jarvis-graph-shape', 'centroid') } catch { /* storage unavailable */ }
     resetPins() // clear all dragged node pins so layout reflows naturally
     reheat()
   }, [setSpread, reheat, resetPins])
@@ -553,6 +553,7 @@ function App() {
         onPinNodes={pinNodes}
         onMoveNodes={moveNodes}
         onUnpinNodes={unpinNodes}
+        graphShape={graphShape}
       />
 
       <HUD

@@ -36,6 +36,7 @@ interface Graph3DProps {
   onMoveNodes?: (pinned: Array<{ id: string; x: number; y: number; z: number }>) => void
   onUnpinNodes?: (ids: string[]) => void
   electronScene?: THREE.Scene
+  graphShape?: 'centroid' | 'saturn' | 'milkyway'
 }
 
 export interface Graph3DHandle {
@@ -118,6 +119,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   onPinNodes,
   onMoveNodes,
   onUnpinNodes,
+  graphShape,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -932,7 +934,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       dist = (sphere.radius * 1.1) / Math.tan(fov / 2)
     }
     controls.maxDistance = dist
-    const endPos = new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
+    // Milky Way: view from 45° above XZ plane to see spiral structure
+    const endPos = graphShape === 'milkyway'
+      ? new THREE.Vector3(endTarget.x, endTarget.y + dist * 0.7, endTarget.z + dist * 0.7)
+      : new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
 
     const startPos = camera.position.clone()
     const startTarget = controls.target.clone()
@@ -950,7 +955,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       if (t < 1) requestAnimationFrame(animReset)
     }
     requestAnimationFrame(animReset)
-  }, [])
+  }, [graphShape])
 
   useImperativeHandle(ref, () => ({
     flyTo,

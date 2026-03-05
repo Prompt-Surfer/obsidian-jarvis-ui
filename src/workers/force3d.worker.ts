@@ -31,7 +31,7 @@ let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
-let graphShape: 'ring' | 'centroid' | 'saturn' | 'milkyway' = 'ring'
+let graphShape: 'centroid' | 'saturn' | 'milkyway' = 'centroid'
 let currentSpread = 1.5
 
 function getNodePositions(nodes: WorkerNode[]) {
@@ -67,11 +67,11 @@ self.onmessage = (e: MessageEvent) => {
     type: string
     nodes?: Array<{ id: string; folder: string }>
     links?: Array<{ source: string; target: string }>
-    graphShape?: 'ring' | 'centroid' | 'saturn' | 'milkyway'
+    graphShape?: 'centroid' | 'saturn' | 'milkyway'
   }
 
   if (type === 'setGraphShape') {
-    graphShape = (e.data as { graphShape?: 'ring' | 'centroid' | 'saturn' | 'milkyway' }).graphShape ?? 'ring'
+    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' }).graphShape ?? 'centroid'
     // Reheat sim so nodes animate to new shape
     if (simulation) {
       tickCount = 0
@@ -249,30 +249,6 @@ self.onmessage = (e: MessageEvent) => {
     allClusters.sort((a, b) => b.length - a.length)
     const connectedCount = allClusters.reduce((sum, c) => sum + c.length, 0)
 
-    // ── Ring-slot target positions ──────────────────────────────────────────
-    const ringTargets = new Map<string, { x: number; y: number; z: number }>()
-
-    if (allOrphans.length > 0) {
-      const ORPHANS_PER_RING = 50
-      const RING_BASE_RADIUS = 350  // base radius at spread=1; scales with currentSpread
-      const RING_SPACING = 80
-      const RING_TILT = 0.18 // slight tilt in radians for 3D effect
-
-      allOrphans.forEach((node, idx) => {
-        const ring = Math.floor(idx / ORPHANS_PER_RING)
-        const posInRing = idx % ORPHANS_PER_RING
-        const countInRing = Math.min(ORPHANS_PER_RING, allOrphans.length - ring * ORPHANS_PER_RING)
-        const angle = (posInRing / countInRing) * Math.PI * 2
-        const baseRadius = RING_BASE_RADIUS + ring * RING_SPACING
-
-        const ux = Math.cos(angle)
-        const uy = Math.sin(angle) * Math.sin(RING_TILT)
-        const uz = Math.sin(angle) * Math.cos(RING_TILT)
-
-        ringTargets.set(node.id, { x: ux * baseRadius, y: uy * baseRadius, z: uz * baseRadius })
-      })
-    }
-
     // ── Saturn target positions ─────────────────────────────────────────────
     const saturnTargets = new Map<string, { x: number; y: number; z: number }>()
 
@@ -280,28 +256,35 @@ self.onmessage = (e: MessageEvent) => {
       const R_base = 150 + Math.sqrt(connectedCount) * 3
       const goldenAngle = Math.PI * (3 - Math.sqrt(5))  // ~2.399 rad
 
-      // Planet body: Fibonacci sphere distribution — superclusters (largest) at
-      // the core, smaller clusters on the outer shell. Evenly distributed.
+      // Planet body: two-layer Fibonacci sphere —
+      // Inner core: largest clusters at 0.4×R, Outer shell: rest at 0.95×R
       const allConnectedFlat: { id: string; clusterIdx: number }[] = []
       for (let ci = 0; ci < allClusters.length; ci++) {
         for (const nodeId of allClusters[ci]) {
           allConnectedFlat.push({ id: nodeId, clusterIdx: ci })
         }
       }
-      // Sort so largest clusters (lowest index) are first → placed at sphere center
+      // Sort so largest clusters (lowest index) are first → placed at inner core
       allConnectedFlat.sort((a, b) => a.clusterIdx - b.clusterIdx)
+
+      // Top ~30% of nodes (by cluster size) go to inner core, rest to outer shell
+      const coreThreshold = Math.max(1, Math.floor(allClusters.length * 0.3))
+      const coreNodeCount = allConnectedFlat.filter(n => n.clusterIdx < coreThreshold).length
 
       for (let i = 0; i < allConnectedFlat.length; i++) {
         const { id: nodeId, clusterIdx } = allConnectedFlat[i]
-        // Radius: largest cluster → core (0.3×R), smallest → surface (1.0×R)
-        const depthFrac = allClusters.length > 1
-          ? clusterIdx / (allClusters.length - 1)
-          : 0.5
-        const nodeR = R_base * (0.3 + 0.7 * depthFrac)
+        // Two discrete layers: core vs shell
+        const isCore = clusterIdx < coreThreshold
+        const nodeR = isCore ? R_base * 0.4 : R_base * 0.95
 
-        // Fibonacci sphere for even angular distribution
-        const phi = Math.acos(1 - 2 * (i + 0.5) / allConnectedFlat.length)
-        const theta = i * goldenAngle
+        // Fibonacci sphere — separate index sequences for each layer
+        const layerIdx = isCore
+          ? allConnectedFlat.slice(0, i + 1).filter(n => n.clusterIdx < coreThreshold).length - 1
+          : i - coreNodeCount
+        const layerTotal = isCore ? coreNodeCount : allConnectedFlat.length - coreNodeCount
+
+        const phi = Math.acos(1 - 2 * (layerIdx + 0.5) / Math.max(layerTotal, 1))
+        const theta = layerIdx * goldenAngle
 
         saturnTargets.set(nodeId, {
           x: nodeR * Math.sin(phi) * Math.cos(theta),
@@ -343,11 +326,11 @@ self.onmessage = (e: MessageEvent) => {
     const milkywayTargets = new Map<string, { x: number; y: number; z: number }>()
 
     {
-      const armScale = 20 + connectedCount * 0.15
+      const armScale = 40 + connectedCount * 0.3
       const NUM_ARMS = 4           // 4 spiral arms like real Milky Way
       const SPIRAL_TURNS = 2.5     // how many full turns each arm makes
       const maxTheta = SPIRAL_TURNS * 2 * Math.PI
-      const SPIRAL_B = 0.18        // logarithmic spiral tightness
+      const SPIRAL_B = 0.25        // logarithmic spiral tightness — higher = more spread arms
 
       // Sort all connected nodes: by cluster (largest first) then by id within cluster
       const allConnectedSorted: string[] = []
@@ -440,16 +423,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // ── Set initial positions based on active shape ─────────────────────────
-    if (graphShape === 'ring' && allOrphans.length > 0) {
-      // Place orphans near their ring slots
-      allOrphans.forEach((node) => {
-        const target = ringTargets.get(node.id)
-        if (!target) return
-        node.x = target.x * currentSpread + (Math.random() - 0.5) * 20
-        node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
-        node.z = target.z * currentSpread + (Math.random() - 0.5) * 20
-      })
-    } else if (graphShape === 'saturn') {
+    if (graphShape === 'saturn') {
       for (const node of simNodes) {
         const target = saturnTargets.get(node.id)
         if (!target) continue
@@ -469,17 +443,7 @@ self.onmessage = (e: MessageEvent) => {
 
     // ── Shape force: pulls nodes toward their target positions ──────────────
     const shapeForce = (alpha: number) => {
-      if (graphShape === 'ring') {
-        // Pull each orphan toward its ring slot, scaled by currentSpread
-        const k = alpha * 0.06
-        for (const node of allOrphans) {
-          const target = ringTargets.get(node.id)
-          if (!target) continue
-          node.vx += (target.x * currentSpread - node.x) * k
-          node.vy += (target.y * currentSpread - node.y) * k
-          node.vz += (target.z * currentSpread - node.z) * k
-        }
-      } else if (graphShape === 'centroid') {
+      if (graphShape === 'centroid') {
         // Same-folder orphans attract each other (original centroid behavior)
         const k = alpha * 0.012
         for (const members of orphansByFolder.values()) {
@@ -494,8 +458,8 @@ self.onmessage = (e: MessageEvent) => {
           }
         }
       } else if (graphShape === 'saturn') {
-        // Pull all nodes toward Saturn sphere/ring targets
-        const k = alpha * 0.08
+        // Pull all nodes toward Saturn sphere/ring targets (strong — shape formula dominates)
+        const k = alpha * 0.3
         for (const node of simNodes) {
           const target = saturnTargets.get(node.id)
           if (!target) continue
@@ -504,8 +468,8 @@ self.onmessage = (e: MessageEvent) => {
           node.vz += (target.z * currentSpread - node.z) * k
         }
       } else if (graphShape === 'milkyway') {
-        // Pull all nodes toward Milky Way spiral targets
-        const k = alpha * 0.08
+        // Pull all nodes toward Milky Way spiral targets (strong — shape formula dominates)
+        const k = alpha * 0.3
         for (const node of simNodes) {
           const target = milkywayTargets.get(node.id)
           if (!target) continue
@@ -516,15 +480,17 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
-    // Weaker charge for saturn/milkyway — shape force handles clustering, not repulsion
-    const chargeStrength = (graphShape === 'saturn' || graphShape === 'milkyway') ? -60 : -120
+    // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
+    const isShapeLayout = graphShape === 'saturn' || graphShape === 'milkyway'
+    const chargeStrength = isShapeLayout ? -15 : -120
+    const centerStrength = isShapeLayout ? 0.01 : 0.05
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('link', forceLink(simLinks as any).id((d: unknown) => (d as WorkerNode).id).distance(60).strength(0.5))
       .force('charge', forceManyBody().strength(chargeStrength))
-      .force('center', forceCenter(0, 0, 0).strength(0.05))
+      .force('center', forceCenter(0, 0, 0).strength(centerStrength))
       .force('collide', forceCollide(12))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('isolated', isolatedForce as any)
@@ -544,7 +510,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = (graphShape === 'saturn' || graphShape === 'milkyway') ? -60 : -120
+      const baseCharge = (graphShape === 'saturn' || graphShape === 'milkyway') ? -15 : -120
       if (cf?.strength) cf.strength(baseCharge * spread)
       tickCount = 0
       simulation.alpha(0.3)
