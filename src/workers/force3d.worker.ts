@@ -398,9 +398,9 @@ self.onmessage = (e: MessageEvent) => {
       const goldenAngle = Math.PI * (3 - Math.sqrt(5))
 
       // Allocate connected nodes to brain regions
-      const cerebrumCount = Math.floor(connectedCount * 0.70)
+      const cerebrumCount = Math.floor(connectedCount * 0.65)
       const temporalCount = Math.floor(connectedCount * 0.15)
-      const cerebellumCount = Math.floor(connectedCount * 0.10)
+      const cerebellumCount = Math.floor(connectedCount * 0.15)
       const brainstemConnected = connectedCount - cerebrumCount - temporalCount - cerebellumCount
 
       const allConnected: string[] = []
@@ -410,7 +410,7 @@ self.onmessage = (e: MessageEvent) => {
 
       let idx = 0
 
-      // 1. Cerebrum — oblate ellipsoid (wider than tall, flat bottom)
+      // 1. Cerebrum — oblate ellipsoid (wider than tall, aggressively flat bottom)
       for (let i = 0; i < cerebrumCount; i++) {
         const nodeId = allConnected[idx++]
         const phi = Math.acos(1 - 2 * (i + 0.5) / cerebrumCount)
@@ -418,17 +418,20 @@ self.onmessage = (e: MessageEvent) => {
         const x = R * 1.3 * Math.sin(phi) * Math.cos(theta)
         let y = R * 0.9 * Math.cos(phi)
         const rawZ = R * 1.0 * Math.sin(phi) * Math.sin(theta)
-        if (y < 0) y *= 0.5  // flatten bottom
+        if (y < 0) y *= 0.4  // aggressively flatten bottom
         const zGap = rawZ >= 0 ? 3 : -3  // hemispheric gap
         brainTargets.set(nodeId, { x, y, z: rawZ + zGap })
       }
 
-      // 2. Temporal lobes — two bulges on lower sides
+      // 2. Temporal lobes — two distinct bulges protruding OUTWARD from lower sides
       const temporalPerSide = Math.floor(temporalCount / 2)
       for (let side = 0; side < 2; side++) {
         const zSign = side === 0 ? 1 : -1
-        const cx = 0.3 * R, cy = -0.3 * R, cz = zSign * 0.7 * R
-        const lobeR = 0.4 * R
+        // Position: lower-front sides, wider than cerebrum at this height
+        const cx = 0.2 * R
+        const cy = -0.25 * R
+        const cz = zSign * 1.1 * R  // WIDER than cerebrum (1.0×R) — protrudes outward
+        const lobeR = 0.35 * R
         const count = side === 0 ? temporalPerSide : (temporalCount - temporalPerSide)
         for (let i = 0; i < count; i++) {
           if (idx >= allConnected.length) break
@@ -436,15 +439,17 @@ self.onmessage = (e: MessageEvent) => {
           const phi = Math.acos(1 - 2 * (i + 0.5) / count)
           const theta = i * goldenAngle
           brainTargets.set(nodeId, {
-            x: cx + lobeR * Math.sin(phi) * Math.cos(theta),
-            y: cy + lobeR * 0.7 * Math.cos(phi),
-            z: cz + lobeR * Math.sin(phi) * Math.sin(theta),
+            x: cx + lobeR * 0.8 * Math.sin(phi) * Math.cos(theta),
+            y: cy + lobeR * 0.5 * Math.cos(phi),  // flattened vertically
+            z: cz + lobeR * 0.6 * Math.sin(phi) * Math.sin(theta),
           })
         }
       }
 
-      // 3. Cerebellum — smaller rounded mass at lower back
-      const cblX = -0.8 * R, cblY = -0.6 * R, cblR = 0.35 * R
+      // 3. Cerebellum — separate denser mass at lower back (visible gap from cerebrum)
+      const cblX = -0.9 * R  // further back
+      const cblY = -0.5 * R  // lower
+      const cblR = 0.3 * R   // smaller = denser packing
       for (let i = 0; i < cerebellumCount; i++) {
         if (idx >= allConnected.length) break
         const nodeId = allConnected[idx++]
@@ -452,33 +457,37 @@ self.onmessage = (e: MessageEvent) => {
         const theta = i * goldenAngle
         brainTargets.set(nodeId, {
           x: cblX + cblR * Math.sin(phi) * Math.cos(theta),
-          y: cblY + cblR * 0.8 * Math.cos(phi),
-          z: cblR * 0.9 * Math.sin(phi) * Math.sin(theta),
+          y: cblY + cblR * 0.6 * Math.cos(phi),
+          z: cblR * 0.8 * Math.sin(phi) * Math.sin(theta),
         })
       }
 
-      // 4. Brainstem — cylinder downward (remaining connected + orphans)
-      const stemX = -0.5 * R, stemY = -1.2 * R
-      const stemH = 0.5 * R, stemR = 0.12 * R
+      // 4. Brainstem — TIGHT compact cylinder downward (not a fan/waterfall)
+      const stemCX = -0.4 * R
+      const stemTopY = -0.6 * R  // starts just below cerebellum
+      const stemH = R * 0.4
+      const stemR = R * 0.08  // very narrow
       const stemTotal = brainstemConnected + allOrphans.length
 
       for (let i = 0; i < brainstemConnected; i++) {
         if (idx >= allConnected.length) break
         const nodeId = allConnected[idx++]
-        const t = (i + 0.5) / stemTotal
-        const angle = i * goldenAngle
-        const r = stemR * Math.sqrt(((i * 1.618) % 1))
+        const angle = (i / stemTotal) * Math.PI * 2
+        const yOff = (i / stemTotal) * stemH
         brainTargets.set(nodeId, {
-          x: stemX + r * Math.cos(angle), y: stemY - t * stemH, z: r * Math.sin(angle),
+          x: stemCX + stemR * Math.cos(angle),
+          y: stemTopY - yOff,
+          z: stemR * Math.sin(angle),
         })
       }
       for (let i = 0; i < allOrphans.length; i++) {
         const sIdx = brainstemConnected + i
-        const t = (sIdx + 0.5) / stemTotal
-        const angle = sIdx * goldenAngle
-        const r = stemR * Math.sqrt(((sIdx * 1.618) % 1))
+        const angle = (sIdx / stemTotal) * Math.PI * 2
+        const yOff = (sIdx / stemTotal) * stemH
         brainTargets.set(allOrphans[i].id, {
-          x: stemX + r * Math.cos(angle), y: stemY - t * stemH, z: r * Math.sin(angle),
+          x: stemCX + stemR * Math.cos(angle),
+          y: stemTopY - yOff,
+          z: stemR * Math.sin(angle),
         })
       }
     }
