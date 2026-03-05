@@ -566,7 +566,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       ;(lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
     }
 
-    ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * 0.6
+    // Fade links in milkyway/saturn to let shape structure show through
+    const linkFade = graphShape === 'milkyway' ? 0.15 : graphShape === 'saturn' ? 0.3 : 0.6
+    ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * linkFade
 
     // Update highlight overlay: only connected edges when a node is selected
     const hlLines = selectedEdgeLinesRef.current
