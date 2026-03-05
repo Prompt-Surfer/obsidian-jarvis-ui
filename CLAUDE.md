@@ -27,6 +27,14 @@ Types:
   fix       → bug fix             → bumps PATCH (v1.0.X)
   docs      → documentation only  → bumps PATCH
   chore     → build/config/tooling → bumps PATCH
+```
+
+### ⚠️ CRITICAL: When to use feat vs fix
+- `feat:` = ONLY for adding a **brand new capability** that didn't exist before (new shape, new panel, new feature)
+- `fix:` = EVERYTHING else: improving, tuning, redesigning, polishing, fixing bugs in existing features
+- **Redesigning an existing feature is a FIX, not a feat.** Changing how Saturn looks = fix. Adding Saturn for the first time = feat.
+- **When in doubt, use `fix:`.** Wrong feat bumps inflate the version number and can't be undone without history rewriting.
+- After committing, run `bash tracking/bump-version.sh` to auto-tag with correct semver.
   refactor  → code restructure     → bumps PATCH
   perf      → performance          → bumps PATCH
   test      → tests only           → bumps PATCH
@@ -50,6 +58,23 @@ chore: bump Three.js to v0.172
 - After committing: `bash tracking/bump-version.sh` → auto-tags with correct semver
 - Push release: `git push origin master && git push origin <tag>`
 - Tracking: `tracking/tracking.md` — all phases and tasks
+
+## Playwright Validation (MANDATORY before committing visual changes)
+Before taking Playwright screenshots, ALWAYS restart the dev server to ensure you're testing the latest code:
+```bash
+# Kill any running dev server
+pkill -f "vite" 2>/dev/null; pkill -f "tsx watch server" 2>/dev/null
+sleep 2
+# Start fresh
+cd /home/samuel/projects/tools/obsidian-jarvis-ui
+npm run dev &
+sleep 5  # wait for both vite + api server to start
+# THEN run playwright
+npx playwright test <test-file> --timeout 90000
+# Kill after
+pkill -f "vite" 2>/dev/null; pkill -f "tsx watch server" 2>/dev/null
+```
+Never trust screenshots from a stale dev server. Rebuild + restart every time.
 
 ## Wake Callback (MANDATORY on task completion)
 When finishing a task, send a wake notification so the orchestrator knows you're done:

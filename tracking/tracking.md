@@ -162,10 +162,26 @@
 
 ---
 
-## Planned
+## Current — Shape Polish (v1.3.x)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| Saturn shape | Round sphere + tilted ring, 40° camera angle | 🔄 In progress (B- grade, targeting A) |
+| Milky Way shape | 2-arm Archimedean spiral, 50° camera, zero competing forces | 🔄 In progress (D grade, needs fix) |
+| Brain shape 🧠 | 3D brain silhouette — cerebrum, temporal lobes, cerebellum, brain stem | 💤 Queued (after shapes polish) |
+
+## Planned — Phase 8: Obsidian Reader Pane
+
+| Task | Description | Status |
+|------|-------------|--------|
+| Reader CSS | Match Obsidian dark theme — fonts, headings, code blocks, callouts, tag pills | 💤 Queued |
+| TOC | "On This Page" from heading extraction | 💤 Queued |
+| Wikilinks | Already handled — verify rendering | 💤 Queued |
+
+## Future
 
 | Version | Description | Status |
 |---------|-------------|--------|
-| v1.3.0 | Semantic clustering via embeddings (user-supplied API key) | 💤 Queued |
-| v1.4.0 | Open-source release prep (vault-path first-run prompt, demo GIF) | 💤 Queued |
-| v1.4.1 | Obsidian community plugin submission | 💤 Queued |
+| TBD | Semantic clustering via embeddings | 💤 Queued |
+| TBD | Open-source release prep (vault-path first-run prompt, demo GIF) | 💤 Queued |
+| TBD | Obsidian community plugin submission | 💤 Queued |

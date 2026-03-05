@@ -306,104 +306,87 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
-    // ── Milky Way target positions (flat 2D spiral — top-down galaxy view) ──
+    // ── Milky Way target positions (density-gradient disc with spiral arms) ──
+    // Approach: distribute ALL nodes across the full galactic disc. Nodes near
+    // spiral arm curves get pulled closer to them (higher density), nodes between
+    // arms spread naturally (lower density). The arms appear as density waves,
+    // not exclusive thin tracks. Like real galaxies — stars everywhere, denser in arms.
     const milkywayTargets = new Map<string, { x: number; y: number; z: number }>()
 
     {
-      const armScale = 80 + connectedCount * 0.4
-      const NUM_ARMS = 2           // 2 dominant arms like M51
-      const SPIRAL_TURNS = 0.75    // 3/4 turn per arm — prevents angular overlap with 2 arms
+      const totalNodes = connectedCount + allOrphans.length
+      const galaxyRadius = 120 + Math.sqrt(totalNodes) * 8  // overall disc radius
+      const NUM_ARMS = 2
+      const SPIRAL_TIGHTNESS = 0.5   // controls how tightly wound the arms are
+      const ARM_ATTRACTION = 0.85   // 0=uniform disc, 1=nodes only on arms — high for bold arms
 
-      // Sort all connected nodes: by cluster (largest first) then by id within cluster
-      const allConnectedSorted: string[] = []
+      // Collect all node IDs in one array: connected first, then orphans
+      const allNodeIds: string[] = []
       for (const cluster of allClusters) {
-        const sorted = [...cluster].sort((a, b) => a.localeCompare(b))
-        allConnectedSorted.push(...sorted)
+        for (const id of cluster) allNodeIds.push(id)
       }
+      for (const orphan of allOrphans) allNodeIds.push(orphan.id)
 
-      // Central bulge: only the dominant cluster if it's >30% of connected nodes
-      const dominantCluster = allClusters.length > 0 && connectedCount > 0 &&
-        allClusters[0].length > connectedCount * 0.30 ? allClusters[0] : null
-      const dominantIds = new Set(dominantCluster ?? [])
+      // Golden angle for Fibonacci disc base distribution
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5))
 
-      const bulgeRadius = armScale * 0.6
-      if (dominantCluster && dominantCluster.length > 0) {
-        const goldenAngle = Math.PI * (3 - Math.sqrt(5))
+      // Central bulge: first 15% of nodes get packed in the center
+      const bulgeCount = Math.floor(totalNodes * 0.20)  // 20% of nodes in central bulge
+      const bulgeRadius = galaxyRadius * 0.20  // bulge fills 20% of galaxy radius
 
-        for (let j = 0; j < dominantCluster.length; j++) {
-          const nodeId = dominantCluster[j]
-          // Fibonacci disc for even distribution in 2D — packed elliptical bulge
-          const r = bulgeRadius * Math.sqrt((j + 0.5) / dominantCluster.length)
-          const theta = j * goldenAngle
-          // Elliptical: stretch X by 1.5 for bar shape
-          const x = r * Math.cos(theta) * 1.5
-          const z = r * Math.sin(theta)
-          const y = ((j * 1.6180339887498949) % 1 - 0.5) * 1  // near-zero Y scatter
+      for (let i = 0; i < allNodeIds.length; i++) {
+        const nodeId = allNodeIds[i]
+        let x: number, z: number, y: number
 
-          milkywayTargets.set(nodeId, { x, y, z })
+        if (i < bulgeCount) {
+          // Central bulge: tight Fibonacci disc
+          const r = bulgeRadius * Math.sqrt((i + 0.5) / bulgeCount)
+          const theta = i * goldenAngle
+          x = r * Math.cos(theta) * 1.3  // slight ellipticity for bar
+          z = r * Math.sin(theta)
+          y = ((i * 1.6180339887498949) % 1 - 0.5) * 3  // tiny Y spread
+        } else {
+          // Disc nodes: Fibonacci disc distribution, then attracted toward nearest arm
+          const discIdx = i - bulgeCount
+          const discTotal = totalNodes - bulgeCount
+
+          // Base position: Fibonacci disc (even spread across full disc)
+          const baseR = bulgeRadius + (galaxyRadius - bulgeRadius) * Math.sqrt((discIdx + 0.5) / discTotal)
+          const baseTheta = discIdx * goldenAngle
+
+          // Find the nearest spiral arm point and pull toward it
+          // Spiral arm equation: theta_arm = ln(r / a) / b + offset
+          // For Archimedean: theta_arm = (r - bulgeRadius) * TIGHTNESS / galaxyRadius + offset
+          // Find nearest major spiral arm (2 arms only — clean, bold)
+          let minAngDist = Infinity
+
+          for (let arm = 0; arm < NUM_ARMS; arm++) {
+            const armOffset = (arm / NUM_ARMS) * 2 * Math.PI
+            // Spiral arm angle at this radius
+            const armTheta = ((baseR - bulgeRadius) / galaxyRadius) * SPIRAL_TIGHTNESS * 2 * Math.PI * 3 + armOffset
+            // Angular distance (wrapped to -PI..PI)
+            let angDist = baseTheta - armTheta
+            angDist = angDist - Math.round(angDist / (2 * Math.PI)) * 2 * Math.PI
+            if (Math.abs(angDist) < Math.abs(minAngDist)) {
+              minAngDist = angDist
+            }
+          }
+
+          // Pull all nodes toward nearest arm — stronger pull = more visible arms
+          const attractedTheta = baseTheta - minAngDist * ARM_ATTRACTION
+          const r = baseR
+
+          // Add slight radial scatter for naturalness
+          // More organic scatter — radial + angular jitter
+          const radialScatter = ((discIdx * 2.236) % 1 - 0.5) * galaxyRadius * 0.06
+          const angularJitter = ((discIdx * 3.1415) % 1 - 0.5) * 0.04
+
+          x = (r + radialScatter) * Math.cos(attractedTheta + angularJitter)
+          z = (r + radialScatter) * Math.sin(attractedTheta + angularJitter)
+          y = ((discIdx * 1.6180339887498949) % 1 - 0.5) * 2  // very flat
         }
-      }
 
-      // Spiral arms: Archimedean spiral with block distribution and wide dark gaps
-      const spiralNodes = allConnectedSorted.filter(id => !dominantIds.has(id))
-      const nodesPerArm = Math.ceil(spiralNodes.length / NUM_ARMS)
-
-      // Archimedean spiral: r = r_start + t * (r_end - r_start) — LINEAR increase
-      const r_start = bulgeRadius * 1.1  // arms start just outside bulge
-      const r_end = r_start + armScale * 3  // how far arms extend
-
-      for (let i = 0; i < spiralNodes.length; i++) {
-        const nodeId = spiralNodes[i]
-        // Block distribution: contiguous blocks of nodes per arm
-        const armIdx = Math.min(Math.floor(i / nodesPerArm), NUM_ARMS - 1)
-        const posInArm = i - armIdx * nodesPerArm
-        const armOffset = (armIdx / NUM_ARMS) * 2 * Math.PI
-
-        // Progress along this arm (0→1)
-        const t = (posInArm + 0.5) / Math.max(nodesPerArm, 1)
-
-        // Archimedean spiral: linear radius increase + angular sweep
-        const r = r_start + t * (r_end - r_start)
-        const theta = t * SPIRAL_TURNS * 2 * Math.PI + armOffset
-
-        // Scatter perpendicular to arm direction — very tight streams
-        const armWidth = r * 0.015 + 1
-        const perpScatter = ((i * 1.6180339887498949) % 1 - 0.5) * armWidth
-
-        const dx = -Math.sin(theta) * perpScatter
-        const dz = Math.cos(theta) * perpScatter
-
-        milkywayTargets.set(nodeId, {
-          x: r * Math.cos(theta) + dx,
-          y: ((i * 2.6180339887498949) % 1 - 0.5) * 1,
-          z: r * Math.sin(theta) + dz,
-        })
-      }
-
-      // Orphan nodes: extend spiral arms outward beyond connected nodes
-      if (allOrphans.length > 0) {
-        const orphansPerArm = Math.ceil(allOrphans.length / NUM_ARMS)
-
-        allOrphans.forEach((node, idx) => {
-          const armIdx = Math.min(Math.floor(idx / orphansPerArm), NUM_ARMS - 1)
-          const posInArm = idx - armIdx * orphansPerArm
-          const armOffset = (armIdx / NUM_ARMS) * 2 * Math.PI
-
-          const extraT = (posInArm + 0.5) / Math.max(orphansPerArm, 1)
-          // Continue Archimedean spiral beyond r_end
-          const r = r_end + extraT * armScale * 1.5
-          const theta = SPIRAL_TURNS * 2 * Math.PI + extraT * Math.PI + armOffset
-
-          const perpScatter = ((idx * 0.6180339887498949) % 1 - 0.5) * r * 0.05
-          const dx = -Math.sin(theta) * perpScatter
-          const dz = Math.cos(theta) * perpScatter
-
-          milkywayTargets.set(node.id, {
-            x: r * Math.cos(theta) + dx,
-            y: ((idx * 1.6180339887498949) % 1 - 0.5) * 6,
-            z: r * Math.sin(theta) + dz,
-          })
-        })
+        milkywayTargets.set(nodeId, { x, y, z })
       }
     }
 
@@ -466,15 +449,15 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const chargeStrength = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -3 : -120
-    const centerStrength = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? 0 : 0.05
+    const chargeStrength = (graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : -120
+    const centerStrength = (graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : 0.05
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('link', forceLink(simLinks as any).id((d: unknown) => (d as WorkerNode).id)
         .distance(graphShape === 'milkyway' ? 20 : 60)
-        .strength(graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? 0.05 : 0.5))
+        .strength((graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : 0.5))
       .force('charge', forceManyBody().strength(chargeStrength))
       .force('center', forceCenter(0, 0, 0).strength(centerStrength))
       .force('collide', (graphShape === 'milkyway' || graphShape === 'saturn') ? null : forceCollide(12))
@@ -496,7 +479,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -3 : -120
+      const baseCharge = (graphShape === 'milkyway' || graphShape === 'saturn') ? 0 : -120
       if (cf?.strength) cf.strength(baseCharge * spread)
       tickCount = 0
       simulation.alpha(0.3)
