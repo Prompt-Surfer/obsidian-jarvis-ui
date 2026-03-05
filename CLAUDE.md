@@ -51,6 +51,14 @@ chore: bump Three.js to v0.172
 - Push release: `git push origin master && git push origin <tag>`
 - Tracking: `tracking/tracking.md` — all phases and tasks
 
+## Wake Callback (MANDATORY on task completion)
+When finishing a task, send a wake notification so the orchestrator knows you're done:
+```bash
+export WAKE_TELEGRAM_TO='-1003792770433' WAKE_TELEGRAM_TOPIC='2397'
+bash "/home/samuel/.openclaw/workspace/skills/claude-code-orchestrator/scripts/wake.sh" "Claude Code done (<label>): <summary>" now
+```
+**Never skip this.** The wake script path is absolute — do not guess or shorten it.
+
 ## Key Patterns
 - Node colours derive from `folder` field → `getNodeColor()` in Graph3D.tsx
 - Edge highlights: `selectedEdgeLinesRef` overlay (cyan, additive blending) — base edges never change colour

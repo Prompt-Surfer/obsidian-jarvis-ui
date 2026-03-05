@@ -311,10 +311,8 @@ self.onmessage = (e: MessageEvent) => {
 
     {
       const armScale = 50 + connectedCount * 0.35
-      const NUM_ARMS = 4           // 4 spiral arms like real Milky Way
+      const NUM_ARMS = 2           // 2 dominant arms like M51
       const SPIRAL_TURNS = 1.5     // fewer turns = more spread out arms
-      const maxTheta = SPIRAL_TURNS * 2 * Math.PI
-      const SPIRAL_B = 0.15        // low tightness — keeps arms visible without exponential blowup
 
       // Sort all connected nodes: by cluster (largest first) then by id within cluster
       const allConnectedSorted: string[] = []
@@ -346,11 +344,13 @@ self.onmessage = (e: MessageEvent) => {
         }
       }
 
-      // Spiral arms: non-dominant connected nodes distributed in BLOCKS (not interleaved)
+      // Spiral arms: Archimedean spiral with block distribution and wide dark gaps
       const spiralNodes = allConnectedSorted.filter(id => !dominantIds.has(id))
       const nodesPerArm = Math.ceil(spiralNodes.length / NUM_ARMS)
-      // Each arm fills 65% of its sector, leaving 35% dark gap
-      const armSectorWidth = (2 * Math.PI / NUM_ARMS) * 0.65
+
+      // Archimedean spiral: r = r_start + t * (r_end - r_start) — LINEAR increase
+      const r_start = bulgeRadius * 1.1  // arms start just outside bulge
+      const r_end = r_start + armScale * 3  // how far arms extend
 
       for (let i = 0; i < spiralNodes.length; i++) {
         const nodeId = spiralNodes[i]
@@ -362,29 +362,26 @@ self.onmessage = (e: MessageEvent) => {
         // Progress along this arm (0→1)
         const t = (posInArm + 0.5) / Math.max(nodesPerArm, 1)
 
-        // Theta constrained within arm's sector (creates dark gaps between arms)
-        const thetaInArm = armOffset + t * armSectorWidth + t * maxTheta
+        // Archimedean spiral: linear radius increase + angular sweep
+        const r = r_start + t * (r_end - r_start)
+        const theta = t * SPIRAL_TURNS * 2 * Math.PI + armOffset
 
-        // Logarithmic spiral: r starts just outside bulge
-        const r = bulgeRadius + armScale * 0.5 * Math.exp(SPIRAL_B * (t * maxTheta))
-
-        // Scatter perpendicular to arm direction — tight inner, wider outer
-        const armWidth = r * 0.04 + 2
+        // Scatter perpendicular to arm direction — very tight streams
+        const armWidth = r * 0.03 + 1
         const perpScatter = ((i * 1.6180339887498949) % 1 - 0.5) * armWidth
 
-        const dx = -Math.sin(thetaInArm) * perpScatter
-        const dz = Math.cos(thetaInArm) * perpScatter
+        const dx = -Math.sin(theta) * perpScatter
+        const dz = Math.cos(theta) * perpScatter
 
         milkywayTargets.set(nodeId, {
-          x: r * Math.cos(thetaInArm) + dx,
+          x: r * Math.cos(theta) + dx,
           y: ((i * 2.6180339887498949) % 1 - 0.5) * 4,
-          z: r * Math.sin(thetaInArm) + dz,
+          z: r * Math.sin(theta) + dz,
         })
       }
 
-      // Orphan nodes: extend spiral arms outward in blocks
+      // Orphan nodes: extend spiral arms outward beyond connected nodes
       if (allOrphans.length > 0) {
-        const maxR = bulgeRadius + armScale * 0.5 * Math.exp(SPIRAL_B * maxTheta)
         const orphansPerArm = Math.ceil(allOrphans.length / NUM_ARMS)
 
         allOrphans.forEach((node, idx) => {
@@ -393,10 +390,11 @@ self.onmessage = (e: MessageEvent) => {
           const armOffset = (armIdx / NUM_ARMS) * 2 * Math.PI
 
           const extraT = (posInArm + 0.5) / Math.max(orphansPerArm, 1)
-          const theta = armOffset + extraT * armSectorWidth + maxTheta + extraT * Math.PI
-          const r = maxR * (1.0 + extraT * 0.5)
+          // Continue Archimedean spiral beyond r_end
+          const r = r_end + extraT * armScale * 1.5
+          const theta = SPIRAL_TURNS * 2 * Math.PI + extraT * Math.PI + armOffset
 
-          const perpScatter = ((idx * 0.6180339887498949) % 1 - 0.5) * r * 0.08
+          const perpScatter = ((idx * 0.6180339887498949) % 1 - 0.5) * r * 0.05
           const dx = -Math.sin(theta) * perpScatter
           const dz = Math.cos(theta) * perpScatter
 
@@ -445,8 +443,8 @@ self.onmessage = (e: MessageEvent) => {
           }
         }
       } else if (graphShape === 'saturn') {
-        // Pull all nodes toward Saturn sphere/ring targets (very strong — shape formula dominates)
-        const k = alpha * 0.7
+        // Pull all nodes toward Saturn sphere/ring targets (very strong snap to surface)
+        const k = alpha * 0.8
         for (const node of simNodes) {
           const target = saturnTargets.get(node.id)
           if (!target) continue
@@ -468,7 +466,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const chargeStrength = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -2 : -120
+    const chargeStrength = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -3 : -120
     const centerStrength = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? 0 : 0.05
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -498,7 +496,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -2 : -120
+      const baseCharge = graphShape === 'milkyway' ? 0 : graphShape === 'saturn' ? -3 : -120
       if (cf?.strength) cf.strength(baseCharge * spread)
       tickCount = 0
       simulation.alpha(0.3)

@@ -958,8 +958,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         endTarget.z + dist * Math.cos(angle)
       )
     } else if (graphShape === 'saturn') {
-      // 30° above ring plane — classic astronomy photo angle, sees top of rings
-      const angle = 30 * Math.PI / 180
+      // 40° above ring plane — dramatic tilt view showing ring as tilted ellipse
+      const angle = 40 * Math.PI / 180
       endPos = new THREE.Vector3(
         endTarget.x,
         endTarget.y + dist * Math.sin(angle),
