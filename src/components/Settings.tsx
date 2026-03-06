@@ -8,6 +8,7 @@ interface SettingsProps {
   spread: number
   minNodeSize: number
   maxNodeSize: number
+  ultraNodeSize: number
   onBloomToggle: (enabled: boolean) => void
   onOpacityChange: (value: number) => void
   onStarsToggle: (enabled: boolean) => void
@@ -15,6 +16,7 @@ interface SettingsProps {
   onSpreadChange: (value: number) => void
   onMinSizeChange: (value: number) => void
   onMaxSizeChange: (value: number) => void
+  onUltraNodeSizeChange: (value: number) => void
   onResetAll: () => void
   onResetPosition: () => void
   zoomToNode: boolean
@@ -31,6 +33,7 @@ export function Settings({
   spread,
   minNodeSize,
   maxNodeSize,
+  ultraNodeSize,
   onBloomToggle,
   onOpacityChange,
   onStarsToggle,
@@ -38,6 +41,7 @@ export function Settings({
   onSpreadChange,
   onMinSizeChange,
   onMaxSizeChange,
+  onUltraNodeSizeChange,
   onResetAll,
   onResetPosition,
   zoomToNode,
@@ -164,6 +168,21 @@ export function Settings({
               step={0.1}
               value={maxNodeSize}
               onChange={e => onMaxSizeChange(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>
+              ULTRANODE SIZE: {ultraNodeSize.toFixed(1)}x
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={8}
+              step={0.5}
+              value={ultraNodeSize}
+              onChange={e => onUltraNodeSizeChange(Number(e.target.value))}
               style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
             />
           </div>

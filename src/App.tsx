@@ -86,6 +86,7 @@ function App() {
   const [spread, setSpreadState] = useState(2.0)
   const [minNodeSize, setMinNodeSize] = useState(1.0)
   const [maxNodeSize, setMaxNodeSize] = useState(3.0)
+  const [ultraNodeSize, setUltraNodeSize] = useState(4.0)
   const [shortcutsVisible, setShortcutsVisible] = useState(() => {
     try { return localStorage.getItem('jarvis-shortcuts-open') !== 'false' } catch { return true }
   })
@@ -414,6 +415,7 @@ function App() {
     setNodeOpacity(1.0)
     setMinNodeSize(1.0)
     setMaxNodeSize(3.0)
+    setUltraNodeSize(4.0)
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
@@ -547,6 +549,7 @@ function App() {
         nodeDegrees={nodeDegrees}
         minNodeSize={minNodeSize}
         maxNodeSize={maxNodeSize}
+        ultraNodeSize={ultraNodeSize}
         onNodeClick={handleNodeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
         onNodeHover={handleNodeHover}
@@ -575,6 +578,7 @@ function App() {
         spread={spread}
         minNodeSize={minNodeSize}
         maxNodeSize={maxNodeSize}
+        ultraNodeSize={ultraNodeSize}
         onBloomToggle={setBloomEnabled}
         onOpacityChange={setNodeOpacity}
         onStarsToggle={setStarsEnabled}
@@ -582,6 +586,7 @@ function App() {
         onSpreadChange={handleSpreadChange}
         onMinSizeChange={setMinNodeSize}
         onMaxSizeChange={setMaxNodeSize}
+        onUltraNodeSizeChange={setUltraNodeSize}
         onResetAll={handleResetAll}
         onResetPosition={() => graphRef.current?.resetCamera()}
         zoomToNode={zoomToNode}

@@ -26,6 +26,7 @@ interface Graph3DProps {
   nodeDegrees: Map<string, number>
   minNodeSize: number
   maxNodeSize: number
+  ultraNodeSize: number
   onNodeClick: (node: GraphNode) => void
   onNodeDoubleClick: (node: GraphNode) => void
   onNodeHover: (node: GraphNode | null, x: number, y: number) => void
@@ -111,6 +112,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   nodeDegrees,
   minNodeSize,
   maxNodeSize,
+  ultraNodeSize,
   onNodeClick,
   onNodeDoubleClick,
   onNodeHover,
@@ -159,7 +161,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   // Change-detection refs: skip expensive Three.js matrix+link updates when positions unchanged
   const lastPositionsRef = useRef<Map<string, NodePosition> | null>(null)
   const lastVisibleNodesRef = useRef<Set<string> | null>(null)
-  const lastSizeParamsRef = useRef({ minNodeSize: -1, maxNodeSize: -1 })
+  const lastSizeParamsRef = useRef({ minNodeSize: -1, maxNodeSize: -1, ultraNodeSize: -1 })
   const lastFiltersRef = useRef({
     timeFilterIds: null as Set<string> | null,
     tagIsolationIds: null as Set<string> | null,
@@ -435,13 +437,17 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     scene.add(sprite)
     selectedTitleSpriteRef.current = sprite
 
-    // Size bracket proportional to node size
+    // Size bracket proportional to node size (3-tier system)
     if (bracket) {
-      let maxDeg = 1
-      for (const [, d] of nodeDegrees) if (d > maxDeg) maxDeg = d
+      const selDegrees = Array.from(nodeDegrees.values()).sort((a, b) => a - b)
+      const selUltraThreshold = selDegrees[Math.floor(selDegrees.length * 0.98)] ?? 0
+      const selSuperThreshold = selDegrees[Math.floor(selDegrees.length * 0.85)] ?? 0
       const deg = nodeDegrees.get(selectedNodeId) ?? 0
-      const t = maxDeg > 1 ? deg / maxDeg : 0
-      const sizeMult = minNodeSize + (maxNodeSize - minNodeSize) * t
+      const sizeMult = deg >= selUltraThreshold && selUltraThreshold > 0
+        ? ultraNodeSize
+        : deg >= selSuperThreshold && selSuperThreshold > 0
+          ? maxNodeSize
+          : minNodeSize
       const bracketSize = NODE_RADIUS * sizeMult * 3
       bracket.scale.set(bracketSize, bracketSize, bracketSize)
       bracket.visible = true
@@ -462,7 +468,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       selectedTitleSpriteRef.current = null
       if (bracket) bracket.visible = false
     }
-  }, [selectedNodeId, graphData, nodeDegrees, minNodeSize, maxNodeSize])
+  }, [selectedNodeId, graphData, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize])
 
   // Update positions each frame from simulation
   useEffect(() => {
@@ -480,7 +486,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const visibleNodesChanged = visibleNodes !== lastVisibleNodesRef.current
     const sizeChanged =
       minNodeSize !== lastSizeParamsRef.current.minNodeSize ||
-      maxNodeSize !== lastSizeParamsRef.current.maxNodeSize
+      maxNodeSize !== lastSizeParamsRef.current.maxNodeSize ||
+      ultraNodeSize !== lastSizeParamsRef.current.ultraNodeSize
     const filtersChanged =
       timeFilterIds !== lastFiltersRef.current.timeFilterIds ||
       tagIsolationIds !== lastFiltersRef.current.tagIsolationIds ||
@@ -491,15 +498,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (needsMatrixUpdate) {
       lastPositionsRef.current = positions
       lastVisibleNodesRef.current = visibleNodes
-      lastSizeParamsRef.current = { minNodeSize, maxNodeSize }
+      lastSizeParamsRef.current = { minNodeSize, maxNodeSize, ultraNodeSize }
       lastFiltersRef.current = { timeFilterIds, tagIsolationIds, focusModeNodeIds }
     }
 
-    // Compute max degree for size scaling
-    let maxDegree = 1
-    for (const [, deg] of nodeDegrees) {
-      if (deg > maxDegree) maxDegree = deg
-    }
+    // Compute 3-tier degree thresholds: ultranode (top 2%), supernode (top 15%), regular
+    const sortedDegrees = Array.from(nodeDegrees.values()).sort((a, b) => a - b)
+    const ultraThreshold = sortedDegrees[Math.floor(sortedDegrees.length * 0.98)] ?? 0
+    const superThreshold = sortedDegrees[Math.floor(sortedDegrees.length * 0.85)] ?? 0
 
     nodes.forEach((node, i) => {
       const pos = positions.get(node.id)
@@ -516,8 +522,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       // Matrix (position + scale): only when layout-affecting deps changed
       if (needsMatrixUpdate) {
         const degree = nodeDegrees.get(node.id) ?? 0
-        const t = maxDegree > 1 ? degree / maxDegree : 0
-        const sizeMultiplier = minNodeSize + (maxNodeSize - minNodeSize) * t
+        const sizeMultiplier = degree >= ultraThreshold && ultraThreshold > 0
+          ? ultraNodeSize
+          : degree >= superThreshold && superThreshold > 0
+            ? maxNodeSize
+            : minNodeSize
         const scale = visible ? sizeMultiplier : 0
 
         dummy.position.set(pos.x, pos.y, pos.z)
@@ -636,7 +645,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
-  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, focusModeNodeIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, labelsEnabled])
+  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, focusModeNodeIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize, labelsEnabled])
 
   // Animate loop
   useEffect(() => {
