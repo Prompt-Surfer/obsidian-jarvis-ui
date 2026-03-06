@@ -100,6 +100,7 @@ function App() {
   const [flashNodeId, setFlashNodeId] = useState<string | null>(null)
   const [navBreadcrumb, setNavBreadcrumb] = useState<string | null>(null)
   const [focusMode, setFocusMode] = useState(false)
+  const [focusLockedNodeIds, setFocusLockedNodeIds] = useState<Set<string> | null>(null)
   const [zoomToNode, setZoomToNode] = useState(() => {
     try { return localStorage.getItem('jarvis-zoom-to-node') !== 'false' } catch { return true }
   })
@@ -205,19 +206,6 @@ function App() {
     }
     return centres
   }, [graphData, nodeDegrees])
-
-  // Focus-mode: connected node IDs for selected node (used by H key)
-  const focusModeNodeIds = useMemo(() => {
-    if (!focusMode || !selectedNode || !graphData) return null
-    const ids = new Set<string>([selectedNode.id])
-    graphData.links.forEach(l => {
-      const s = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id
-      const t = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id
-      if (s === selectedNode.id) ids.add(t)
-      if (t === selectedNode.id) ids.add(s)
-    })
-    return ids
-  }, [focusMode, selectedNode, graphData])
 
   // Visible nodes: when a folder is collapsed only show its centre node
   const visibleNodes = useMemo(() => {
@@ -326,13 +314,23 @@ function App() {
         e.preventDefault()
         setSearchVisible(v => !v)
       } else if (e.key === 'h' || e.key === 'H') {
-        if (selectedNode) {
-          setFocusMode(v => !v)
-        } else {
+        if (focusMode) {
           setFocusMode(false)
+          setFocusLockedNodeIds(null)
+        } else if (selectedNode && graphData) {
+          const ids = new Set<string>([selectedNode.id])
+          graphData.links.forEach(l => {
+            const s = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id
+            const t = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id
+            if (s === selectedNode.id) ids.add(t)
+            if (t === selectedNode.id) ids.add(s)
+          })
+          setFocusLockedNodeIds(ids)
+          setFocusMode(true)
         }
       } else if (e.key === 'Escape') {
         setFocusMode(false)
+        setFocusLockedNodeIds(null)
         setSearchVisible(false)
         setSelectedNode(null)
         setSidebarFullView(false)
@@ -362,13 +360,14 @@ function App() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [graphData, reheat, cancelElectron, navigateArrow, folderCentresMap])
+  }, [graphData, focusMode, selectedNode, reheat, cancelElectron, navigateArrow, folderCentresMap])
 
   // When node selection is cleared, exit focus mode
   const clearSelection = useCallback(() => {
     setSelectedNode(null)
     setSidebarFullView(false)
     setFocusMode(false)
+    setFocusLockedNodeIds(null)
   }, [])
 
   // Single click → full markdown view in sidebar
@@ -545,7 +544,7 @@ function App() {
         searchResults={searchResults}
         timeFilterIds={timeFilterIds}
         tagIsolationIds={tagIsolationIds}
-        focusModeNodeIds={focusModeNodeIds}
+        focusModeNodeIds={focusLockedNodeIds}
         collapsedNodes={collapsedNodes}
         visibleNodes={visibleNodes}
         nodeOpacity={nodeOpacity}
@@ -573,7 +572,7 @@ function App() {
         linkCount={graphData.links.length}
         visibleNodeCount={visibleCount}
         simDone={simDone}
-        breadcrumb={patternLoading ? '◌ RECALCULATING...' : focusMode ? '[H] FOCUS MODE' : navBreadcrumb}
+        breadcrumb={patternLoading ? '◌ RECALCULATING...' : focusMode ? `[H] FOCUS LOCKED (${focusLockedNodeIds?.size ?? 0} nodes)` : navBreadcrumb}
       />
 
       <Settings
