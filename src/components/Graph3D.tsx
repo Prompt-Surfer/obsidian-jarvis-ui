@@ -37,7 +37,7 @@ interface Graph3DProps {
   onMoveNodes?: (pinned: Array<{ id: string; x: number; y: number; z: number }>) => void
   onUnpinNodes?: (ids: string[]) => void
   electronScene?: THREE.Scene
-  graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain'
+  graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural'
 }
 
 export interface Graph3DHandle {

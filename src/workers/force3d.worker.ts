@@ -36,7 +36,7 @@ let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
-let graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' = 'centroid'
+let graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' = 'centroid'
 let currentSpread = 2.0
 
 function getNodePositions(nodes: WorkerNode[]) {
@@ -72,11 +72,11 @@ self.onmessage = (e: MessageEvent) => {
     type: string
     nodes?: Array<{ id: string; folder: string }>
     links?: Array<{ source: string; target: string }>
-    graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain'
+    graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural'
   }
 
   if (type === 'setGraphShape') {
-    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' }).graphShape ?? 'centroid'
+    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' }).graphShape ?? 'centroid'
     // Reheat sim so nodes animate to new shape
     if (simulation) {
       tickCount = 0
@@ -617,13 +617,25 @@ self.onmessage = (e: MessageEvent) => {
     const chargeStrength = isShapeDriven ? 0 : -120
     const centerStrength = isShapeDriven ? 0 : 0.05
 
+    // For 'natural': per-node charge based on tier — ultranodes/supernodes pulled harder to center
+    const naturalChargeStrength = (d: unknown) => {
+      const node = d as WorkerNode
+      const tier = tierMap.get(node.id) ?? 'regular'
+      if (tier === 'ultranode') return -350
+      if (tier === 'supernode') return -200
+      return -120
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simulation = forceSimulation(simNodes as any, 3)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('link', forceLink(simLinks as any).id((d: unknown) => (d as WorkerNode).id)
         .distance(graphShape === 'milkyway' ? 20 : 60)
         .strength(isShapeDriven ? 0 : 0.5))
-      .force('charge', forceManyBody().strength(chargeStrength))
+      .force('charge', graphShape === 'natural'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? forceManyBody().strength(naturalChargeStrength as any)
+        : forceManyBody().strength(chargeStrength))
       .force('center', forceCenter(0, 0, 0).strength(centerStrength))
       .force('collide', isShapeDriven ? null : forceCollide(12))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -645,7 +657,19 @@ self.onmessage = (e: MessageEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
       const baseCharge = (graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain') ? 0 : -120
-      if (cf?.strength) cf.strength(baseCharge * spread)
+      if (cf?.strength) {
+        if (graphShape === 'natural') {
+          cf.strength((d: unknown) => {
+            const node = d as WorkerNode
+            const tier = tierMap.get(node.id) ?? 'regular'
+            if (tier === 'ultranode') return -350 * spread
+            if (tier === 'supernode') return -200 * spread
+            return -120 * spread
+          })
+        } else {
+          cf.strength(baseCharge * spread)
+        }
+      }
       tickCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()

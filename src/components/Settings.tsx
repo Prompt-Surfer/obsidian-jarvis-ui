@@ -21,8 +21,8 @@ interface SettingsProps {
   onResetPosition: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
-  graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain'
-  onGraphShapeChange: (v: 'centroid' | 'saturn' | 'milkyway' | 'brain') => void
+  graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural'
+  onGraphShapeChange: (v: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural') => void
 }
 
 export function Settings({
@@ -189,12 +189,13 @@ export function Settings({
 
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>SHAPE</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 4 }}>
               {([
                 { value: 'centroid', icon: '⚪', label: 'Centroid' },
                 { value: 'saturn', icon: '🪐', label: 'Saturn' },
                 { value: 'milkyway', icon: '🌌', label: 'Milky Way' },
                 { value: 'brain', icon: '🧠', label: 'Brain' },
+                { value: 'natural', icon: '🌿', label: 'Natural' },
               ] as const).map(({ value, icon, label }) => (
                 <button
                   key={value}

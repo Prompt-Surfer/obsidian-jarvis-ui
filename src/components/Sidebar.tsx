@@ -490,7 +490,7 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
       fontSize: 14,
       overflowY: 'scroll',
       scrollBehavior: 'smooth',
-      scrollbarWidth: 'none' as any,  // Firefox
+      scrollbarWidth: 'none' as const,  // Firefox
       zIndex: 200,
       transition: dragging ? 'none' : 'transform 0.25s ease',
       transform: visible ? 'translateX(0)' : 'translateX(100%)',
