@@ -36,6 +36,7 @@ let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' = 'centroid'
+let brainMode: 'edge' | 'center' = 'edge'
 let currentSpread = 2.0
 
 function getNodePositions(nodes: WorkerNode[]) {
@@ -72,6 +73,16 @@ self.onmessage = (e: MessageEvent) => {
     nodes?: Array<{ id: string; folder: string }>
     links?: Array<{ source: string; target: string }>
     graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain'
+  }
+
+  if (type === 'setBrainMode') {
+    brainMode = (e.data as { brainMode?: 'edge' | 'center' }).brainMode ?? 'edge'
+    if (simulation && graphShape === 'brain') {
+      tickCount = 0
+      simulation.alpha(0.6)
+      if (!tickRunning) runTick()
+    }
+    return
   }
 
   if (type === 'setGraphShape') {
@@ -148,6 +159,7 @@ self.onmessage = (e: MessageEvent) => {
     tickRunning = false
     tickCount = 0
     if (e.data.graphShape) graphShape = e.data.graphShape
+    if (e.data.brainMode) brainMode = e.data.brainMode
     if (e.data.spread != null) currentSpread = e.data.spread
 
     // Warm restart: if existing positions are provided (shape-only change), reuse them
@@ -469,23 +481,93 @@ self.onmessage = (e: MessageEvent) => {
         return [x, y, z]
       })
 
-      // Collect all node IDs: connected first, then orphans
-      const allBrainNodes: string[] = []
-      for (const cluster of allClusters) {
-        for (const id of cluster) allBrainNodes.push(id)
+      // ── Node hierarchy: classify by connectivity ──────────────────────
+      // Sort all node IDs by degree (connection count)
+      const allNodeDegrees: Array<{ id: string; degree: number }> = []
+      for (const [id, deg] of degreeMap) {
+        allNodeDegrees.push({ id, degree: deg })
       }
-      for (const orphan of allOrphans) allBrainNodes.push(orphan.id)
+      allNodeDegrees.sort((a, b) => b.degree - a.degree)
 
-      const totalNodes = allBrainNodes.length
+      // Top 12% by degree = supernodes
+      const supernodeThreshold = Math.max(3, allNodeDegrees[Math.floor(allNodeDegrees.length * 0.12)]?.degree ?? 3)
+      const supernodeIds = new Set<string>()
+      for (const { id, degree } of allNodeDegrees) {
+        if (degree >= supernodeThreshold) supernodeIds.add(id)
+      }
+
+      // Ultranodes: nodes with the most supernodes connected directly
+      const supernodeNeighborCount = new Map<string, number>()
+      for (const l of links ?? []) {
+        if (supernodeIds.has(l.target)) {
+          supernodeNeighborCount.set(l.source, (supernodeNeighborCount.get(l.source) ?? 0) + 1)
+        }
+        if (supernodeIds.has(l.source)) {
+          supernodeNeighborCount.set(l.target, (supernodeNeighborCount.get(l.target) ?? 0) + 1)
+        }
+      }
+      const ultraCandidates = [...supernodeNeighborCount.entries()].sort((a, b) => b[1] - a[1])
+      const ultraCount = Math.max(3, Math.floor(allNodeDegrees.length * 0.02))
+      const ultranodeIds = new Set<string>(ultraCandidates.slice(0, ultraCount).map(([id]) => id))
+
+      // Classify every node
+      type NodeTier = 'ultra' | 'super' | 'regular' | 'orphan'
+      const nodeTier = new Map<string, NodeTier>()
+      for (const { id, degree } of allNodeDegrees) {
+        if (ultranodeIds.has(id)) nodeTier.set(id, 'ultra')
+        else if (supernodeIds.has(id)) nodeTier.set(id, 'super')
+        else if (degree > 0) nodeTier.set(id, 'regular')
+        else nodeTier.set(id, 'orphan')
+      }
+
+      // Log hierarchy stats
+      const tierCounts = { ultra: 0, super: 0, regular: 0, orphan: 0 }
+      for (const [, tier] of nodeTier) tierCounts[tier]++
+      console.log('[brain] Node hierarchy:', tierCounts, 'supernodeThreshold:', supernodeThreshold)
+
+      // ── Sort mesh vertices for hierarchy-aware placement ───────────────
+      // Version A (edge): sort by distance from brain center, FARTHEST first
+      //   → ultranodes get extremity positions (tips of lobes, brainstem end)
+      // Version B (center): sort by distance from brain center, CLOSEST first
+      //   → ultranodes get central positions (core of brain mass)
+      const sortedVertIndices = Array.from({ length: processedMesh.length }, (_, i) => i)
+      sortedVertIndices.sort((a, b) => {
+        const [ax, ay, az] = processedMesh[a]
+        const [bx, by, bz] = processedMesh[b]
+        const da = ax * ax + ay * ay + az * az
+        const db = bx * bx + by * by + bz * bz
+        return brainMode === 'edge' ? db - da : da - db
+      })
+
+      // ── Build ordered node list: clusters grouped, tiers prioritized ──
+      // Order: ultra → super → regular → orphan
+      // Within each tier, clusters are kept together (adjacent vertices)
+      const tierOrder: NodeTier[] = ['ultra', 'super', 'regular', 'orphan']
+      const orderedNodes: string[] = []
+
+      // Group cluster nodes by tier, keeping clusters together within each tier
+      for (const tier of tierOrder) {
+        if (tier === 'orphan') continue // handle separately
+        for (let ci = 0; ci < allClusters.length; ci++) {
+          for (const id of allClusters[ci]) {
+            if (nodeTier.get(id) === tier) orderedNodes.push(id)
+          }
+        }
+      }
+      // Orphans last
+      for (const orphan of allOrphans) {
+        orderedNodes.push(orphan.id)
+      }
+
+      const totalNodes = orderedNodes.length
       const meshCount = processedMesh.length
 
-      // Distribute nodes evenly across mesh vertices
+      // Assign: first node gets first sorted vertex, etc.
       for (let i = 0; i < totalNodes; i++) {
-        const nodeId = allBrainNodes[i]
-        const vertIdx = Math.floor(i * meshCount / totalNodes) % meshCount
+        const nodeId = orderedNodes[i]
+        const vertIdx = sortedVertIndices[Math.floor(i * meshCount / totalNodes) % meshCount]
         const vert = processedMesh[vertIdx]
 
-        // Small jitter for nodes sharing same vertex region
         const jx = ((i * 2.236) % 1 - 0.5) * R * 0.03
         const jy = ((i * 1.618) % 1 - 0.5) * R * 0.03
         const jz = ((i * 3.142) % 1 - 0.5) * R * 0.03

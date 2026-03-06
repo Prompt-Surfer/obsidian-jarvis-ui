@@ -12,6 +12,11 @@ export interface NodePosition {
 const DEBUG = import.meta.env.DEV && typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('perf')
 
+// Brain placement mode: 'edge' (Version A) or 'center' (Version B) via ?brainMode= param
+const BRAIN_MODE = typeof window !== 'undefined'
+  ? (new URLSearchParams(window.location.search).get('brainMode') as 'edge' | 'center') ?? 'edge'
+  : 'edge'
+
 export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' = 'centroid') {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
@@ -109,6 +114,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
         target: typeof l.target === 'string' ? l.target : (l.target as GraphNode).id,
       })),
       graphShape,
+      brainMode: BRAIN_MODE,
       existingPositions,
       spread: spreadRef.current,
     })
