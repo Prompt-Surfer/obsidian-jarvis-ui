@@ -571,14 +571,15 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
                   title={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
                   style={{
                     cursor: 'pointer',
-                    color: isFavourite ? '#00d4ff' : '#585b70',
-                    fontSize: 16,
+                    color: isFavourite ? '#00d4ff' : '#8892a4',
+                    fontSize: 20,
                     lineHeight: 1,
                     flexShrink: 0,
+                    marginLeft: 4,
                     transition: 'color 0.15s',
                   }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00d4ff' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = isFavourite ? '#00d4ff' : '#585b70' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = isFavourite ? '#00d4ff' : '#8892a4' }}
                 >
                   {isFavourite ? '♥' : '♡'}
                 </span>

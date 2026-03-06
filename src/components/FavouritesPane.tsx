@@ -27,28 +27,29 @@ export function FavouritesPane({ favourites, allNodes, sidebarWidth, onNavigate,
           top: 80,
           right: sidebarWidth,
           zIndex: 199,
-          background: open ? '#1e1e2e' : 'rgba(0,0,0,0.85)',
-          border: '1px solid #313244',
+          background: open ? '#1a2a3a' : 'rgba(0,30,50,0.90)',
+          border: '1px solid #00d4ff44',
           borderRight: 'none',
           borderRadius: '4px 0 0 4px',
-          padding: '6px 8px',
+          padding: '8px 7px',
           cursor: 'pointer',
           fontFamily: '"Courier New", monospace',
           fontSize: 11,
-          color: favouriteNodes.length > 0 ? '#00d4ff' : '#585b70',
+          color: '#00d4ff',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 3,
+          gap: 4,
           userSelect: 'none',
-          transition: 'color 0.2s, background 0.2s',
+          transition: 'background 0.2s, box-shadow 0.2s',
           writingMode: 'vertical-rl',
-          letterSpacing: '0.05em',
+          letterSpacing: '0.07em',
+          boxShadow: open ? 'inset 0 0 8px #00d4ff22' : '0 0 6px #00d4ff22',
         }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00d4ff' }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = favouriteNodes.length > 0 ? '#00d4ff' : '#585b70' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#1a2a3a'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 10px #00d4ff33' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = open ? '#1a2a3a' : 'rgba(0,30,50,0.90)'; (e.currentTarget as HTMLElement).style.boxShadow = open ? 'inset 0 0 8px #00d4ff22' : '0 0 6px #00d4ff22' }}
       >
-        {favouriteNodes.length > 0 ? '♥' : '☆'} FAV {favouriteNodes.length > 0 ? `(${favouriteNodes.length})` : ''}
+        ★ FAV{favouriteNodes.length > 0 ? ` (${favouriteNodes.length})` : ''}
       </div>
 
       {/* Favourites pane */}
