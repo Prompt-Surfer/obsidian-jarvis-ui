@@ -49,6 +49,7 @@ export function Settings({
   graphShape,
   onGraphShapeChange,
 }: SettingsProps) {
+  const [hoveredShape, setHoveredShape] = useState<string | null>(null)
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
   })
@@ -189,35 +190,43 @@ export function Settings({
 
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>SHAPE</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
               {([
+                { value: 'natural', icon: '🌿', label: 'Natural' },
                 { value: 'centroid', icon: '⚪', label: 'Centroid' },
                 { value: 'saturn', icon: '🪐', label: 'Saturn' },
                 { value: 'milkyway', icon: '🌌', label: 'Milky Way' },
                 { value: 'brain', icon: '🧠', label: 'Brain' },
-                { value: 'natural', icon: '🌿', label: 'Natural' },
-              ] as const).map(({ value, icon, label }) => (
-                <button
-                  key={value}
-                  onClick={() => onGraphShapeChange(value)}
-                  title={label}
-                  style={{
-                    background: graphShape === value ? '#00d4ff22' : 'rgba(0,0,0,0.5)',
-                    border: `1px solid ${graphShape === value ? '#00d4ff' : '#1a3a4a'}`,
-                    color: graphShape === value ? '#00d4ff' : '#585b70',
-                    borderRadius: 4,
-                    padding: '5px 4px',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    fontSize: 10,
-                    letterSpacing: '0.05em',
-                    textAlign: 'center',
-                  }}
-                >
-                  <span style={{ fontSize: 13, display: 'block', marginBottom: 2 }}>{icon}</span>
-                  {label}
-                </button>
-              ))}
+              ] as const).map(({ value, icon, label }) => {
+                const isSelected = graphShape === value
+                const isHovered = hoveredShape === value
+                return (
+                  <button
+                    key={value}
+                    onClick={() => onGraphShapeChange(value)}
+                    onMouseEnter={() => setHoveredShape(value)}
+                    onMouseLeave={() => setHoveredShape(null)}
+                    title={label}
+                    style={{
+                      background: isSelected ? '#00d4ff22' : isHovered ? '#00d4ff0d' : 'rgba(0,0,0,0.5)',
+                      border: `1px solid ${isSelected ? '#00d4ff' : isHovered ? '#00d4ff66' : '#1a3a4a'}`,
+                      color: isSelected ? '#00d4ff' : isHovered ? '#00a8cc' : '#585b70',
+                      borderRadius: 4,
+                      padding: '10px 4px 8px',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      fontSize: 10,
+                      letterSpacing: '0.05em',
+                      textAlign: 'center',
+                      boxShadow: isSelected ? '0 0 8px #00d4ff44' : 'none',
+                      transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
+                    }}
+                  >
+                    <span style={{ fontSize: 20, display: 'block', marginBottom: 4 }}>{icon}</span>
+                    {label}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
