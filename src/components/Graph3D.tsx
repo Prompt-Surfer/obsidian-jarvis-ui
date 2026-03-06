@@ -62,7 +62,7 @@ function createSelectedTitleSprite(text: string): THREE.Sprite {
   canvas.height = H
   const ctx = canvas.getContext('2d')!
   const label = text.length > 32 ? text.slice(0, 30) + '…' : text
-  ctx.font = 'bold 16px "Courier New", monospace'
+  ctx.font = 'bold 16px "Inter", "Segoe UI", sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = '#00ccff'
@@ -82,7 +82,7 @@ function createLabelSprite(text: string): THREE.Sprite {
   canvas.height = H
   const ctx = canvas.getContext('2d')!
   const label = text.length > 22 ? text.slice(0, 20) + '…' : text
-  ctx.font = '14px "Courier New", monospace'
+  ctx.font = '14px "Inter", "Segoe UI", sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = '#00a8cc'
