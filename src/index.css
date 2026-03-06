@@ -11,19 +11,28 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* Custom scrollbar for sidebar */
+/* Custom scrollbar — thin, dark, Obsidian-style */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: #181825;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: #313244;
-  border-radius: 3px;
+  border-radius: 4px;
+  transition: background 0.25s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #45475a;
+  background: #00d4ff55;
+}
+::-webkit-scrollbar-thumb:active {
+  background: #00d4ff;
+}
+
+/* Smooth scroll for all scrollable containers */
+* {
+  scroll-behavior: smooth;
 }
 
 /* Range input styling */

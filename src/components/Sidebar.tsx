@@ -471,6 +471,7 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
       fontFamily: '"Inter", "Segoe UI", sans-serif',
       fontSize: 14,
       overflowY: 'auto',
+      scrollBehavior: 'smooth',
       zIndex: 200,
       transition: dragging ? 'none' : 'transform 0.25s ease',
       transform: visible ? 'translateX(0)' : 'translateX(100%)',
