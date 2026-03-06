@@ -206,6 +206,24 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
   const dragStartXRef = useRef(0)
   const dragStartWidthRef = useRef(0)
   const contentRef = useRef<HTMLDivElement>(null)
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const [scrollThumb, setScrollThumb] = useState({ topPct: 0, heightPct: 1 })
+
+  const handleScroll = () => {
+    const el = sidebarRef.current
+    if (!el) return
+    const { scrollTop, scrollHeight, clientHeight } = el
+    if (scrollHeight <= clientHeight) { setScrollThumb({ topPct: 0, heightPct: 1 }); return }
+    const h = Math.max(clientHeight / scrollHeight, 0.06)
+    const t = (scrollTop / (scrollHeight - clientHeight)) * (1 - h)
+    setScrollThumb({ topPct: t, heightPct: h })
+  }
+
+  // Reset scroll position when navigating to a new node
+  useEffect(() => {
+    if (sidebarRef.current) sidebarRef.current.scrollTop = 0
+    setScrollThumb({ topPct: 0, heightPct: 1 })
+  }, [node?.id])
 
   useEffect(() => {
     if (!node || !fullView) {
@@ -470,13 +488,42 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
       color: '#dcddde',
       fontFamily: '"Inter", "Segoe UI", sans-serif',
       fontSize: 14,
-      overflowY: 'auto',
+      overflowY: 'scroll',
       scrollBehavior: 'smooth',
+      scrollbarWidth: 'none' as any,  // Firefox
       zIndex: 200,
       transition: dragging ? 'none' : 'transform 0.25s ease',
       transform: visible ? 'translateX(0)' : 'translateX(100%)',
       userSelect: dragging ? 'none' : undefined,
-    }}>
+    }}
+      ref={sidebarRef}
+      onScroll={handleScroll}
+      className="jarvis-sidebar"
+    >
+      {/* Custom scrollbar */}
+      {scrollThumb.heightPct < 0.99 && (
+        <div style={{
+          position: 'fixed',
+          right: 2,
+          top: 0,
+          width: 5,
+          height: '100%',
+          zIndex: 210,
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            position: 'absolute',
+            right: 0,
+            top: `${scrollThumb.topPct * 100}%`,
+            height: `${scrollThumb.heightPct * 100}%`,
+            width: 4,
+            background: 'rgba(0,212,255,0.45)',
+            borderRadius: 4,
+            transition: 'top 0.08s ease, background 0.2s ease',
+            boxShadow: '0 0 6px rgba(0,212,255,0.3)',
+          }} />
+        </div>
+      )}
       {/* Drag handle */}
       <div
         onMouseDown={e => {

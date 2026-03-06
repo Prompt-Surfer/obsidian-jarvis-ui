@@ -11,28 +11,36 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* Custom scrollbar — thin, dark, Obsidian-style */
+/* Custom scrollbar — thin, always visible, cyan accent */
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #1a1a2e;
+  border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #313244;
-  border-radius: 4px;
-  transition: background 0.25s ease;
+  background: #45475a;
+  border-radius: 5px;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #00d4ff55;
+  background: #00d4ff;
+  box-shadow: 0 0 6px #00d4ff88;
 }
 ::-webkit-scrollbar-thumb:active {
   background: #00d4ff;
+  box-shadow: 0 0 10px #00d4ff;
 }
 
 /* Smooth scroll for all scrollable containers */
 * {
   scroll-behavior: smooth;
+}
+
+/* Hide native scrollbar on sidebar (replaced by custom React scrollbar) */
+.jarvis-sidebar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Range input styling */
