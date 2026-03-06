@@ -4,7 +4,7 @@
 3D WebGL vault graph for Obsidian with Iron Man/Jarvis aesthetic.
 Built with: React 18, TypeScript, Three.js, Vite, Express.
 
-**Vault:** `~/obsidian/otacon-vault` (set via `VAULT_PATH` env or `os.homedir()/obsidian/otacon-vault`)
+**Vault:** Set via `VAULT_PATH` env var (e.g. `export VAULT_PATH=~/Documents/MyVault`)
 **Dev server:** `nohup npx tsx watch server/index.ts > /tmp/api.log 2>&1 &` + `nohup npx vite --host 0.0.0.0 > /tmp/vite.log 2>&1 &`
 **Graph API:** `http://localhost:3001/api/graph`
 **UI:** `http://localhost:5173`
@@ -54,7 +54,7 @@ chore: bump Three.js to v0.172
 **Never** use generic messages like `update`, `fix stuff`, `wip`. Every commit should be independently readable.
 
 ## Versioning
-- Current: **v1.2.2**
+- Current: **v1.6.0**
 - After committing: `bash tracking/bump-version.sh` → auto-tags with correct semver
 - Push release: `git push origin master && git push origin <tag>`
 - Tracking: `tracking/tracking.md` — all phases and tasks
@@ -66,7 +66,6 @@ Before taking Playwright screenshots, ALWAYS restart the dev server to ensure yo
 pkill -f "vite" 2>/dev/null; pkill -f "tsx watch server" 2>/dev/null
 sleep 2
 # Start fresh
-cd /home/samuel/projects/tools/obsidian-jarvis-ui
 npm run dev &
 sleep 5  # wait for both vite + api server to start
 # THEN run playwright
@@ -77,12 +76,9 @@ pkill -f "vite" 2>/dev/null; pkill -f "tsx watch server" 2>/dev/null
 Never trust screenshots from a stale dev server. Rebuild + restart every time.
 
 ## Wake Callback (MANDATORY on task completion)
-When finishing a task, send a wake notification so the orchestrator knows you're done:
-```bash
-export WAKE_TELEGRAM_TO='-1003792770433' WAKE_TELEGRAM_TOPIC='2397'
-bash "/home/samuel/.openclaw/workspace/skills/claude-code-orchestrator/scripts/wake.sh" "Claude Code done (<label>): <summary>" now
-```
-**Never skip this.** The wake script path is absolute — do not guess or shorten it.
+When finishing a task, send a wake notification so the orchestrator knows you're done.
+The wake script path is defined by the orchestrator — check your task prompt for the exact command.
+**Never skip this.**
 
 ## Key Patterns
 - Node colours derive from `folder` field → `getNodeColor()` in Graph3D.tsx
