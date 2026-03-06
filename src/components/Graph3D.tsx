@@ -437,17 +437,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     scene.add(sprite)
     selectedTitleSpriteRef.current = sprite
 
-    // Size bracket proportional to node size (3-tier system)
+    // Size bracket proportional to node size (tier from worker)
     if (bracket) {
-      const selDegrees = Array.from(nodeDegrees.values()).sort((a, b) => a - b)
-      const selUltraThreshold = selDegrees[Math.floor(selDegrees.length * 0.98)] ?? 0
-      const selSuperThreshold = selDegrees[Math.floor(selDegrees.length * 0.85)] ?? 0
-      const deg = nodeDegrees.get(selectedNodeId) ?? 0
-      const sizeMult = deg >= selUltraThreshold && selUltraThreshold > 0
-        ? ultraNodeSize
-        : deg >= selSuperThreshold && selSuperThreshold > 0
-          ? maxNodeSize
-          : minNodeSize
+      const selPos = positionsRef.current.get(selectedNodeId)
+      const selTier = selPos?.tier ?? 'regular'
+      const sizeMult = selTier === 'ultranode' ? ultraNodeSize : selTier === 'supernode' ? maxNodeSize : minNodeSize
       const bracketSize = NODE_RADIUS * sizeMult * 3
       bracket.scale.set(bracketSize, bracketSize, bracketSize)
       bracket.visible = true
@@ -502,11 +496,6 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       lastFiltersRef.current = { timeFilterIds, tagIsolationIds, focusModeNodeIds }
     }
 
-    // Compute 3-tier degree thresholds: ultranode (top 2%), supernode (top 15%), regular
-    const sortedDegrees = Array.from(nodeDegrees.values()).sort((a, b) => a - b)
-    const ultraThreshold = sortedDegrees[Math.floor(sortedDegrees.length * 0.98)] ?? 0
-    const superThreshold = sortedDegrees[Math.floor(sortedDegrees.length * 0.85)] ?? 0
-
     nodes.forEach((node, i) => {
       const pos = positions.get(node.id)
       if (!pos) return
@@ -521,12 +510,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
       // Matrix (position + scale): only when layout-affecting deps changed
       if (needsMatrixUpdate) {
-        const degree = nodeDegrees.get(node.id) ?? 0
-        const sizeMultiplier = degree >= ultraThreshold && ultraThreshold > 0
-          ? ultraNodeSize
-          : degree >= superThreshold && superThreshold > 0
-            ? maxNodeSize
-            : minNodeSize
+        const tier = pos.tier ?? 'regular'
+        const sizeMultiplier = tier === 'ultranode' ? ultraNodeSize : tier === 'supernode' ? maxNodeSize : minNodeSize
         const scale = visible ? sizeMultiplier : 0
 
         dummy.position.set(pos.x, pos.y, pos.z)

@@ -31,6 +31,7 @@ type WorkerSimulation = ReturnType<typeof forceSimulation>
 
 let simulation: WorkerSimulation | null = null
 let simNodes: WorkerNode[] = []
+let tierMap = new Map<string, 'regular' | 'supernode' | 'ultranode'>()
 let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
@@ -39,7 +40,7 @@ let graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' = 'centroid'
 let currentSpread = 2.0
 
 function getNodePositions(nodes: WorkerNode[]) {
-  return nodes.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 }))
+  return nodes.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0, tier: tierMap.get(n.id) ?? 'regular' }))
 }
 
 function runTick() {
@@ -228,6 +229,43 @@ self.onmessage = (e: MessageEvent) => {
       degreeMap.set(l.source, (degreeMap.get(l.source) ?? 0) + 1)
       degreeMap.set(l.target, (degreeMap.get(l.target) ?? 0) + 1)
     }
+
+    // ── Semantic 3-tier node classification ─────────────────────────────────
+    // Build adjacency map for hub-of-hubs detection
+    const adjacencyMap = new Map<string, string[]>()
+    for (const id of allNodeIds) adjacencyMap.set(id, [])
+    for (const l of links ?? []) {
+      adjacencyMap.get(l.source)?.push(l.target)
+      adjacencyMap.get(l.target)?.push(l.source)
+    }
+
+    // Supernodes: top 15% by degree
+    const sortedDegreeValues = Array.from(degreeMap.values()).sort((a, b) => a - b)
+    const superThresholdDeg = sortedDegreeValues[Math.floor(sortedDegreeValues.length * 0.85)] ?? 0
+    const supernodeIds = new Set<string>()
+    if (superThresholdDeg > 0) {
+      for (const [id, deg] of degreeMap) {
+        if (deg >= superThresholdDeg) supernodeIds.add(id)
+      }
+    }
+
+    // Ultranodes: must be supernodes AND >50% of their neighbours are also supernodes (hub-of-hubs)
+    tierMap = new Map<string, 'regular' | 'supernode' | 'ultranode'>()
+    for (const id of allNodeIds) {
+      if (!supernodeIds.has(id)) {
+        tierMap.set(id, 'regular')
+        continue
+      }
+      const neighbours = adjacencyMap.get(id) ?? []
+      if (neighbours.length === 0) {
+        tierMap.set(id, 'supernode')
+        continue
+      }
+      const supernodeNeighbourCount = neighbours.filter(nid => supernodeIds.has(nid)).length
+      tierMap.set(id, supernodeNeighbourCount / neighbours.length > 0.5 ? 'ultranode' : 'supernode')
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // Collect all degree-0 orphan nodes sorted deterministically by id
     const allOrphans: WorkerNode[] = simNodes
       .filter(n => (degreeMap.get(n.id) ?? 0) === 0)

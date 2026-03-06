@@ -6,6 +6,7 @@ export interface NodePosition {
   x: number
   y: number
   z: number
+  tier?: 'regular' | 'supernode' | 'ultranode'
 }
 
 // Enable pipeline profiling via ?perf query param in dev
