@@ -6,3 +6,12 @@ memory/
 PRD.md
 docs/
 .cc-*.md
+*.png
+*.jpg
+test-results/
+!screenshots/
+!screenshots/*.png
+brain-mesh.glb
+brain-vertices.json
+semantic-screenshot.js
+ultranode-screenshots.js

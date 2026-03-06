@@ -162,26 +162,106 @@
 
 ---
 
-## Current — Shape Polish (v1.3.x)
+---
 
-| Task | Description | Status |
-|------|-------------|--------|
-| Saturn shape | Round sphere + tilted ring, 40° camera angle | 🔄 In progress (B- grade, targeting A) |
-| Milky Way shape | 2-arm Archimedean spiral, 50° camera, zero competing forces | 🔄 In progress (D grade, needs fix) |
-| Brain shape 🧠 | 3D brain silhouette — cerebrum, temporal lobes, cerebellum, brain stem | 💤 Queued (after shapes polish) |
+## v1.6.0 — 2026-03-06 · Phase 8 — Obsidian Reader Pane
 
-## Planned — Phase 8: Obsidian Reader Pane
+**Commits:** `5b4ea23`, `4a0aa14`, `01fad0c`
 
-| Task | Description | Status |
-|------|-------------|--------|
-| Reader CSS | Match Obsidian dark theme — fonts, headings, code blocks, callouts, tag pills | 💤 Queued |
-| TOC | "On This Page" from heading extraction | 💤 Queued |
-| Wikilinks | Already handled — verify rendering | 💤 Queued |
+| # | Feature | Commit |
+|---|---------|--------|
+| P8-1 | Obsidian-style note reader pane — dark theme (#1e1e2e), Inter font, full markdown rendering | `5b4ea23` |
+| P8-2 | Table of contents ("On This Page") — auto-extracted from headings, smooth anchor scroll | `5b4ea23` |
+| P8-3 | Callout blocks — `[!note]`, `[!warning]`, `[!tip]`, `[!important]` with coloured left borders + icons | `5b4ea23` |
+| P8-4 | Tag pills — inline `#tags` rendered as styled badges; click to filter graph | `5b4ea23` |
+| P8-5 | Breadcrumb trail — folder path shown at top of reader pane | `5b4ea23` |
+| P8-6 | Backlinks section — bottom of pane lists all notes linking to current note | `5b4ea23` |
+| P8-7 | Smooth scrollbar CSS — 4px thin, transparent track, cyan hover with transition | `4a0aa14` |
+| P8-8 | Custom React scrollbar — always-visible cyan thumb, smooth position transition, no OS dependency | `01fad0c` |
+
+---
+
+## v1.5.4 — 2026-03-06 · Focus Mode Lock
+
+**Commits:** `7d30a2a`, `e5f08cc`
+
+| # | Fix | Commit |
+|---|-----|--------|
+| FM-1 | H key captures connected node set once and locks it — navigation no longer resets visible nodes | `7d30a2a` |
+| FM-2 | Selecting other visible nodes updates reader pane without resetting focus visibility | `7d30a2a` |
+| FM-3 | HUD breadcrumb shows `[H] FOCUS LOCKED (N nodes)` | `7d30a2a` |
+| FM-4 | ESC and Reset All both clear the focus lock | `7d30a2a` |
+
+---
+
+## v1.5.3 — 2026-03-06 · Semantic Ultranode + Font + URL Params
+
+**Commits:** `9bdbc68`, `3eaeb3f`, `ba0fbfd`
+
+| # | Feature | Commit |
+|---|---------|--------|
+| SU-1 | Semantic ultranode detection — hub-of-hubs based on supernode-neighbour ratio (not raw degree) | `3eaeb3f` |
+| SU-2 | Inter/Segoe UI font for node labels — matches reader pane typography | `9bdbc68` |
+| SU-3 | URL param overrides — `?graphShape=brain&ultraNodeSize=8` for testing/sharing | `ba0fbfd` |
+
+---
+
+## v1.5.2 — 2026-03-06 · Ultranode Size Slider
+
+**Commits:** `0d56a9f`
+
+| # | Feature | Commit |
+|---|---------|--------|
+| US-1 | 3-tier node sizing: regular / supernode (top 15%) / ultranode (top 2%) | `0d56a9f` |
+| US-2 | Ultranode size slider (1×–8×) in Settings panel — independent of supernode size | `0d56a9f` |
+| US-3 | Ultranode size persisted to localStorage | `0d56a9f` |
+
+---
+
+## v1.5.0 — 2026-03-06 · Brain Shape R3 (Mesh-Based)
+
+**Commits:** `c7d2602`
+
+| # | Feature | Commit |
+|---|---------|--------|
+| BR-1 | Brain mesh loaded from `brain-vertices.json` (1,035 vertices, CC Attribution by Google) | `c7d2602` |
+| BR-2 | Nodes placed on nearest mesh vertex — anatomically accurate brain silhouette | `c7d2602` |
+| BR-3 | Brain mesh bounding box normalised to unit cube; scales with graph spread | `c7d2602` |
+| BR-4 | All 6 post-processing transforms preserved — bloom, stars, galaxy unchanged | `c7d2602` |
+
+---
+
+## v1.4.0 — 2026-03-06 · Brain Shape + Performance
+
+**Commits:** `bc2b0c0`, `cf09c86`, several shape-polish fixes
+
+| # | Feature | Commit |
+|---|---------|--------|
+| B-1 | Brain shape — initial 3D anatomical brain silhouette (parametric) | `bc2b0c0` |
+| B-2 | Performance pass — profiling, RAF buffering, sim ticks -33% | `cf09c86` |
+| B-3 | Milky Way 2-arm Archimedean spiral — zero competing forces, density-gradient disc | `634823a` |
+| B-4 | Saturn sphere + ring redesign — 40° camera angle, fade edge links | `3be4351` |
+
+---
+
+## v1.3.0 — 2026-03-05 · Phase 7+ — Shapes, Drag, Loading
+
+**Commits:** `586c14a`, `72966eb`, `3de554e`, `61269b3`, and others
+
+| # | Feature | Commit |
+|---|---------|--------|
+| P7-8 | Right-click drag — moves grabbed node + connected neighbours as rigid cluster | `61269b3` |
+| P7-9 | Saturn + Milky Way shapes added — renamed Orphan Pattern → Shape setting | `586c14a` |
+| P7-10 | Loading indicator + auto-reset on shape switch | `3de554e` |
+| P7-11 | Screen-space drag — camera-relative right/up vectors, no depth bleed | `3de554e` |
+| P7-12 | patternLoading stuck-on-RECALCULATING bug fixed | `72966eb` |
+
+---
 
 ## Future
 
-| Version | Description | Status |
-|---------|-------------|--------|
-| TBD | Semantic clustering via embeddings | 💤 Queued |
-| TBD | Open-source release prep (vault-path first-run prompt, demo GIF) | 💤 Queued |
-| TBD | Obsidian community plugin submission | 💤 Queued |
+| Version | Description |
+|---------|-------------|
+| TBD | Open-source release prep (demo GIF, first-run vault prompt) |
+| TBD | Obsidian community plugin submission |
+| TBD | Semantic clustering via embeddings |
