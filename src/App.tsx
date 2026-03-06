@@ -55,7 +55,10 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
+  const _urlParams = new URLSearchParams(window.location.search)
   const [graphShape, setGraphShape] = useState<'centroid' | 'saturn' | 'milkyway' | 'brain'>(() => {
+    const url = _urlParams.get('graphShape') as 'centroid' | 'saturn' | 'milkyway' | 'brain' | null
+    if (url) return url
     try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'saturn' | 'milkyway' | 'brain') ?? 'centroid' } catch { return 'centroid' }
   })
   const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
@@ -86,7 +89,10 @@ function App() {
   const [spread, setSpreadState] = useState(2.0)
   const [minNodeSize, setMinNodeSize] = useState(1.0)
   const [maxNodeSize, setMaxNodeSize] = useState(3.0)
-  const [ultraNodeSize, setUltraNodeSize] = useState(4.0)
+  const [ultraNodeSize, setUltraNodeSize] = useState(() => {
+    const url = _urlParams.get('ultraNodeSize')
+    return url ? parseFloat(url) : 4.0
+  })
   const [shortcutsVisible, setShortcutsVisible] = useState(() => {
     try { return localStorage.getItem('jarvis-shortcuts-open') !== 'false' } catch { return true }
   })
