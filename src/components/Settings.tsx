@@ -21,8 +21,8 @@ interface SettingsProps {
   onResetPosition: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
-  graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural'
-  onGraphShapeChange: (v: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural') => void
+  graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural'
+  onGraphShapeChange: (v: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural') => void
 }
 
 export function Settings({
@@ -193,6 +193,7 @@ export function Settings({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
               {([
                 { value: 'natural', icon: '🌿', label: 'Natural' },
+                { value: 'sun', icon: '☀️', label: 'The Sun' },
                 { value: 'centroid', icon: '⚪', label: 'Centroid' },
                 { value: 'saturn', icon: '🪐', label: 'Saturn' },
                 { value: 'milkyway', icon: '🌌', label: 'Milky Way' },

@@ -36,8 +36,10 @@ let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
-let graphShape: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' = 'centroid'
+let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' = 'centroid'
 let currentSpread = 2.0
+let sunOuterRadius = 300  // set during init, used by shape force
+let sunInnerRadius = 54   // set during init
 
 function getNodePositions(nodes: WorkerNode[]) {
   return nodes.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0, tier: tierMap.get(n.id) ?? 'regular' }))
@@ -348,6 +350,80 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
+    // ── Sun target positions (hierarchical sphere) ───────────────────────────
+    const sunTargets = new Map<string, { x: number; y: number; z: number }>()
+
+    {
+      // Mirror Saturn's proven Fibonacci sphere algorithm — just use tier-based radii.
+      // R_outer = same as Saturn (not 2× — keeps camera framing natural)
+      const R_outer = 150 + Math.sqrt(connectedCount) * 3
+      const R_inner = R_outer * 0.67   // supernode shell at 2/3 radius
+      const R_ultra = R_outer * 0.33   // ultranode shell at 1/3 radius
+      sunOuterRadius = R_outer
+      sunInnerRadius = R_inner
+
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5))
+
+      // Each tier gets its own independent Fibonacci sphere so nodes fill their
+      // shell uniformly rather than clustering at the pole of a shared sequence.
+      const allNodes: string[] = []
+      for (const cluster of allClusters) for (const id of cluster) allNodes.push(id)
+      for (const n of allOrphans) allNodes.push(n.id)
+
+      const byTier: Record<string, string[]> = { ultranode: [], supernode: [], regular: [] }
+      for (const id of allNodes) {
+        const t = tierMap.get(id) ?? 'regular'
+        byTier[t].push(id)
+      }
+
+      const placeTier = (ids: string[], R: number) => {
+        const N = ids.length
+        ids.forEach((id, i) => {
+          const phi = Math.acos(1 - 2 * (i + 0.5) / Math.max(N, 1))
+          const theta = i * goldenAngle
+          sunTargets.set(id, {
+            x: R * Math.sin(phi) * Math.cos(theta),
+            y: R * Math.cos(phi),
+            z: R * Math.sin(phi) * Math.sin(theta),
+          })
+        })
+      }
+
+      // Step 1: place regular nodes and ultranodes on their shells
+      placeTier(byTier.regular,   R_outer)
+      placeTier(byTier.ultranode, R_ultra)
+
+      // Step 2: anchor each supernode near its connected regular nodes.
+      // Average the unit vectors of connected surface nodes → gives a direction
+      // on the outer sphere → scale to R_inner so supernode clusters near its neighbours.
+      const fallbackSuper: string[] = []
+      for (const id of byTier.supernode) {
+        const neighbours = adjacencyMap.get(id) ?? []
+        const regularNeighbours = neighbours.filter(nid => tierMap.get(nid) === 'regular')
+        if (regularNeighbours.length === 0) {
+          fallbackSuper.push(id)
+          continue
+        }
+        // Average unit vectors of connected regular nodes (already have targets)
+        let sx = 0, sy = 0, sz = 0
+        for (const nid of regularNeighbours) {
+          const t = sunTargets.get(nid)
+          if (!t) continue
+          const r = Math.sqrt(t.x * t.x + t.y * t.y + t.z * t.z) || 1
+          sx += t.x / r; sy += t.y / r; sz += t.z / r
+        }
+        const len = Math.sqrt(sx * sx + sy * sy + sz * sz) || 1
+        sunTargets.set(id, {
+          x: (sx / len) * R_inner,
+          y: (sy / len) * R_inner,
+          z: (sz / len) * R_inner,
+        })
+      }
+      // Fallback: supernodes with no regular neighbours → even Fibonacci shell
+      placeTier(fallbackSuper, R_inner)
+    }
+
+
     // ── Milky Way target positions (density-gradient disc with spiral arms) ──
     // Approach: distribute ALL nodes across the full galactic disc. Nodes near
     // spiral arm curves get pulled closer to them (higher density), nodes between
@@ -537,7 +613,15 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // ── Set initial positions based on active shape ─────────────────────────
-    if (graphShape === 'saturn') {
+    if (graphShape === 'sun') {
+      for (const node of simNodes) {
+        const target = sunTargets.get(node.id)
+        if (!target) continue
+        node.x = target.x * currentSpread + (Math.random() - 0.5) * 20
+        node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
+        node.z = target.z * currentSpread + (Math.random() - 0.5) * 20
+      }
+    } else if (graphShape === 'saturn') {
       for (const node of simNodes) {
         const target = saturnTargets.get(node.id)
         if (!target) continue
@@ -579,7 +663,17 @@ self.onmessage = (e: MessageEvent) => {
             n.vz += (cz - n.z) * k
           }
         }
-      } else if (graphShape === 'saturn') {
+      if (graphShape === 'sun') {
+        // Single force matching Saturn's approach — pull toward precomputed target
+        const k = alpha * 0.8
+        for (const node of simNodes) {
+          const target = sunTargets.get(node.id)
+          if (!target) continue
+          node.vx += (target.x * currentSpread - node.x) * k
+          node.vy += (target.y * currentSpread - node.y) * k
+          node.vz += (target.z * currentSpread - node.z) * k
+        }
+      } else       } else if (graphShape === 'saturn') {
         // Pull all nodes toward Saturn sphere/ring targets (very strong snap to surface)
         const k = alpha * 0.8
         for (const node of simNodes) {
@@ -613,7 +707,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const isShapeDriven = graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain'
+    const isShapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain'
     const chargeStrength = isShapeDriven ? 0 : -120
     const centerStrength = isShapeDriven ? 0 : 0.05
 
@@ -656,7 +750,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = (graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain') ? 0 : -120
+      const baseCharge = (graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain') ? 0 : -120
       if (cf?.strength) {
         if (graphShape === 'natural') {
           cf.strength((d: unknown) => {
