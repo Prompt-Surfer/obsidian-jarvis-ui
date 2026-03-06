@@ -3,6 +3,7 @@ import { Graph3D, type Graph3DHandle } from './components/Graph3D'
 import { HUD } from './components/HUD'
 import { Tooltip } from './components/Tooltip'
 import { Sidebar } from './components/Sidebar'
+import { FavouritesPane } from './components/FavouritesPane'
 import { SearchBar } from './components/SearchBar'
 import { TimeFilter } from './components/TimeFilter'
 import { Settings } from './components/Settings'
@@ -13,6 +14,7 @@ import { useElectron } from './hooks/useElectron'
 // Defined outside App to avoid unnecessary re-renders
 const SHORTCUTS = [
   { key: '/', label: 'SEARCH', desc: 'Open search bar' },
+  { key: 'F', label: 'FAVOURITE', desc: 'Toggle favourite on selected note' },
   { key: 'ESC', label: 'CLOSE', desc: 'Close sidebar / dismiss search / exit focus mode' },
   { key: 'H', label: 'FOCUS', desc: 'Focus mode: hide all except selected + connected' },
   { key: ']', label: 'EXPAND', desc: 'Expand all visible nodes outward' },
@@ -104,6 +106,19 @@ function App() {
   const [zoomToNode, setZoomToNode] = useState(() => {
     try { return localStorage.getItem('jarvis-zoom-to-node') !== 'false' } catch { return true }
   })
+  const [favourites, setFavourites] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('jarvis-favourites')
+      return stored ? new Set(JSON.parse(stored)) : new Set()
+    } catch { return new Set() }
+  })
+  const sidebarWidth = (() => {
+    try {
+      const v = localStorage.getItem('jarvis-note-width')
+      if (v) { const n = parseInt(v, 10); if (n >= 280 && n <= 800) return n }
+    } catch { /* storage unavailable */ }
+    return 380
+  })()
 
   // Fetch all tags for search autocomplete (once on mount)
   useEffect(() => {
@@ -250,6 +265,16 @@ function App() {
     if (graphData) setFilter(graphData.nodes.map(n => n.id))
   }, [graphData, setFilter])
 
+  const toggleFavourite = useCallback((nodeId: string) => {
+    setFavourites(prev => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) next.delete(nodeId)
+      else next.add(nodeId)
+      try { localStorage.setItem('jarvis-favourites', JSON.stringify([...next])) } catch { /* storage unavailable */ }
+      return next
+    })
+  }, [])
+
   // Arrow key navigation helper
   const navigateArrow = useCallback((direction: 'left' | 'right' | 'up' | 'down') => {
     if (!graphData || !selectedNode) return
@@ -313,6 +338,8 @@ function App() {
       if (e.key === '/') {
         e.preventDefault()
         setSearchVisible(v => !v)
+      } else if (e.key === 'f' || e.key === 'F') {
+        if (selectedNode) toggleFavourite(selectedNode.id)
       } else if (e.key === 'h' || e.key === 'H') {
         if (focusMode) {
           setFocusMode(false)
@@ -360,7 +387,7 @@ function App() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [graphData, focusMode, selectedNode, reheat, cancelElectron, navigateArrow, folderCentresMap])
+  }, [graphData, focusMode, selectedNode, reheat, cancelElectron, navigateArrow, folderCentresMap, toggleFavourite])
 
   // When node selection is cleared, exit focus mode
   const clearSelection = useCallback(() => {
@@ -633,6 +660,16 @@ function App() {
           const ids = new Set(graphData.nodes.filter(n => n.tags.includes(tag)).map(n => n.id))
           handleTagIsolate(ids, [tag])
         }}
+        isFavourite={selectedNode ? favourites.has(selectedNode.id) : false}
+        onToggleFavourite={toggleFavourite}
+      />
+
+      <FavouritesPane
+        favourites={favourites}
+        allNodes={graphData.nodes}
+        sidebarWidth={selectedNode ? sidebarWidth : 0}
+        onNavigate={navigateToNode}
+        onRemove={toggleFavourite}
       />
 
       {/* Active tag isolation pill */}

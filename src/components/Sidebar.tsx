@@ -10,6 +10,8 @@ interface SidebarProps {
   onClose: () => void
   onNavigate: (nodeId: string) => void
   onTagFilter?: (tag: string) => void
+  isFavourite?: boolean
+  onToggleFavourite?: (nodeId: string) => void
 }
 
 const DEFAULT_WIDTH = 380
@@ -196,7 +198,7 @@ function preprocessWikilinks(md: string): string {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFilter }: SidebarProps) {
+export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFilter, isFavourite, onToggleFavourite }: SidebarProps) {
   const [markdownContent, setMarkdownContent] = useState<string | null>(null)
   const [loadingMd, setLoadingMd] = useState(false)
   const [width, setWidth] = useState(getPersistedWidth)
@@ -490,6 +492,7 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
       fontSize: 14,
       overflowY: 'scroll',
       scrollBehavior: 'smooth',
+
       scrollbarWidth: 'none' as const,  // Firefox
       zIndex: 200,
       transition: dragging ? 'none' : 'transform 0.25s ease',
@@ -558,9 +561,29 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
             background: '#1e1e2e',
             zIndex: 1,
           }}>
-            <h2 style={{ color: '#e0e0e0', fontSize: 17, fontWeight: 600, margin: 0, lineHeight: 1.4, paddingRight: 36 }}>
-              {node.label}
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 36 }}>
+              <h2 style={{ color: '#e0e0e0', fontSize: 17, fontWeight: 600, margin: 0, lineHeight: 1.4 }}>
+                {node.label}
+              </h2>
+              {onToggleFavourite && (
+                <span
+                  onClick={() => onToggleFavourite(node.id)}
+                  title={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
+                  style={{
+                    cursor: 'pointer',
+                    color: isFavourite ? '#00d4ff' : '#585b70',
+                    fontSize: 16,
+                    lineHeight: 1,
+                    flexShrink: 0,
+                    transition: 'color 0.15s',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00d4ff' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = isFavourite ? '#00d4ff' : '#585b70' }}
+                >
+                  {isFavourite ? '♥' : '♡'}
+                </span>
+              )}
+            </div>
             <button
               style={{
                 position: 'absolute',
