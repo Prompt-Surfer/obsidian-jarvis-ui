@@ -12,6 +12,7 @@ import { useVaultGraph, type GraphNode } from './hooks/useVaultGraph'
 import { useForce3D } from './hooks/useForce3D'
 import { useElectron } from './hooks/useElectron'
 import { useHistory } from './hooks/useHistory'
+import { captureToClipboard } from './utils/screenshot'
 
 // Defined outside App to avoid unnecessary re-renders
 const SHORTCUTS = [
@@ -115,6 +116,12 @@ function App() {
       return stored ? new Set(JSON.parse(stored)) : new Set()
     } catch { return new Set() }
   })
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg)
+    setTimeout(() => setToastMsg(null), 2000)
+  }, [])
+
   const sidebarWidth = (() => {
     try {
       const v = localStorage.getItem('jarvis-note-width')
@@ -735,6 +742,54 @@ function App() {
             style={{ color: '#585b70', cursor: 'pointer', marginLeft: 4, fontSize: 13 }}
             onClick={clearTagIsolation}
           >×</span>
+        </div>
+      )}
+
+      {/* Screenshot button */}
+      <button
+        onClick={async () => {
+          try {
+            await captureToClipboard()
+            showToast('📋 Copied to clipboard')
+          } catch {
+            showToast('⚠️ Permission denied')
+          }
+        }}
+        title="Screenshot to clipboard"
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 80,
+          zIndex: 200,
+          background: 'rgba(0,0,0,0.7)',
+          border: '1px solid #1a3a4a',
+          color: '#00a8cc',
+          borderRadius: 4,
+          padding: '6px 10px',
+          cursor: 'pointer',
+          fontSize: 16,
+        }}
+      >📷</button>
+
+      {/* Toast notification */}
+      {toastMsg && (
+        <div style={{
+          position: 'fixed',
+          bottom: 30,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 300,
+          background: 'rgba(0,0,0,0.9)',
+          border: '1px solid #00d4ff',
+          borderRadius: 6,
+          padding: '8px 20px',
+          color: '#00d4ff',
+          fontFamily: '"Courier New", monospace',
+          fontSize: 13,
+          boxShadow: '0 0 12px #00d4ff33',
+          pointerEvents: 'none',
+        }}>
+          {toastMsg}
         </div>
       )}
 
