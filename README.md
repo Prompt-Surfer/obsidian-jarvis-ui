@@ -15,6 +15,8 @@ Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-d
 | 🧠 **Brain** — nodes arranged in an anatomical brain mesh | ![Brain](./screenshots/jarvis-brain-preview.png) |
 | 🪐 **Saturn** — sphere + tilted ring for orphan nodes | ![Saturn](./screenshots/jarvis-saturn-final.png) |
 | 🌌 **Milky Way** — flat 2-arm Archimedean spiral | ![Milky Way](./screenshots/jarvis-milkyway-final.png) |
+| 🌿 **Natural** — organic force-directed layout |  |
+| ☀️ **The Sun** — hierarchical 3-shell sphere (ultra/super/regular tiers) |  |
 | ⚛️ **Centroid** — standard force-directed cluster |  |
 
 ---
@@ -56,6 +58,14 @@ Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-d
 - **Resizable pane** — drag the left edge to resize; width persisted to localStorage
 - **Custom scrollbar** — thin cyan scrollbar with smooth scroll-behavior for TOC anchor jumps
 
+### Favourites & Editor (Phase 9-10)
+- **Favourite Notes** — press `F` to bookmark notes; heart icon in reader, persistent pane on right
+- **Pattern Selector** — 2-row emoji grid with 6 graph shapes; drag to change layout in real-time
+- **Editor Mode** — inline CodeMirror 6 editor with 2s auto-save to vault filesystem
+- **Screenshot to clipboard** — 📷 button captures viewport and copies PNG to clipboard with toast feedback
+- **History navigation** — `Shift+←` / `Shift+→` to move back/forward through visited notes
+- **Minimap** — always-visible 2D canvas overlay in bottom-left; click to pan camera
+
 ### Settings & Persistence
 - **Settings panel** — bloom, stars, labels, opacity, spread, node/supernode/ultranode size sliders
 - **Spread slider** — adjusts graph spacing (1×–10×, default 1.5×)
@@ -90,8 +100,10 @@ Then open http://localhost:5173.
 | Key | Action |
 |-----|--------|
 | `/` | Open / close search bar |
+| `F` | Toggle favourite on selected note |
 | `ESC` | Close sidebar, dismiss search, clear filters, exit focus mode |
 | `←` / `→` | Navigate to previous / next note in same folder |
+| `Shift+←` / `Shift+→` | Move back / forward through note history |
 | `↑` | Jump to cluster centre (highest-degree node in folder) |
 | `↓` | Jump to highest-degree neighbour of selected node |
 | `H` | Enter focus mode — isolate selected node + connected neighbours |
@@ -119,7 +131,7 @@ http://localhost:5173?graphShape=brain&ultraNodeSize=8
 
 | Parameter | Values | Description |
 |-----------|--------|-------------|
-| `graphShape` | `brain`, `saturn`, `milkyway`, `centroid` | Override graph shape |
+| `graphShape` | `brain`, `saturn`, `milkyway`, `natural`, `sun`, `centroid` | Override graph shape |
 | `ultraNodeSize` | `1.0`–`8.0` | Override ultranode size multiplier |
 
 ---
