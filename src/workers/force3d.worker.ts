@@ -673,7 +673,7 @@ self.onmessage = (e: MessageEvent) => {
           node.vy += (target.y * currentSpread - node.y) * k
           node.vz += (target.z * currentSpread - node.z) * k
         }
-      } else       } else if (graphShape === 'saturn') {
+      } else if (graphShape === 'saturn') {
         // Pull all nodes toward Saturn sphere/ring targets (very strong snap to surface)
         const k = alpha * 0.8
         for (const node of simNodes) {
