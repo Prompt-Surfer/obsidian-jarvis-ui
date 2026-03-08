@@ -11,6 +11,7 @@ import { Settings } from './components/Settings'
 import { useVaultGraph, type GraphNode } from './hooks/useVaultGraph'
 import { useForce3D } from './hooks/useForce3D'
 import { useElectron } from './hooks/useElectron'
+import { useHistory } from './hooks/useHistory'
 
 // Defined outside App to avoid unnecessary re-renders
 const SHORTCUTS = [
@@ -66,6 +67,7 @@ function App() {
   })
   const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
+  const history = useHistory()
 
   const graphRef = useRef<Graph3DHandle>(null)
   const hasAutoResetRef = useRef(false)
@@ -369,6 +371,28 @@ function App() {
       } else if (e.key === ']') {
         setCollapsedNodes(new Set())
         reheat()
+      } else if (e.key === 'ArrowLeft' && e.shiftKey) {
+        e.preventDefault()
+        const prevId = history.back()
+        if (prevId && graphData) {
+          const target = graphData.nodes.find(n => n.id === prevId)
+          if (target) {
+            setSelectedNode(target)
+            setSidebarFullView(true)
+            if (zoomToNode) graphRef.current?.flyTo(target.id)
+          }
+        }
+      } else if (e.key === 'ArrowRight' && e.shiftKey) {
+        e.preventDefault()
+        const nextId = history.forward()
+        if (nextId && graphData) {
+          const target = graphData.nodes.find(n => n.id === nextId)
+          if (target) {
+            setSelectedNode(target)
+            setSidebarFullView(true)
+            if (zoomToNode) graphRef.current?.flyTo(target.id)
+          }
+        }
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault()
         navigateArrow('left')
@@ -388,7 +412,7 @@ function App() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [graphData, focusMode, selectedNode, reheat, cancelElectron, navigateArrow, folderCentresMap, toggleFavourite])
+  }, [graphData, focusMode, selectedNode, reheat, cancelElectron, navigateArrow, folderCentresMap, toggleFavourite, history, zoomToNode])
 
   // When node selection is cleared, exit focus mode
   const clearSelection = useCallback(() => {
@@ -400,10 +424,11 @@ function App() {
 
   // Single click → full markdown view in sidebar
   const handleNodeClick = useCallback((node: GraphNode) => {
+    history.push(node.id)
     setSelectedNode(node)
     setSidebarFullView(true)
     if (zoomToNode) graphRef.current?.flyTo(node.id)
-  }, [zoomToNode])
+  }, [zoomToNode, history])
 
   // Toggle folder collapse: double-click or right-click collapses/expands the whole folder
   const toggleFolderCollapse = useCallback((node: GraphNode) => {
@@ -476,6 +501,8 @@ function App() {
 
     if (!targetNode) return
 
+    history.push(targetNode.id)
+
     if (selectedNode && selectedNode.id !== targetNode.id) {
       const scene = graphRef.current?.getScene()
       if (scene) {
@@ -503,7 +530,7 @@ function App() {
     setSelectedNode(targetNode)
     setSidebarFullView(true)
     if (zoomToNode) graphRef.current?.flyTo(targetNode.id)
-  }, [graphData, selectedNode, positions, animateElectron, zoomToNode])
+  }, [graphData, selectedNode, positions, animateElectron, zoomToNode, history])
 
   const handleSearchNavigate = useCallback((nodeId: string) => {
     setSearchVisible(false)
