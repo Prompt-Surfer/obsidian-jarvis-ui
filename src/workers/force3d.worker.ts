@@ -38,7 +38,9 @@ const MAX_TICKS = 200   // 300→200: practical convergence happens well before 
 const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid'
 let currentSpread = 2.0
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let sunOuterRadius = 300  // set during init, used by shape force
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let sunInnerRadius = 54   // set during init
 
 function getNodePositions(nodes: WorkerNode[]) {
