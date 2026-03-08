@@ -36,7 +36,7 @@ let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
-let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' = 'centroid'
+let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid'
 let currentSpread = 2.0
 let sunOuterRadius = 300  // set during init, used by shape force
 let sunInnerRadius = 54   // set during init
@@ -72,13 +72,14 @@ function runTick() {
 self.onmessage = (e: MessageEvent) => {
   const { type, nodes, links } = e.data as {
     type: string
-    nodes?: Array<{ id: string; folder: string }>
+    nodes?: Array<{ id: string; folder: string; tags?: string[] }>
     links?: Array<{ source: string; target: string }>
-    graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural'
+    graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+    tagBoxCount?: number
   }
 
   if (type === 'setGraphShape') {
-    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' }).graphShape ?? 'centroid'
+    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'centroid'
     // Reheat sim so nodes animate to new shape
     if (simulation) {
       tickCount = 0

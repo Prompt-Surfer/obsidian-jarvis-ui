@@ -63,10 +63,10 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
   const _urlParams = new URLSearchParams(window.location.search)
-  const [graphShape, setGraphShape] = useState<'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural'>(() => {
-    const url = _urlParams.get('graphShape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | null
+  const [graphShape, setGraphShape] = useState<'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'>(() => {
+    const url = _urlParams.get('graphShape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
     if (url) return url
-    try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural') ?? 'centroid' } catch { return 'centroid' }
+    try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') ?? 'centroid' } catch { return 'centroid' }
   })
   const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()

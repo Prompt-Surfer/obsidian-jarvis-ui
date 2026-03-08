@@ -21,8 +21,8 @@ interface SettingsProps {
   onResetPosition: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
-  graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural'
-  onGraphShapeChange: (v: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural') => void
+  graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+  onGraphShapeChange: (v: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') => void
 }
 
 export function Settings({
@@ -198,6 +198,7 @@ export function Settings({
                 { value: 'saturn', icon: '🪐', label: 'Saturn' },
                 { value: 'milkyway', icon: '🌌', label: 'Milky Way' },
                 { value: 'brain', icon: '🧠', label: 'Brain' },
+                { value: 'tagboxes', icon: '🗃️', label: 'Tag Boxes' },
               ] as const).map(({ value, icon, label }) => {
                 const isSelected = graphShape === value
                 const isHovered = hoveredShape === value
