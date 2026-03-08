@@ -8,11 +8,13 @@ import { FavouritesPane } from './components/FavouritesPane'
 import { SearchBar } from './components/SearchBar'
 import { TimeFilter } from './components/TimeFilter'
 import { Settings } from './components/Settings'
+import { Minimap } from './components/Minimap'
 import { useVaultGraph, type GraphNode } from './hooks/useVaultGraph'
 import { useForce3D } from './hooks/useForce3D'
 import { useElectron } from './hooks/useElectron'
 import { useHistory } from './hooks/useHistory'
 import { captureToClipboard } from './utils/screenshot'
+import { getNodeColor } from './lib/colors'
 
 // Defined outside App to avoid unnecessary re-renders
 const SHORTCUTS = [
@@ -120,6 +122,20 @@ function App() {
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(null), 2000)
+  }, [])
+
+  // Camera position for minimap (update at 10fps)
+  const [cameraPos, setCameraPos] = useState<{ x: number; y: number; z: number } | null>(null)
+  const [cameraTarget, setCameraTarget] = useState<{ x: number; y: number; z: number } | null>(null)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const p = graphRef.current?.getCameraPosition()
+      const t = graphRef.current?.getCameraTarget()
+      if (p) setCameraPos({ x: p.x, y: p.y, z: p.z })
+      if (t) setCameraTarget({ x: t.x, y: t.y, z: t.z })
+    }, 100)
+    return () => clearInterval(interval)
   }, [])
 
   const sidebarWidth = (() => {
@@ -254,6 +270,18 @@ function App() {
     }
     return visible
   }, [graphData, collapsedNodes, folderCentresMap])
+
+  // Minimap node data
+  const minimapNodes = useMemo(() => {
+    if (!graphData) return []
+    return graphData.nodes
+      .filter(n => positions.has(n.id))
+      .map(n => {
+        const pos = positions.get(n.id)!
+        const color = getNodeColor(n.type, n.folder)
+        return { id: n.id, x: pos.x, y: pos.y, z: pos.z, color }
+      })
+  }, [graphData, positions])
 
   // Handle spread slider change
   const handleSpreadChange = useCallback((value: number) => {
@@ -699,6 +727,13 @@ function App() {
         }}
         isFavourite={selectedNode ? favourites.has(selectedNode.id) : false}
         onToggleFavourite={toggleFavourite}
+      />
+
+      <Minimap
+        nodes={minimapNodes}
+        cameraPosition={cameraPos}
+        cameraTarget={cameraTarget}
+        onClickPosition={(x, z) => graphRef.current?.panCameraTo(x, z)}
       />
 
       <FavouritesPane

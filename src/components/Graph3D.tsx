@@ -46,6 +46,9 @@ export interface Graph3DHandle {
   reheat: () => void
   getScene: () => THREE.Scene | null
   getCamera: () => THREE.PerspectiveCamera | null
+  getCameraPosition: () => THREE.Vector3
+  getCameraTarget: () => THREE.Vector3
+  panCameraTo: (x: number, z: number) => void
 }
 
 const NODE_RADIUS = 4
@@ -997,6 +1000,29 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     reheat: () => {},
     getScene: () => sceneRef.current,
     getCamera: () => cameraRef.current,
+    getCameraPosition: () => {
+      const controls = controlsRef.current
+      if (!controls) return new THREE.Vector3()
+      return controls.object.position.clone()
+    },
+    getCameraTarget: () => {
+      const controls = controlsRef.current
+      if (!controls) return new THREE.Vector3()
+      return controls.target.clone()
+    },
+    panCameraTo: (x: number, z: number) => {
+      const controls = controlsRef.current
+      if (!controls) return
+      const camera = controls.object
+      const target = controls.target
+      const dx = x - target.x
+      const dz = z - target.z
+      camera.position.x += dx
+      camera.position.z += dz
+      target.x = x
+      target.z = z
+      controls.update()
+    },
   }), [flyTo, resetCamera])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
