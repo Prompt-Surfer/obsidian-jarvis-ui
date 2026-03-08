@@ -664,7 +664,7 @@ self.onmessage = (e: MessageEvent) => {
             n.vz += (cz - n.z) * k
           }
         }
-      if (graphShape === 'sun') {
+      } else if (graphShape === 'sun') {
         // Single force matching Saturn's approach — pull toward precomputed target
         const k = alpha * 0.8
         for (const node of simNodes) {

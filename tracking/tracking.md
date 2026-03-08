@@ -9,6 +9,22 @@
 
 ---
 
+## v2.0.0 — 2026-03-09 · Phase 10 — Power Features
+
+**Commits:** `9e3d954`, `29e7d61`, `6453daf`, `8c3149f`, `ab703c5`, `0152f42`, `45452e2`
+
+| # | Feature | Commit |
+|---|---------|--------|
+| EB-1 | Error boundary for Graph3D WebGL failure | `9e3d954` |
+| README-1 | Updated README for Phase 9+ features | `29e7d61` |
+| P10-1 | History navigation — Shift+ArrowLeft/Right back/forward through visited notes | `6453daf` |
+| P10-2 | Screenshot to clipboard — 📷 button with toast feedback | `8c3149f` |
+| P10-3 | Minimap — 2D canvas overlay, always visible, clickable camera pan | `ab703c5` |
+| P10-4 | Editor mode — CodeMirror 6 inline editor with 2s auto-save to vault | `0152f42` |
+| P10-5 | Tag Boxes shape — 3D Venn diagram of tag relationships | `45452e2` |
+
+---
+
 ## v1.2.8 — 2026-03-04 · Phase 7 — Interaction & Layout Enhancements
 
 **Commits:** `98c9115`, `71e3329`, `ef857c8`, `5c6c194`, `3367973`, `178892d`, `88805de`, `5f86e90`, `39cdb12`, `0951f24`
