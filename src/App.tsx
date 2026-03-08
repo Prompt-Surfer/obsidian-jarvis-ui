@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Graph3D, type Graph3DHandle } from './components/Graph3D'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { HUD } from './components/HUD'
 import { Tooltip } from './components/Tooltip'
 import { Sidebar } from './components/Sidebar'
@@ -562,37 +563,39 @@ function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000', position: 'relative', overflow: 'hidden' }}>
-      <Graph3D
-        ref={graphRef}
-        graphData={graphData}
-        positions={positions}
-        selectedNodeId={selectedNode?.id ?? null}
-        hoveredNodeId={hoveredNode?.id ?? null}
-        searchResults={searchResults}
-        timeFilterIds={timeFilterIds}
-        tagIsolationIds={tagIsolationIds}
-        focusModeNodeIds={focusLockedNodeIds}
-        collapsedNodes={collapsedNodes}
-        visibleNodes={visibleNodes}
-        nodeOpacity={nodeOpacity}
-        bloomEnabled={bloomEnabled}
-        starsEnabled={starsEnabled}
-        labelsEnabled={labelsEnabled}
-        nodeDegrees={nodeDegrees}
-        minNodeSize={minNodeSize}
-        maxNodeSize={maxNodeSize}
-        ultraNodeSize={ultraNodeSize}
-        onNodeClick={handleNodeClick}
-        onNodeDoubleClick={handleNodeDoubleClick}
-        onNodeHover={handleNodeHover}
-        onNodeRightClick={handleNodeRightClick}
-        onFlyTo={nodeId => graphRef.current?.flyTo(nodeId)}
-        flashNodeId={flashNodeId}
-        onPinNodes={pinNodes}
-        onMoveNodes={moveNodes}
-        onUnpinNodes={unpinNodes}
-        graphShape={graphShape}
-      />
+      <ErrorBoundary>
+        <Graph3D
+          ref={graphRef}
+          graphData={graphData}
+          positions={positions}
+          selectedNodeId={selectedNode?.id ?? null}
+          hoveredNodeId={hoveredNode?.id ?? null}
+          searchResults={searchResults}
+          timeFilterIds={timeFilterIds}
+          tagIsolationIds={tagIsolationIds}
+          focusModeNodeIds={focusLockedNodeIds}
+          collapsedNodes={collapsedNodes}
+          visibleNodes={visibleNodes}
+          nodeOpacity={nodeOpacity}
+          bloomEnabled={bloomEnabled}
+          starsEnabled={starsEnabled}
+          labelsEnabled={labelsEnabled}
+          nodeDegrees={nodeDegrees}
+          minNodeSize={minNodeSize}
+          maxNodeSize={maxNodeSize}
+          ultraNodeSize={ultraNodeSize}
+          onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
+          onNodeHover={handleNodeHover}
+          onNodeRightClick={handleNodeRightClick}
+          onFlyTo={nodeId => graphRef.current?.flyTo(nodeId)}
+          flashNodeId={flashNodeId}
+          onPinNodes={pinNodes}
+          onMoveNodes={moveNodes}
+          onUnpinNodes={unpinNodes}
+          graphShape={graphShape}
+        />
+      </ErrorBoundary>
 
       <HUD
         nodeCount={graphData.nodes.length}
