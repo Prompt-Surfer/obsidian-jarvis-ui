@@ -14,9 +14,11 @@ const VAULT_PATH = process.env.VAULT_PATH || path.join(os.homedir(), 'obsidian',
 app.use(express.json())
 app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*')
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept')
   next()
 })
+app.options('*', (_req, res) => res.sendStatus(200))
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -286,6 +288,31 @@ app.get('/api/tags', (_req, res) => {
   const tagSet = new Set<string>()
   graph.nodes.forEach(n => n.tags.forEach(t => tagSet.add(t)))
   res.json({ tags: Array.from(tagSet).sort() })
+})
+
+app.post('/api/note', (req, res) => {
+  const { path: notePath, content } = req.body as { path: string; content: string }
+  if (!notePath || typeof content !== 'string') {
+    res.status(400).json({ error: 'path and content required' })
+    return
+  }
+
+  const fullPath = path.join(VAULT_PATH, notePath)
+  const resolved = path.resolve(fullPath)
+  const vaultResolved = path.resolve(VAULT_PATH)
+  if (!resolved.startsWith(vaultResolved)) {
+    res.status(403).json({ error: 'Access denied' })
+    return
+  }
+
+  try {
+    fs.writeFileSync(resolved, content, 'utf-8')
+    // Invalidate cache so next read reflects changes
+    cachedGraph = null
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: String(err) })
+  }
 })
 
 app.listen(PORT, () => {

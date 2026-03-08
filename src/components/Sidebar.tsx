@@ -2,6 +2,7 @@ import { Children, isValidElement, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { GraphNode } from '../hooks/useVaultGraph'
+import { NoteEditor } from './NoteEditor'
 
 interface SidebarProps {
   node: GraphNode | null
@@ -201,6 +202,8 @@ function preprocessWikilinks(md: string): string {
 export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFilter, isFavourite, onToggleFavourite }: SidebarProps) {
   const [markdownContent, setMarkdownContent] = useState<string | null>(null)
   const [loadingMd, setLoadingMd] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | null>(null)
   const [width, setWidth] = useState(getPersistedWidth)
   const [dragging, setDragging] = useState(false)
   const [handleHovered, setHandleHovered] = useState(false)
@@ -232,6 +235,7 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
       setMarkdownContent(null)
       return
     }
+    setEditMode(false)
     setLoadingMd(true)
     fetch(`/api/note?path=${encodeURIComponent(node.path)}`)
       .then(r => r.json())
@@ -607,6 +611,58 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
             </div>
           </div>
 
+          {/* ── View/Edit tabs ────────────────────────────────────────────────── */}
+          {fullView && (
+            <div style={{
+              display: 'flex',
+              borderBottom: '1px solid #313244',
+              background: '#181825',
+            }}>
+              <button
+                onClick={() => setEditMode(false)}
+                style={{
+                  flex: 1,
+                  padding: '8px 0',
+                  background: !editMode ? '#1e1e2e' : 'transparent',
+                  border: 'none',
+                  borderBottom: !editMode ? '2px solid #00d4ff' : '2px solid transparent',
+                  color: !editMode ? '#00d4ff' : '#585b70',
+                  cursor: 'pointer',
+                  fontFamily: '"Courier New", monospace',
+                  fontSize: 11,
+                  letterSpacing: '0.08em',
+                }}
+              >VIEW</button>
+              <button
+                onClick={() => setEditMode(true)}
+                style={{
+                  flex: 1,
+                  padding: '8px 0',
+                  background: editMode ? '#1e1e2e' : 'transparent',
+                  border: 'none',
+                  borderBottom: editMode ? '2px solid #00d4ff' : '2px solid transparent',
+                  color: editMode ? '#00d4ff' : '#585b70',
+                  cursor: 'pointer',
+                  fontFamily: '"Courier New", monospace',
+                  fontSize: 11,
+                  letterSpacing: '0.08em',
+                }}
+              >EDIT</button>
+              {saveStatus && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '0 12px',
+                  fontSize: 11,
+                  color: saveStatus === 'saving' ? '#585b70' : '#a6e3a1',
+                  fontFamily: '"Courier New", monospace',
+                }}>
+                  {saveStatus === 'saving' ? 'Saving…' : 'Saved ✓'}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Tag pills + frontmatter metadata ───────────────────────────── */}
           {(allTags.length > 0 || metadata.created || metadata.modified) && (
             <div style={{ padding: '12px 20px', borderBottom: '1px solid #181825' }}>
@@ -733,7 +789,17 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
           )}
 
           {/* ── Markdown content ───────────────────────────────────────────── */}
-          {fullView && (
+          {fullView && editMode && markdownContent !== null && (
+            <div style={{ height: 'calc(100vh - 200px)', padding: '0' }}>
+              <NoteEditor
+                content={markdownContent}
+                notePath={node.path}
+                onSaveStatus={setSaveStatus}
+              />
+            </div>
+          )}
+
+          {fullView && !editMode && (
             <div ref={contentRef} style={{ padding: '16px 20px 32px', lineHeight: 1.7, fontSize: 15, color: '#dcddde' }}>
               {loadingMd ? (
                 <div style={{ color: '#585b70' }}>Loading…</div>
