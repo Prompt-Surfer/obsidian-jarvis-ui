@@ -13,9 +13,12 @@ export interface NodePosition {
 const DEBUG = import.meta.env.DEV && typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('perf')
 
+export interface TagBox { tag: string; cx: number; cy: number; cz: number; count: number }
+
 export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid') {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
+  const [tagBoxes, setTagBoxes] = useState<TagBox[]>([])
   const workerRef = useRef<Worker | null>(null)
 
   // Track current spread so worker init can use it (not stale default)
@@ -57,7 +60,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
     workerRef.current = worker
 
     worker.onmessage = (e: MessageEvent) => {
-      const { type, nodes, firstTick } = e.data
+      const { type, nodes, firstTick, tagBoxes: boxes } = e.data
 
       if (type === 'tick' || type === 'end') {
         if (DEBUG && firstTick) {
@@ -86,6 +89,9 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
             pendingNodesRef.current = null
           })
         }
+
+        // Forward tag boxes when provided
+        if (boxes) setTagBoxes(boxes)
 
         // simDone fires immediately — don't delay behind RAF (clears patternLoading promptly)
         if (type === 'end') {
@@ -155,5 +161,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins }
+  return { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins }
 }

@@ -68,7 +68,7 @@ function App() {
     if (url) return url
     try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') ?? 'centroid' } catch { return 'centroid' }
   })
-  const { positions, simDone, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
+  const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
 
@@ -656,6 +656,7 @@ function App() {
           onMoveNodes={moveNodes}
           onUnpinNodes={unpinNodes}
           graphShape={graphShape}
+          tagBoxes={tagBoxes}
         />
       </ErrorBoundary>
 
