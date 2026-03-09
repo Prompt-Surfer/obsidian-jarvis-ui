@@ -393,7 +393,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     selectedEdgeLinesRef.current = hlLines
 
     forceUpdate(x => x + 1)
-  }, [graphData, nodeOpacity])
+  }, [graphData])
 
   // Build label sprites for all nodes (separate effect, depends on graphData)
   useEffect(() => {
@@ -566,6 +566,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     // Fade links in milkyway/saturn to let shape structure show through
     const linkFade = graphShape === 'milkyway' ? 0.15 : graphShape === 'saturn' ? 0.3 : 0.6
     ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * linkFade
+
+    // Update node material opacity in-place (avoids full mesh rebuild on slider change)
+    const nodeMesh = instancedMeshRef.current
+    if (nodeMesh) {
+      ;(nodeMesh.material as THREE.MeshBasicMaterial).opacity = nodeOpacity
+    }
 
     // Update highlight overlay: only connected edges when a node is selected
     const hlLines = selectedEdgeLinesRef.current
