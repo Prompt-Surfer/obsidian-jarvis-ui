@@ -40,6 +40,91 @@ const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid'
 let currentSpread = 2.0
 let tagBoxesList: Array<{ tag: string; cx: number; cy: number; cz: number; count: number }> = []
+let tagBoxTargets = new Map<string, { x: number; y: number; z: number; tag: string }>()
+
+// Tag box world-space constants (spread-independent — always same visual layout)
+const TAG_BOX_COLS = 6
+const TAG_BOX_ROWS = 4
+const TAG_BOX_GAP = 500   // world units between box centers
+const TAG_BOX_JITTER = 80 // world units radius of node scatter within each box
+const TAG_BOX_HALF = 95   // world units half-size of wireframe box (jitter + 15 margin)
+
+function buildTagBoxTargets() {
+  tagBoxTargets = new Map()
+  tagBoxesList = []
+  if (simNodes.length === 0) return
+
+  // Count tags
+  const tagCountMap = new Map<string, number>()
+  for (const node of simNodes) {
+    for (const tag of (node.tags ?? [])) tagCountMap.set(tag, (tagCountMap.get(tag) ?? 0) + 1)
+  }
+  const MIN_TAG_COUNT = 5
+  const topTags = [...tagCountMap.entries()]
+    .filter(([, count]) => count >= MIN_TAG_COUNT)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, TAG_BOX_COLS * TAG_BOX_ROWS)
+    .map(([tag]) => tag)
+
+  // Flat 2D grid in world space (z=0) — no depth, no overlap from front camera
+  const tagBoxCenters = new Map<string, { x: number; y: number; z: number }>()
+  topTags.forEach((tag, i) => {
+    const col = i % TAG_BOX_COLS
+    const row = Math.floor(i / TAG_BOX_COLS)
+    tagBoxCenters.set(tag, {
+      x: (col - (TAG_BOX_COLS - 1) / 2) * TAG_BOX_GAP,
+      y: (row - (TAG_BOX_ROWS - 1) / 2) * TAG_BOX_GAP,
+      z: 0,
+    })
+  })
+
+  // Capped greedy assignment — each box holds ≤ MAX_PER_BOX nodes
+  // Process nodes with fewer tag options first (most constrained first)
+  const MAX_PER_BOX = Math.ceil(simNodes.length / topTags.length) + 10
+  const boxUsed = new Map<string, number>()
+  topTags.forEach(t => boxUsed.set(t, 0))
+
+  const sortedNodes = [...simNodes].sort((a, b) => {
+    const am = (a.tags ?? []).filter(t => tagBoxCenters.has(t)).length
+    const bm = (b.tags ?? []).filter(t => tagBoxCenters.has(t)).length
+    return am - bm // fewest options first
+  })
+
+  for (const node of sortedNodes) {
+    // Rarest matching tag with available capacity
+    const primaryTag = (node.tags ?? [])
+      .filter(t => tagBoxCenters.has(t) && (boxUsed.get(t) ?? 0) < MAX_PER_BOX)
+      .sort((a, b) => (tagCountMap.get(a) ?? 0) - (tagCountMap.get(b) ?? 0))[0]
+
+    if (primaryTag) {
+      boxUsed.set(primaryTag, (boxUsed.get(primaryTag) ?? 0) + 1)
+      const center = tagBoxCenters.get(primaryTag)!
+      tagBoxTargets.set(node.id, {
+        x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
+        y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
+        z: (Math.random() - 0.5) * 40,
+        tag: primaryTag,
+      })
+    } else {
+      // Overflow: pack into the least-full box
+      const fallback = [...topTags].sort((a, b) => (boxUsed.get(a) ?? 0) - (boxUsed.get(b) ?? 0))[0]
+      const center = tagBoxCenters.get(fallback)!
+      boxUsed.set(fallback, (boxUsed.get(fallback) ?? 0) + 1)
+      tagBoxTargets.set(node.id, {
+        x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
+        y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
+        z: (Math.random() - 0.5) * 40,
+        tag: fallback,
+      })
+    }
+  }
+
+  // Positions are already in world space — send as-is (no spread multiplier)
+  tagBoxesList = topTags.map(tag => {
+    const center = tagBoxCenters.get(tag)!
+    return { tag, cx: center.x, cy: center.y, cz: center.z, count: tagCountMap.get(tag) ?? 0, halfSize: TAG_BOX_HALF }
+  })
+}
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let sunOuterRadius = 300  // set during init, used by shape force
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -79,16 +164,46 @@ self.onmessage = (e: MessageEvent) => {
     type: string
     nodes?: Array<{ id: string; folder: string; tags?: string[] }>
     links?: Array<{ source: string; target: string }>
-    graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+    graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
     tagBoxCount?: number
   }
 
   if (type === 'setGraphShape') {
-    graphShape = (e.data as { graphShape?: 'centroid' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'centroid'
-    // Reheat sim so nodes animate to new shape
+    graphShape = (e.data as { graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'centroid'
+    // Build tag box targets on-demand when switching to tagboxes
+    if (graphShape === 'tagboxes') {
+      buildTagBoxTargets()
+      // Immediately place nodes at world-space targets (spread-independent)
+      for (const node of simNodes) {
+        const target = tagBoxTargets.get(node.id)
+        if (!target) continue
+        node.x = target.x
+        node.y = target.y
+        node.z = target.z
+        node.vx = 0; node.vy = 0; node.vz = 0
+      }
+      // Emit box data immediately so wireframes appear before sim converges
+      self.postMessage({ type: 'tagBoxes', tagBoxes: tagBoxesList })
+    } else {
+      // Clear boxes when switching away
+      tagBoxesList = []
+      self.postMessage({ type: 'tagBoxes', tagBoxes: [] })
+    }
+    // Reheat sim — update forces to match new shape
     if (simulation) {
+      const shapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lf = simulation.force('link') as any
+      if (lf?.strength) lf.strength(shapeDriven ? 0 : 0.5)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cf = simulation.force('charge') as any
+      if (cf?.strength) cf.strength(shapeDriven ? 0 : -120)
+      // Disable collide for shape-driven modes (forceCollide has no .strength(); null it out)
+      if (shapeDriven) {
+        simulation.force('collide', null)
+      }
       tickCount = 0
-      simulation.alpha(0.6)
+      simulation.alpha(0.4) // lower alpha — positions already correct, just gentle settling
       if (!tickRunning) runTick()
     }
     return
@@ -619,54 +734,8 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
-    // ── Tag Box targets: group nodes by primary tag, arrange in a 3D grid ──
-    const tagCountMap = new Map<string, number>()
-    for (const node of simNodes) {
-      for (const tag of (node.tags ?? [])) tagCountMap.set(tag, (tagCountMap.get(tag) ?? 0) + 1)
-    }
-    // Top 24 tags, sorted by frequency
-    const topTags = [...tagCountMap.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 24)
-      .map(([tag]) => tag)
-
-    // Arrange tag boxes in a 3D grid (4 cols × 3 rows × 2 depth = 24 slots)
-    const BOX_GAP = 260
-    const tagBoxCenters = new Map<string, { x: number; y: number; z: number }>()
-    topTags.forEach((tag, i) => {
-      const col = i % 4
-      const row = Math.floor(i / 4) % 3
-      const depth = Math.floor(i / 12)
-      tagBoxCenters.set(tag, {
-        x: (col - 1.5) * BOX_GAP,
-        y: (row - 1) * BOX_GAP,
-        z: (depth - 0.5) * BOX_GAP,
-      })
-    })
-
-    // Assign each node to its primary tag box (first tag that appears in topTags)
-    const tagBoxTargets = new Map<string, { x: number; y: number; z: number; tag: string }>()
-    for (const node of simNodes) {
-      const primaryTag = (node.tags ?? []).find(t => tagBoxCenters.has(t))
-      if (primaryTag) {
-        const center = tagBoxCenters.get(primaryTag)!
-        tagBoxTargets.set(node.id, {
-          x: center.x + (Math.random() - 0.5) * 100,
-          y: center.y + (Math.random() - 0.5) * 100,
-          z: center.z + (Math.random() - 0.5) * 100,
-          tag: primaryTag,
-        })
-      } else {
-        // Untagged nodes: cluster near origin
-        tagBoxTargets.set(node.id, { x: (Math.random() - 0.5) * 80, y: (Math.random() - 0.5) * 80, z: (Math.random() - 0.5) * 80, tag: '' })
-      }
-    }
-
-    // Build tagBoxes list for postMessage — centers scaled by spread to match node positions
-    tagBoxesList = topTags.map(tag => {
-      const center = tagBoxCenters.get(tag)!
-      return { tag, cx: center.x * currentSpread, cy: center.y * currentSpread, cz: center.z * currentSpread, count: tagCountMap.get(tag) ?? 0 }
-    })
+    // ── Tag Box targets: built via module-level function (also called on shape change) ──
+    buildTagBoxTargets()
 
     // ── Set initial positions based on active shape ─────────────────────────
     if (graphShape === 'sun') {
@@ -702,12 +771,13 @@ self.onmessage = (e: MessageEvent) => {
         node.z = target.z * currentSpread + (Math.random() - 0.5) * 20
       }
     } else if (graphShape === 'tagboxes') {
+      // World-space positions — spread-independent
       for (const node of simNodes) {
         const target = tagBoxTargets.get(node.id)
         if (!target) continue
-        node.x = target.x * currentSpread
-        node.y = target.y * currentSpread
-        node.z = target.z * currentSpread
+        node.x = target.x
+        node.y = target.y
+        node.z = target.z
       }
     }
 
@@ -768,14 +838,14 @@ self.onmessage = (e: MessageEvent) => {
           node.vz += (target.z * currentSpread - node.z) * k
         }
       } else if (graphShape === 'tagboxes') {
-        // Pull each node toward its tag box center (strong containment)
+        // Pull each node toward its world-space tag target (spread-independent)
         const k = alpha * 0.6
         for (const node of simNodes) {
           const target = tagBoxTargets.get(node.id)
           if (!target) continue
-          node.vx += (target.x * currentSpread - node.x) * k
-          node.vy += (target.y * currentSpread - node.y) * k
-          node.vz += (target.z * currentSpread - node.z) * k
+          node.vx += (target.x - node.x) * k
+          node.vy += (target.y - node.y) * k
+          node.vz += (target.z - node.z) * k
         }
       }
     }

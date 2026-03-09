@@ -13,7 +13,7 @@ export interface NodePosition {
 const DEBUG = import.meta.env.DEV && typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('perf')
 
-export interface TagBox { tag: string; cx: number; cy: number; cz: number; count: number }
+export interface TagBox { tag: string; cx: number; cy: number; cz: number; count: number; halfSize?: number }
 
 export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid') {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
@@ -61,6 +61,11 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
 
     worker.onmessage = (e: MessageEvent) => {
       const { type, nodes, firstTick, tagBoxes: boxes } = e.data
+
+      if (type === 'tagBoxes') {
+        setTagBoxes(e.data.tagBoxes ?? [])
+        return
+      }
 
       if (type === 'tick' || type === 'end') {
         if (DEBUG && firstTick) {

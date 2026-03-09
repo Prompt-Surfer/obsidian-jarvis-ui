@@ -484,18 +484,15 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     if (graphShape !== 'tagboxes' || !tagBoxes || tagBoxes.length === 0) return
 
-    // Estimate box half-size based on node count per box
-    const maxCount = Math.max(...tagBoxes.map(b => b.count))
-
     for (const box of tagBoxes) {
-      const sizeFactor = 0.5 + 0.5 * (box.count / maxCount)
-      const halfSize = 60 * sizeFactor
-      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(halfSize * 2, halfSize * 2, halfSize * 2))
+      // Use the pre-calculated halfSize from the worker (spread-scaled), fallback to 80
+      const hs = box.halfSize ?? 80
+      const zDepth = hs * 0.6  // shallow depth for flat-grid layout
+      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(hs * 2, hs * 2, zDepth * 2))
       const mat = new THREE.LineBasicMaterial({
         color: 0x00d4ff,
         transparent: true,
-        opacity: 0.25 + 0.35 * sizeFactor,
-        blending: THREE.AdditiveBlending,
+        opacity: 0.7,
         depthWrite: false,
       })
       const lines = new THREE.LineSegments(geo, mat)
@@ -1016,6 +1013,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         endTarget.y + dist * Math.sin(angle) * 0.3,
         endTarget.z + dist * 0.1
       )
+    } else if (graphShape === 'tagboxes') {
+      // Straight-on front view — flat grid layout, slight elevation
+      endPos = new THREE.Vector3(endTarget.x, endTarget.y + dist * 0.15, endTarget.z + dist)
     } else {
       endPos = new THREE.Vector3(endTarget.x, endTarget.y, endTarget.z + dist)
     }
