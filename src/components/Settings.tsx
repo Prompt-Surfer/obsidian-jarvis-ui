@@ -97,9 +97,8 @@ export function Settings({
   return (
     <div style={{
       position: 'fixed',
-      top: '50%',
+      top: 134,
       left: 16,
-      transform: 'translateY(-50%)',
       zIndex: 150,
       fontFamily: '"Courier New", monospace',
       fontSize: 12,
