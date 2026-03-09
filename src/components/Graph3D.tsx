@@ -99,6 +99,27 @@ function createLabelSprite(text: string): THREE.Sprite {
   return sprite
 }
 
+function createTagBoxLabelSprite(tag: string, count: number): THREE.Sprite {
+  const W = 300, H = 60
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')!
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.font = 'bold 16px "Inter", "Segoe UI", sans-serif'
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(tag, W / 2, H / 2 - 10)
+  ctx.font = '12px "Inter", "Segoe UI", sans-serif'
+  ctx.fillStyle = '#aaaaaa'
+  ctx.fillText(`${count} notes`, W / 2, H / 2 + 14)
+  const texture = new THREE.CanvasTexture(canvas)
+  const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(120, 24, 1)
+  return sprite
+}
+
 export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   graphData,
   positions,
@@ -139,6 +160,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const lineSegmentsRef = useRef<THREE.LineSegments | null>(null)
   const selectedEdgeLinesRef = useRef<THREE.LineSegments | null>(null)
   const tagBoxMeshesRef = useRef<THREE.LineSegments[]>([])
+  const tagBoxSpritesRef = useRef<THREE.Sprite[]>([])
   const nodeIndexMapRef = useRef<Map<string, number>>(new Map())
   const starsRef = useRef<THREE.Points | null>(null)
   const galaxySpritesRef = useRef<THREE.Sprite[]>([])
@@ -470,7 +492,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
   }, [selectedNodeId, graphData, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize])
 
-  // Tag box wireframes — render/remove cyan EdgesGeometry boxes for tagboxes shape
+  // Tag box wireframes — render/remove white EdgesGeometry boxes + label sprites for tagboxes shape
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -482,11 +504,19 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     tagBoxMeshesRef.current = []
 
+    // Remove old label sprites
+    for (const sprite of tagBoxSpritesRef.current) {
+      scene.remove(sprite)
+      ;(sprite.material as THREE.SpriteMaterial).map?.dispose()
+      sprite.material.dispose()
+    }
+    tagBoxSpritesRef.current = []
+
     if (graphShape !== 'tagboxes' || !tagBoxes || tagBoxes.length === 0) return
 
     for (const box of tagBoxes) {
-      // Use the pre-calculated halfSize from the worker (spread-scaled), fallback to 80
-      const hs = box.halfSize ?? 80
+      // Use the pre-calculated halfSize from the worker, fallback to 180
+      const hs = box.halfSize ?? 180
       const zDepth = hs * 0.6  // shallow depth for flat-grid layout
       const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(hs * 2, hs * 2, zDepth * 2))
       const mat = new THREE.LineBasicMaterial({
@@ -501,6 +531,16 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       lines.position.set(box.cx, box.cy, box.cz)
       scene.add(lines)
       tagBoxMeshesRef.current.push(lines)
+
+      // Label sprite positioned below bottom front edge
+      const sprite = createTagBoxLabelSprite(box.tag, box.count)
+      sprite.position.set(
+        box.cx,
+        box.cy - hs - 20,
+        box.cz + zDepth,
+      )
+      scene.add(sprite)
+      tagBoxSpritesRef.current.push(sprite)
     }
   }, [tagBoxes, graphShape])
 

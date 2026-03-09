@@ -44,15 +44,18 @@ let tagBoxTargets = new Map<string, { x: number; y: number; z: number; tag: stri
 
 // Tag box world-space constants (spread-independent — always same visual layout)
 const TAG_BOX_COLS = 6
-const TAG_BOX_ROWS = 4
-const TAG_BOX_GAP = 500   // world units between box centers
-const TAG_BOX_JITTER = 80 // world units radius of node scatter within each box
-const TAG_BOX_HALF = 95   // world units half-size of wireframe box (jitter + 15 margin)
+const TAG_BOX_GAP = 650   // world units between box centers
+const TAG_BOX_JITTER = 160 // world units radius of node scatter within each box
+const TAG_BOX_HALF = 180   // world units half-size of wireframe box (jitter + 20 margin)
+let tagBoxTopN = 24
 
-function buildTagBoxTargets() {
+function buildTagBoxTargets(topN: number) {
+  tagBoxTopN = topN
   tagBoxTargets = new Map()
   tagBoxesList = []
   if (simNodes.length === 0) return
+
+  const tagBoxRows = Math.ceil(topN / TAG_BOX_COLS)
 
   // Count tags
   const tagCountMap = new Map<string, number>()
@@ -63,7 +66,7 @@ function buildTagBoxTargets() {
   const topTags = [...tagCountMap.entries()]
     .filter(([, count]) => count >= MIN_TAG_COUNT)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, TAG_BOX_COLS * TAG_BOX_ROWS)
+    .slice(0, topN)
     .map(([tag]) => tag)
 
   // Flat 2D grid in world space (z=0) — no depth, no overlap from front camera
@@ -73,7 +76,7 @@ function buildTagBoxTargets() {
     const row = Math.floor(i / TAG_BOX_COLS)
     tagBoxCenters.set(tag, {
       x: (col - (TAG_BOX_COLS - 1) / 2) * TAG_BOX_GAP,
-      y: (row - (TAG_BOX_ROWS - 1) / 2) * TAG_BOX_GAP,
+      y: (row - (tagBoxRows - 1) / 2) * TAG_BOX_GAP,
       z: 0,
     })
   })
@@ -172,14 +175,15 @@ self.onmessage = (e: MessageEvent) => {
     nodes?: Array<{ id: string; folder: string; tags?: string[] }>
     links?: Array<{ source: string; target: string }>
     graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
-    tagBoxCount?: number
+    topN?: number
   }
 
   if (type === 'setGraphShape') {
     graphShape = (e.data as { graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'centroid'
+    if (e.data.topN != null) tagBoxTopN = e.data.topN as number
     // Build tag box targets on-demand when switching to tagboxes
     if (graphShape === 'tagboxes') {
-      buildTagBoxTargets()
+      buildTagBoxTargets(tagBoxTopN)
       // Immediately place nodes at world-space targets (spread-independent)
       for (const node of simNodes) {
         const target = tagBoxTargets.get(node.id)
@@ -280,6 +284,7 @@ self.onmessage = (e: MessageEvent) => {
     tickCount = 0
     if (e.data.graphShape) graphShape = e.data.graphShape
     if (e.data.spread != null) currentSpread = e.data.spread
+    if (e.data.topN != null) tagBoxTopN = e.data.topN as number
 
     // Warm restart: if existing positions are provided (shape-only change), reuse them
     // so nodes start near their previous locations instead of random scatter
@@ -742,7 +747,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // ── Tag Box targets: only pre-build if starting with tagboxes shape ──
-    if (graphShape === 'tagboxes') buildTagBoxTargets()
+    if (graphShape === 'tagboxes') buildTagBoxTargets(tagBoxTopN)
 
     // ── Set initial positions based on active shape ─────────────────────────
     if (graphShape === 'sun') {

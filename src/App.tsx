@@ -68,7 +68,8 @@ function App() {
     if (url) return url
     try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') ?? 'centroid' } catch { return 'centroid' }
   })
-  const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape)
+  const [tagBoxTopN, setTagBoxTopN] = useState(24)
+  const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape, tagBoxTopN)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
 
@@ -703,6 +704,8 @@ function App() {
             setBloomEnabled(true) // restore bloom for other shapes
           }
         }}
+        tagBoxTopN={tagBoxTopN}
+        onTagBoxTopNChange={setTagBoxTopN}
       />
 
       <SearchBar

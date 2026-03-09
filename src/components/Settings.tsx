@@ -23,6 +23,8 @@ interface SettingsProps {
   onZoomToNodeToggle: (v: boolean) => void
   graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
   onGraphShapeChange: (v: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') => void
+  tagBoxTopN: number
+  onTagBoxTopNChange: (v: number) => void
 }
 
 export function Settings({
@@ -48,6 +50,8 @@ export function Settings({
   onZoomToNodeToggle,
   graphShape,
   onGraphShapeChange,
+  tagBoxTopN,
+  onTagBoxTopNChange,
 }: SettingsProps) {
   const [hoveredShape, setHoveredShape] = useState<string | null>(null)
   const [open, setOpen] = useState(() => {
@@ -155,6 +159,7 @@ export function Settings({
 
           {sliderRow(`OPACITY: ${nodeOpacity.toFixed(2)}`, nodeOpacity, 0.1, 1.0, 0.05, onOpacityChange)}
           {sliderRow(`SPREAD: ${spread.toFixed(1)}x`, spread, 1.0, 10.0, 0.1, onSpreadChange)}
+          {graphShape === 'tagboxes' && sliderRow(`TOP TAGS: ${tagBoxTopN}`, tagBoxTopN, 4, 48, 4, (v) => onTagBoxTopNChange(v))}
           {sliderRow(`NODE SIZE: ${minNodeSize.toFixed(1)}x`, minNodeSize, 1.0, 2.0, 0.1, onMinSizeChange)}
 
           <div style={{ marginBottom: 14 }}>
