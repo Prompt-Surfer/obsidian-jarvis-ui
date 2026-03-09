@@ -490,10 +490,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const zDepth = hs * 0.6  // shallow depth for flat-grid layout
       const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(hs * 2, hs * 2, zDepth * 2))
       const mat = new THREE.LineBasicMaterial({
-        color: 0x00d4ff,
+        color: 0xffffff,
         transparent: true,
-        opacity: 0.7,
+        opacity: 1.0,
         depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
       })
       const lines = new THREE.LineSegments(geo, mat)
       lines.position.set(box.cx, box.cy, box.cz)
