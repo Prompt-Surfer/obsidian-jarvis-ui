@@ -53,6 +53,9 @@ function buildTagBoxTargets() {
   tagBoxTargets = new Map()
   tagBoxesList = []
   if (simNodes.length === 0) return
+  // Guard: only build when called for tagboxes shape (simNodes may not have tags yet during init)
+  const testTags = (simNodes[0]?.tags ?? []).length
+  if (testTags === 0 && simNodes.every(n => (n.tags ?? []).length === 0)) return
 
   // Count tags
   const tagCountMap = new Map<string, number>()
@@ -106,16 +109,23 @@ function buildTagBoxTargets() {
         tag: primaryTag,
       })
     } else {
-      // Overflow: pack into the least-full box
-      const fallback = [...topTags].sort((a, b) => (boxUsed.get(a) ?? 0) - (boxUsed.get(b) ?? 0))[0]
-      const center = tagBoxCenters.get(fallback)!
-      boxUsed.set(fallback, (boxUsed.get(fallback) ?? 0) + 1)
-      tagBoxTargets.set(node.id, {
-        x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-        y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-        z: (Math.random() - 0.5) * 40,
-        tag: fallback,
-      })
+      // Overflow: pack into least-full box (guard against empty topTags)
+      const fallback = topTags.length > 0
+        ? [...topTags].sort((a, b) => (boxUsed.get(a) ?? 0) - (boxUsed.get(b) ?? 0))[0]
+        : undefined
+      const center = fallback ? tagBoxCenters.get(fallback) : undefined
+      if (center && fallback) {
+        boxUsed.set(fallback, (boxUsed.get(fallback) ?? 0) + 1)
+        tagBoxTargets.set(node.id, {
+          x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
+          y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
+          z: (Math.random() - 0.5) * 40,
+          tag: fallback,
+        })
+      } else {
+        // No boxes at all — scatter near origin
+        tagBoxTargets.set(node.id, { x: (Math.random() - 0.5) * 100, y: (Math.random() - 0.5) * 100, z: (Math.random() - 0.5) * 50, tag: '' })
+      }
     }
   }
 
@@ -734,8 +744,8 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
-    // ── Tag Box targets: built via module-level function (also called on shape change) ──
-    buildTagBoxTargets()
+    // ── Tag Box targets: only pre-build if starting with tagboxes shape ──
+    if (graphShape === 'tagboxes') buildTagBoxTargets()
 
     // ── Set initial positions based on active shape ─────────────────────────
     if (graphShape === 'sun') {

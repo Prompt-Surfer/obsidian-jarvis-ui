@@ -698,7 +698,7 @@ function App() {
           try { localStorage.setItem('jarvis-graph-shape', v) } catch { /* storage unavailable */ }
           if (v === 'tagboxes') {
             setBloomEnabled(false) // bloom washes out box structure
-            setTimeout(() => graphRef.current?.resetCamera(), 1200)
+            setTimeout(() => graphRef.current?.resetCamera(), 3000)
           } else {
             setBloomEnabled(true) // restore bloom for other shapes
           }
