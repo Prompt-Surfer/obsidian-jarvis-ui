@@ -53,9 +53,6 @@ function buildTagBoxTargets() {
   tagBoxTargets = new Map()
   tagBoxesList = []
   if (simNodes.length === 0) return
-  // Guard: only build when called for tagboxes shape (simNodes may not have tags yet during init)
-  const testTags = (simNodes[0]?.tags ?? []).length
-  if (testTags === 0 && simNodes.every(n => (n.tags ?? []).length === 0)) return
 
   // Count tags
   const tagCountMap = new Map<string, number>()

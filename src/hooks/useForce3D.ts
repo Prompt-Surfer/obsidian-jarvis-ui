@@ -115,7 +115,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
 
     worker.postMessage({
       type: 'init',
-      nodes: graphData.nodes.map((n: GraphNode) => ({ id: n.id, folder: n.folder ?? '' })),
+      nodes: graphData.nodes.map((n: GraphNode) => ({ id: n.id, folder: n.folder ?? '', tags: n.tags ?? [] })),
       links: graphData.links.map((l: GraphLink) => ({
         source: typeof l.source === 'string' ? l.source : (l.source as GraphNode).id,
         target: typeof l.target === 'string' ? l.target : (l.target as GraphNode).id,
