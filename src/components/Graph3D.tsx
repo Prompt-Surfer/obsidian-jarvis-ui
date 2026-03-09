@@ -185,6 +185,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
   const selectedTitleSpriteRef = useRef<THREE.Sprite | null>(null)
   const [, forceUpdate] = useState(0)
+  // PERF: dirty-flag render gate — only call renderer.render() when scene has changed
+  const isDirtyRef = useRef(true)
 
   // Change-detection refs: skip expensive Three.js matrix+link updates when positions unchanged
   const lastPositionsRef = useRef<Map<string, NodePosition> | null>(null)
@@ -323,6 +325,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       camera.updateProjectionMatrix()
       renderer.setSize(w, h)
       composer.setSize(w, h)
+      isDirtyRef.current = true
     }
     window.addEventListener('resize', onResize)
 
@@ -337,6 +340,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   useEffect(() => {
     if (starsRef.current) starsRef.current.visible = starsEnabled
     for (const gs of galaxySpritesRef.current) gs.visible = starsEnabled
+    isDirtyRef.current = true
   }, [starsEnabled])
 
   // Update bloom
@@ -344,6 +348,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (bloomPassRef.current) {
       bloomPassRef.current.strength = bloomEnabled ? 1.5 : 0
     }
+    isDirtyRef.current = true
   }, [bloomEnabled])
 
   // Build instanced mesh when graph data is ready
@@ -420,25 +425,18 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     forceUpdate(x => x + 1)
   }, [graphData])
 
-  // Build label sprites for all nodes (separate effect, depends on graphData)
+  // PERF: lazy label sprites — dispose on graphData change; new sprites created on-demand in the
+  // positions effect only when labelsEnabled is true. Avoids 927 CanvasTextures on startup.
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene || !graphData) return
 
-    // Clean up old sprites
     for (const sprite of labelsMapRef.current.values()) {
       scene.remove(sprite)
       ;(sprite.material as THREE.SpriteMaterial).map?.dispose()
       sprite.material.dispose()
     }
     labelsMapRef.current.clear()
-
-    graphData.nodes.forEach(node => {
-      const sprite = createLabelSprite(node.label)
-      sprite.visible = false
-      scene.add(sprite)
-      labelsMapRef.current.set(node.id, sprite)
-    })
   }, [graphData])
 
   // Selected node: 3D wireframe bracket + floating title sprite
@@ -483,12 +481,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       sprite.visible = true
     }
 
+    isDirtyRef.current = true
     return () => {
       scene.remove(sprite)
       ;(sprite.material as THREE.SpriteMaterial).map?.dispose()
       sprite.material.dispose()
       selectedTitleSpriteRef.current = null
       if (bracket) bracket.visible = false
+      isDirtyRef.current = true
     }
   }, [selectedNodeId, graphData, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize])
 
@@ -542,6 +542,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       scene.add(sprite)
       tagBoxSpritesRef.current.push(sprite)
     }
+    isDirtyRef.current = true
   }, [tagBoxes, graphShape])
 
   // Update positions each frame from simulation
@@ -588,7 +589,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const inFocusMode = !focusModeNodeIds || focusModeNodeIds.has(node.id)
       const visible = inTimeFilter && isVisible && inTagIsolation && inFocusMode
 
-      // Matrix (position + scale): only when layout-affecting deps changed
+      // PERF: InstancedMesh matrix skip — only re-upload when positions/visibility/size/filters change;
+      // hover/selection-only changes skip the O(N) matrix loop entirely (color-only update path)
       if (needsMatrixUpdate) {
         const tier = pos.tier ?? 'regular'
         const sizeMultiplier = tier === 'ultranode' ? ultraNodeSize : tier === 'supernode' ? maxNodeSize : minNodeSize
@@ -617,7 +619,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (needsMatrixUpdate) mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 
-    // Update link positions — only when positions/visibility changed (skip on hover/selection)
+    // PERF: link geometry — in-place BufferAttribute update; no new Float32Array/BufferGeometry
+    // allocated per tick → zero GC pressure; needsUpdate flag uploads only the changed slice
     if (needsMatrixUpdate) {
       const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
       graphData.links.forEach((link, i) => {
@@ -674,18 +677,29 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
-    // Label positions: only update when positions changed (sprites don't move otherwise)
-    // Label visibility: always update (labelsEnabled, filters, visibleNodes can change independently)
-    for (const [nodeId, sprite] of labelsMapRef.current) {
+    // PERF: lazy label sprites — allocate CanvasTexture only when node first becomes visible
+    // with labelsEnabled on; avoids 927 upfront allocations when labels are off at startup
+    const labelScene = sceneRef.current
+    for (const node of nodes) {
+      const nodeId = node.id
       const pos = positions.get(nodeId)
       if (!pos) continue
-      if (positionsChanged) {
-        sprite.position.set(pos.x, pos.y + NODE_RADIUS * 3, pos.z)
-      }
       const inTagIso = !tagIsolationIds || tagIsolationIds.has(nodeId)
       const inTimeF = !timeFilterIds || timeFilterIds.has(nodeId)
       const inFocusM = !focusModeNodeIds || focusModeNodeIds.has(nodeId)
-      sprite.visible = labelsEnabled && inTimeF && visibleNodes.has(nodeId) && inTagIso && inFocusM
+      const shouldShow = labelsEnabled && inTimeF && visibleNodes.has(nodeId) && inTagIso && inFocusM
+      let sprite = labelsMapRef.current.get(nodeId)
+      if (!sprite && shouldShow && labelScene) {
+        sprite = createLabelSprite(node.label)
+        sprite.visible = false
+        labelScene.add(sprite)
+        labelsMapRef.current.set(nodeId, sprite)
+      }
+      if (!sprite) continue
+      if (positionsChanged) {
+        sprite.position.set(pos.x, pos.y + NODE_RADIUS * 3, pos.z)
+      }
+      sprite.visible = shouldShow
     }
 
     // Throttled: clamp controls.maxDistance to bounding sphere fit (at most every 2s)
@@ -716,6 +730,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
+    // PERF: dirty-flag render gate — Three.js scene objects updated; signal one render needed
+    isDirtyRef.current = true
+
   }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, focusModeNodeIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize, labelsEnabled])
 
   // Animate loop
@@ -724,24 +741,38 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const controls = controlsRef.current
     if (!composer || !controls) return
 
+    // PERF: dirty-flag render gate — saves ~60 renderer.render() calls/sec when sim stable and
+    // camera is at rest. OrbitControls fires 'change' on every camera move (user input + damping
+    // decay), so damping continues rendering until it fully settles with no extra logic needed.
+    const onControlsChange = () => { isDirtyRef.current = true }
+    controls.addEventListener('change', onControlsChange)
+
     let animId: number
-    let frameCount = 0
+    let renderCount = 0
     const localControls = controls
     const localComposer = composer
     function loop() {
       animId = requestAnimationFrame(loop)
-      frameCount++
+      // PERF: controls.update() runs every frame to advance damping; the 'change' event fires
+      // automatically during damping decay, keeping isDirtyRef true until camera fully settles
       localControls.update()
-      localComposer.render()
-      // Periodic draw-call profiling (only in dev with ?perf flag)
-      if (DEBUG && frameCount % 60 === 0) {
-        const r = rendererRef.current
-        if (r) console.debug(`[perf] frame=${frameCount} drawCalls=${r.info.render.calls} triangles=${r.info.render.triangles} programs=${r.info.programs?.length ?? 0}`)
+      if (isDirtyRef.current) {
+        isDirtyRef.current = false
+        renderCount++
+        localComposer.render()
+        // Periodic draw-call profiling (only in dev with ?perf flag)
+        if (DEBUG && renderCount % 60 === 0) {
+          const r = rendererRef.current
+          if (r) console.debug(`[perf] renders=${renderCount} drawCalls=${r.info.render.calls} triangles=${r.info.render.triangles} programs=${r.info.programs?.length ?? 0}`)
+        }
       }
     }
     animId = requestAnimationFrame(loop)
     frameRef.current = animId
-    return () => cancelAnimationFrame(animId)
+    return () => {
+      cancelAnimationFrame(animId)
+      controls.removeEventListener('change', onControlsChange)
+    }
   }, [composerRef.current, controlsRef.current])
 
   // Mouse interaction
