@@ -13,6 +13,7 @@ const BRAIN_MESH: [number,number,number][] = [[0.213,-0.633,0.283],[0.425,-0.628
 interface WorkerNode {
   id: string
   folder: string
+  tags?: string[]
   x: number
   y: number
   z: number
@@ -38,6 +39,7 @@ const MAX_TICKS = 200   // 300→200: practical convergence happens well before 
 const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid'
 let currentSpread = 2.0
+let tagBoxesList: Array<{ tag: string; cx: number; cy: number; cz: number; count: number }> = []
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let sunOuterRadius = 300  // set during init, used by shape force
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -51,7 +53,7 @@ function runTick() {
   // Stop when max ticks reached OR simulation has converged (alpha below threshold)
   if (!simulation || tickCount >= MAX_TICKS || simulation.alpha() < ALPHA_MIN) {
     tickRunning = false
-    self.postMessage({ type: 'end', nodes: getNodePositions(simNodes), tickCount })
+    self.postMessage({ type: 'end', nodes: getNodePositions(simNodes), tickCount, tagBoxes: tagBoxesList })
     return
   }
   tickRunning = true
@@ -65,6 +67,7 @@ function runTick() {
       tickCount,
       alpha: simulation.alpha(),
       firstTick: tickCount === 1,
+      tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
     })
   }
 
@@ -170,6 +173,7 @@ self.onmessage = (e: MessageEvent) => {
       return {
         id: n.id,
         folder: n.folder,
+        tags: n.tags ?? [],
         x: warm?.x ?? (Math.random() - 0.5) * 400,
         y: warm?.y ?? (Math.random() - 0.5) * 400,
         z: warm?.z ?? (Math.random() - 0.5) * 400,
@@ -615,6 +619,55 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
+    // ── Tag Box targets: group nodes by primary tag, arrange in a 3D grid ──
+    const tagCountMap = new Map<string, number>()
+    for (const node of simNodes) {
+      for (const tag of (node.tags ?? [])) tagCountMap.set(tag, (tagCountMap.get(tag) ?? 0) + 1)
+    }
+    // Top 24 tags, sorted by frequency
+    const topTags = [...tagCountMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 24)
+      .map(([tag]) => tag)
+
+    // Arrange tag boxes in a 3D grid (4 cols × 3 rows × 2 depth = 24 slots)
+    const BOX_GAP = 260
+    const tagBoxCenters = new Map<string, { x: number; y: number; z: number }>()
+    topTags.forEach((tag, i) => {
+      const col = i % 4
+      const row = Math.floor(i / 4) % 3
+      const depth = Math.floor(i / 12)
+      tagBoxCenters.set(tag, {
+        x: (col - 1.5) * BOX_GAP,
+        y: (row - 1) * BOX_GAP,
+        z: (depth - 0.5) * BOX_GAP,
+      })
+    })
+
+    // Assign each node to its primary tag box (first tag that appears in topTags)
+    const tagBoxTargets = new Map<string, { x: number; y: number; z: number; tag: string }>()
+    for (const node of simNodes) {
+      const primaryTag = (node.tags ?? []).find(t => tagBoxCenters.has(t))
+      if (primaryTag) {
+        const center = tagBoxCenters.get(primaryTag)!
+        tagBoxTargets.set(node.id, {
+          x: center.x + (Math.random() - 0.5) * 100,
+          y: center.y + (Math.random() - 0.5) * 100,
+          z: center.z + (Math.random() - 0.5) * 100,
+          tag: primaryTag,
+        })
+      } else {
+        // Untagged nodes: cluster near origin
+        tagBoxTargets.set(node.id, { x: (Math.random() - 0.5) * 80, y: (Math.random() - 0.5) * 80, z: (Math.random() - 0.5) * 80, tag: '' })
+      }
+    }
+
+    // Build tagBoxes list for postMessage — centers scaled by spread to match node positions
+    tagBoxesList = topTags.map(tag => {
+      const center = tagBoxCenters.get(tag)!
+      return { tag, cx: center.x * currentSpread, cy: center.y * currentSpread, cz: center.z * currentSpread, count: tagCountMap.get(tag) ?? 0 }
+    })
+
     // ── Set initial positions based on active shape ─────────────────────────
     if (graphShape === 'sun') {
       for (const node of simNodes) {
@@ -647,6 +700,14 @@ self.onmessage = (e: MessageEvent) => {
         node.x = target.x * currentSpread + (Math.random() - 0.5) * 20
         node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
         node.z = target.z * currentSpread + (Math.random() - 0.5) * 20
+      }
+    } else if (graphShape === 'tagboxes') {
+      for (const node of simNodes) {
+        const target = tagBoxTargets.get(node.id)
+        if (!target) continue
+        node.x = target.x * currentSpread
+        node.y = target.y * currentSpread
+        node.z = target.z * currentSpread
       }
     }
 
@@ -706,11 +767,21 @@ self.onmessage = (e: MessageEvent) => {
           node.vy += (target.y * currentSpread - node.y) * k
           node.vz += (target.z * currentSpread - node.z) * k
         }
+      } else if (graphShape === 'tagboxes') {
+        // Pull each node toward its tag box center (strong containment)
+        const k = alpha * 0.6
+        for (const node of simNodes) {
+          const target = tagBoxTargets.get(node.id)
+          if (!target) continue
+          node.vx += (target.x * currentSpread - node.x) * k
+          node.vy += (target.y * currentSpread - node.y) * k
+          node.vz += (target.z * currentSpread - node.z) * k
+        }
       }
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const isShapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain'
+    const isShapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes'
     const chargeStrength = isShapeDriven ? 0 : -120
     const centerStrength = isShapeDriven ? 0 : 0.05
 

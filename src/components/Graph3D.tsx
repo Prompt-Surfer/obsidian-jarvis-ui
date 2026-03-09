@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { GraphNode, GraphData } from '../hooks/useVaultGraph'
-import type { NodePosition } from '../hooks/useForce3D'
+import type { NodePosition, TagBox } from '../hooks/useForce3D'
 import { getNodeColor } from '../lib/colors'
 
 interface Graph3DProps {
@@ -38,6 +38,7 @@ interface Graph3DProps {
   onUnpinNodes?: (ids: string[]) => void
   electronScene?: THREE.Scene
   graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+  tagBoxes?: TagBox[]
 }
 
 export interface Graph3DHandle {
@@ -125,6 +126,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   onMoveNodes,
   onUnpinNodes,
   graphShape,
+  tagBoxes,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -136,6 +138,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const instancedMeshRef = useRef<THREE.InstancedMesh | null>(null)
   const lineSegmentsRef = useRef<THREE.LineSegments | null>(null)
   const selectedEdgeLinesRef = useRef<THREE.LineSegments | null>(null)
+  const tagBoxMeshesRef = useRef<THREE.LineSegments[]>([])
   const nodeIndexMapRef = useRef<Map<string, number>>(new Map())
   const starsRef = useRef<THREE.Points | null>(null)
   const galaxySpritesRef = useRef<THREE.Sprite[]>([])
@@ -466,6 +469,41 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       if (bracket) bracket.visible = false
     }
   }, [selectedNodeId, graphData, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize])
+
+  // Tag box wireframes — render/remove cyan EdgesGeometry boxes for tagboxes shape
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+
+    // Remove old boxes
+    for (const box of tagBoxMeshesRef.current) {
+      scene.remove(box)
+      box.geometry.dispose()
+    }
+    tagBoxMeshesRef.current = []
+
+    if (graphShape !== 'tagboxes' || !tagBoxes || tagBoxes.length === 0) return
+
+    // Estimate box half-size based on node count per box
+    const maxCount = Math.max(...tagBoxes.map(b => b.count))
+
+    for (const box of tagBoxes) {
+      const sizeFactor = 0.5 + 0.5 * (box.count / maxCount)
+      const halfSize = 60 * sizeFactor
+      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(halfSize * 2, halfSize * 2, halfSize * 2))
+      const mat = new THREE.LineBasicMaterial({
+        color: 0x00d4ff,
+        transparent: true,
+        opacity: 0.25 + 0.35 * sizeFactor,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+      const lines = new THREE.LineSegments(geo, mat)
+      lines.position.set(box.cx, box.cy, box.cz)
+      scene.add(lines)
+      tagBoxMeshesRef.current.push(lines)
+    }
+  }, [tagBoxes, graphShape])
 
   // Update positions each frame from simulation
   useEffect(() => {
