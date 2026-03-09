@@ -793,8 +793,8 @@ function App() {
         title="Screenshot to clipboard"
         style={{
           position: 'fixed',
-          top: 16,
-          right: 80,
+          top: 178,
+          left: 16,
           zIndex: 200,
           background: 'rgba(0,0,0,0.7)',
           border: '1px solid #1a3a4a',
