@@ -155,12 +155,17 @@ function runTick() {
   simulation.tick()
   tickCount++
 
-  if (tickCount % 5 === 0 || tickCount === 1) {
+  // PERF: worker tick throttle — postMessage every 5th tick during active convergence;
+  // halve to every 10th when alpha < 0.1 (sim nearly stable) → ~50% fewer React re-renders
+  // during the long tail of slow convergence with zero visible quality loss
+  const currentAlpha = simulation.alpha()
+  const reportInterval = currentAlpha < 0.1 ? 10 : 5
+  if (tickCount % reportInterval === 0 || tickCount === 1) {
     self.postMessage({
       type: 'tick',
       nodes: getNodePositions(simNodes),
       tickCount,
-      alpha: simulation.alpha(),
+      alpha: currentAlpha,
       firstTick: tickCount === 1,
       tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
     })
