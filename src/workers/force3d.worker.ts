@@ -63,9 +63,10 @@ const SPRING_ITERATIONS = 80
 const SPRING_ATTRACTION_K = 0.15
 const SPRING_REPULSION_K = 0.08
 let tagBoxTopN = 24
+let tagBoxSizeScale = 1.0
 
 function computeHalfSize(nodeCount: number): number {
-  return Math.min(MAX_HALF, BASE_HALF + SCALE_HALF * Math.sqrt(nodeCount))
+  return Math.min(MAX_HALF * tagBoxSizeScale, (BASE_HALF + SCALE_HALF * Math.sqrt(nodeCount)) * tagBoxSizeScale)
 }
 
 function buildTagBoxTargets(topN: number) {
@@ -374,11 +375,13 @@ self.onmessage = (e: MessageEvent) => {
     links?: Array<{ source: string; target: string }>
     graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
     topN?: number
+    tagBoxSizeScale?: number
   }
 
   if (type === 'setGraphShape') {
     graphShape = (e.data as { graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'centroid'
     if (e.data.topN != null) tagBoxTopN = e.data.topN as number
+    if (e.data.tagBoxSizeScale != null) tagBoxSizeScale = e.data.tagBoxSizeScale as number
     // Build tag box targets on-demand when switching to tagboxes
     if (graphShape === 'tagboxes') {
       buildTagBoxTargets(tagBoxTopN)
@@ -483,6 +486,7 @@ self.onmessage = (e: MessageEvent) => {
     if (e.data.graphShape) graphShape = e.data.graphShape
     if (e.data.spread != null) currentSpread = e.data.spread
     if (e.data.topN != null) tagBoxTopN = e.data.topN as number
+    if (e.data.tagBoxSizeScale != null) tagBoxSizeScale = e.data.tagBoxSizeScale as number
 
     // Warm restart: if existing positions are provided (shape-only change), reuse them
     // so nodes start near their previous locations instead of random scatter

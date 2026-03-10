@@ -19,7 +19,7 @@ export interface TagBox {
   isVirtual?: boolean; parentTags?: [string, string]
 }
 
-export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid', topNTags?: number) {
+export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid', topNTags?: number, tagBoxSizeScale?: number) {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
   const [tagBoxes, setTagBoxes] = useState<TagBox[]>([])
@@ -128,6 +128,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
       existingPositions,
       spread: spreadRef.current,
       topN: topNTags ?? 24,
+      tagBoxSizeScale: tagBoxSizeScale ?? 1.0,
     })
 
     return () => {
@@ -138,7 +139,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' |
         rafHandleRef.current = null
       }
     }
-  }, [graphData, graphShape, topNTags])
+  }, [graphData, graphShape, topNTags, tagBoxSizeScale])
 
   const reheat = useCallback(() => {
     workerRef.current?.postMessage({ type: 'reheat' })

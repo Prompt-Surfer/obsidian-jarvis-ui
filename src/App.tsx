@@ -69,7 +69,8 @@ function App() {
     try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') ?? 'centroid' } catch { return 'centroid' }
   })
   const [tagBoxTopN, setTagBoxTopN] = useState(24)
-  const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape, tagBoxTopN)
+  const [tagBoxSizeScale, setTagBoxSizeScale] = useState(1.0)
+  const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
 
@@ -710,6 +711,8 @@ function App() {
         }}
         tagBoxTopN={tagBoxTopN}
         onTagBoxTopNChange={setTagBoxTopN}
+        tagBoxSizeScale={tagBoxSizeScale}
+        onTagBoxSizeScaleChange={setTagBoxSizeScale}
       />
 
       <SearchBar
