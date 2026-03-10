@@ -319,6 +319,51 @@ function buildTagBoxTargets(topN: number) {
     }
   }
 
+  // ── Backfill empty parent boxes ──────────────────────────────────────────
+  // If a real tag box has 0 nodes assigned (all its nodes got routed to virtual
+  // intersection boxes), reassign some of them back to the parent box.
+  // This ensures every visible box has at least some nodes inside it.
+  const MIN_NODES_PER_BOX = 3
+
+  const nodesPerRealBox = new Map<string, string[]>()
+  for (const tag of topTags) nodesPerRealBox.set(tag, [])
+  for (const [nodeId, target] of tagBoxTargets) {
+    if (nodesPerRealBox.has(target.tag)) {
+      nodesPerRealBox.get(target.tag)!.push(nodeId)
+    }
+  }
+
+  for (const realTag of topTags) {
+    const count = nodesPerRealBox.get(realTag)!.length
+    if (count >= MIN_NODES_PER_BOX) continue  // already populated
+
+    // Find nodes currently in virtual boxes that include this tag
+    const candidates: string[] = []
+    for (const [nodeId, target] of tagBoxTargets) {
+      if (target.matchedCount >= 2 && typeof target.tag === 'string' && target.tag.includes('∩')) {
+        const vTag = target.tag
+        if (vTag.startsWith(realTag + '∩') || vTag.endsWith('∩' + realTag)) {
+          candidates.push(nodeId)
+        }
+      }
+    }
+
+    // Reassign up to MIN_NODES_PER_BOX worth of candidates to the real box
+    const needed = MIN_NODES_PER_BOX - count
+    const toMove = candidates.slice(0, needed)
+    const center = tagBoxCenters.get(realTag)!
+    const hs = halfSizeMap.get(realTag)!
+    for (const nodeId of toMove) {
+      tagBoxTargets.set(nodeId, {
+        x: center.x + (Math.random() - 0.5) * hs * 1.6,
+        y: center.y + (Math.random() - 0.5) * hs * 1.6,
+        z: (Math.random() - 0.5) * hs * 0.8,
+        tag: realTag, matchedCount: 1,
+        assignedBox: { cx: center.x, cy: center.y, cz: 0, halfSizeX: hs, halfSizeY: hs, halfSizeZ: hs },
+      })
+    }
+  }
+
   // Build tagBoxesList: real boxes + virtual boxes
   tagBoxesList = [
     ...topTags.map(tag => {
@@ -549,7 +594,10 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Radial pull toward origin for isolated nodes (0.08 = moderate, tunable)
+    // Disabled in tagboxes mode — shapeForce + AABB containment handle placement there.
+    // isolatedForce (k=0.08) would overpower the shapeForce (k=0.012) and drain nodes from distant boxes.
     const isolatedForce = (alpha: number) => {
+      if (graphShape === 'tagboxes') return
       const k = alpha * 0.08
       for (const node of simNodes) {
         if (isolatedIds.has(node.id)) {
