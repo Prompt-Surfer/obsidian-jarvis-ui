@@ -211,12 +211,15 @@ function buildTagBoxTargets(topN: number) {
     const matchedCount = matchedTags.length
 
     if (matchedCount === 0) {
+      // Orphan cloud — spread in a wide 3D zone above the grid, not a thin line.
+      // assignedBox must be large enough to prevent AABB containment from squashing them.
+      const orphanSpread = TAG_BOX_GAP * 0.5
       tagBoxTargets.set(node.id, {
         x: (Math.random() - 0.5) * TAG_BOX_COLS * TAG_BOX_GAP,
-        y: orphanY + (Math.random() - 0.5) * 100,
-        z: (Math.random() - 0.5) * 100,
+        y: orphanY + (Math.random() - 0.5) * orphanSpread,
+        z: (Math.random() - 0.5) * orphanSpread,
         tag: '', matchedCount: 0,
-        assignedBox: { cx: 0, cy: orphanY, cz: 0, halfSizeX: TAG_BOX_COLS * TAG_BOX_GAP / 2, halfSizeY: 100, halfSizeZ: 100 },
+        assignedBox: { cx: 0, cy: orphanY, cz: 0, halfSizeX: TAG_BOX_COLS * TAG_BOX_GAP / 2, halfSizeY: orphanSpread, halfSizeZ: orphanSpread },
       })
     } else if (matchedCount === 1) {
       const tag = matchedTags[0]
