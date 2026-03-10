@@ -13,7 +13,11 @@ export interface NodePosition {
 const DEBUG = import.meta.env.DEV && typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('perf')
 
-export interface TagBox { tag: string; cx: number; cy: number; cz: number; count: number; halfSize?: number }
+export interface TagBox {
+  tag: string; cx: number; cy: number; cz: number; count: number; halfSize?: number
+  halfSizeX?: number; halfSizeY?: number; halfSizeZ?: number
+  isVirtual?: boolean; parentTags?: [string, string]
+}
 
 export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid', topNTags?: number) {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())

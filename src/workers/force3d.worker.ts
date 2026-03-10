@@ -39,15 +39,34 @@ const MAX_TICKS = 200   // 300→200: practical convergence happens well before 
 const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid'
 let currentSpread = 2.0
-let tagBoxesList: Array<{ tag: string; cx: number; cy: number; cz: number; count: number }> = []
-let tagBoxTargets = new Map<string, { x: number; y: number; z: number; tag: string }>()
+interface TagBoxEntry {
+  tag: string; cx: number; cy: number; cz: number; count: number; halfSize: number
+  halfSizeX?: number; halfSizeY?: number; halfSizeZ?: number
+  isVirtual?: boolean; parentTags?: [string, string]
+}
+interface TagBoxTarget {
+  x: number; y: number; z: number; tag: string; matchedCount: number
+  assignedBox?: { cx: number; cy: number; cz: number; halfSizeX: number; halfSizeY: number; halfSizeZ: number }
+}
+let tagBoxesList: TagBoxEntry[] = []
+let tagBoxTargets = new Map<string, TagBoxTarget>()
 
-// Tag box world-space constants (spread-independent — always same visual layout)
+// Tag box world-space constants
 const TAG_BOX_COLS = 6
-const TAG_BOX_GAP = 650   // world units between box centers
-const TAG_BOX_JITTER = 160 // world units radius of node scatter within each box
-const TAG_BOX_HALF = 180   // world units half-size of wireframe box (jitter + 20 margin)
+const TAG_BOX_GAP = 650
+const BASE_HALF = 80
+const SCALE_HALF = 15
+const MAX_HALF = 300
+const MIN_SHARED = 3
+const MIN_GAP = 40
+const SPRING_ITERATIONS = 80
+const SPRING_ATTRACTION_K = 0.15
+const SPRING_REPULSION_K = 0.08
 let tagBoxTopN = 24
+
+function computeHalfSize(nodeCount: number): number {
+  return Math.min(MAX_HALF, BASE_HALF + SCALE_HALF * Math.sqrt(nodeCount))
+}
 
 function buildTagBoxTargets(topN: number) {
   tagBoxTopN = topN
@@ -69,7 +88,17 @@ function buildTagBoxTargets(topN: number) {
     .slice(0, topN)
     .map(([tag]) => tag)
 
-  // Grid in world space — x/y for column/row, z=0 so boxes face the camera cleanly
+  if (topTags.length === 0) return
+
+  const topTagSet = new Set(topTags)
+
+  // Phase 1: Variable half sizes per tag
+  const halfSizeMap = new Map<string, number>()
+  for (const tag of topTags) {
+    halfSizeMap.set(tag, computeHalfSize(tagCountMap.get(tag) ?? 0))
+  }
+
+  // Initial grid positions (x/y plane, z=0)
   const tagBoxCenters = new Map<string, { x: number; y: number; z: number }>()
   topTags.forEach((tag, i) => {
     const col = i % TAG_BOX_COLS
@@ -81,68 +110,220 @@ function buildTagBoxTargets(topN: number) {
     })
   })
 
-  // Orphan nodes float above the grid — y above the topmost row
-  const maxGridY = ((tagBoxRows - 1) / 2) * TAG_BOX_GAP
-  const orphanY = maxGridY + TAG_BOX_GAP * 0.9
-
-  // Capped greedy assignment — each box holds ≤ MAX_PER_BOX nodes
-  // Process nodes with fewer tag options first (most constrained first)
-  const MAX_PER_BOX = Math.ceil(simNodes.length / topTags.length) + 10
-  const boxUsed = new Map<string, number>()
-  topTags.forEach(t => boxUsed.set(t, 0))
-
-  const sortedNodes = [...simNodes].sort((a, b) => {
-    const am = (a.tags ?? []).filter(t => tagBoxCenters.has(t)).length
-    const bm = (b.tags ?? []).filter(t => tagBoxCenters.has(t)).length
-    return am - bm // fewest options first
-  })
-
-  for (const node of sortedNodes) {
-    // Rarest matching tag with available capacity
-    const primaryTag = (node.tags ?? [])
-      .filter(t => tagBoxCenters.has(t) && (boxUsed.get(t) ?? 0) < MAX_PER_BOX)
-      .sort((a, b) => (tagCountMap.get(a) ?? 0) - (tagCountMap.get(b) ?? 0))[0]
-
-    if (primaryTag) {
-      boxUsed.set(primaryTag, (boxUsed.get(primaryTag) ?? 0) + 1)
-      const center = tagBoxCenters.get(primaryTag)!
-      tagBoxTargets.set(node.id, {
-        x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-        y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-        z: center.z + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,  // full 3D scatter
-        tag: primaryTag,
-      })
-    } else {
-      // Overflow: pack into least-full box (guard against empty topTags)
-      const fallback = topTags.length > 0
-        ? [...topTags].sort((a, b) => (boxUsed.get(a) ?? 0) - (boxUsed.get(b) ?? 0))[0]
-        : undefined
-      const center = fallback ? tagBoxCenters.get(fallback) : undefined
-      if (center && fallback) {
-        boxUsed.set(fallback, (boxUsed.get(fallback) ?? 0) + 1)
-        tagBoxTargets.set(node.id, {
-          x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-          y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-          z: center.z + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,  // full 3D scatter
-          tag: fallback,
-        })
-      } else {
-        // No matching tags — float above the grid as orphans
-        tagBoxTargets.set(node.id, {
-          x: (Math.random() - 0.5) * TAG_BOX_COLS * TAG_BOX_GAP,  // spread across grid width
-          y: orphanY + (Math.random() - 0.5) * TAG_BOX_HALF,       // above top row
-          z: (Math.random() - 0.5) * TAG_BOX_JITTER,
-          tag: '',
-        })
+  // Compute shared node counts between tag pairs
+  const sharedMap = new Map<string, number>()
+  for (const node of simNodes) {
+    const nodeTags = (node.tags ?? []).filter(t => topTagSet.has(t))
+    for (let i = 0; i < nodeTags.length; i++) {
+      for (let j = i + 1; j < nodeTags.length; j++) {
+        const pair = [nodeTags[i], nodeTags[j]].sort()
+        const key = `${pair[0]}|${pair[1]}`
+        sharedMap.set(key, (sharedMap.get(key) ?? 0) + 1)
       }
     }
   }
 
-  // Positions are already in world space — send as-is (no spread multiplier)
-  tagBoxesList = topTags.map(tag => {
-    const center = tagBoxCenters.get(tag)!
-    return { tag, cx: center.x, cy: center.y, cz: center.z, count: tagCountMap.get(tag) ?? 0, halfSize: TAG_BOX_HALF }
-  })
+  // Phase 2: Spring layout — settle box positions in X/Y plane
+  const posArr = topTags.map(tag => ({ tag, x: tagBoxCenters.get(tag)!.x, y: tagBoxCenters.get(tag)!.y }))
+  for (let iter = 0; iter < SPRING_ITERATIONS; iter++) {
+    const forces = posArr.map(() => ({ fx: 0, fy: 0 }))
+    for (let i = 0; i < posArr.length; i++) {
+      for (let j = i + 1; j < posArr.length; j++) {
+        const a = posArr[i], b = posArr[j]
+        const hs_A = halfSizeMap.get(a.tag)!
+        const hs_B = halfSizeMap.get(b.tag)!
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1
+        const nx = dx / dist, ny = dy / dist
+        const pair = [a.tag, b.tag].sort()
+        const shared = sharedMap.get(`${pair[0]}|${pair[1]}`) ?? 0
+        if (shared >= MIN_SHARED) {
+          const overlapHalfSize = Math.min(computeHalfSize(shared), Math.min(hs_A, hs_B) * 0.8)
+          const requiredDist = hs_A + hs_B - 2 * overlapHalfSize
+          const diff = dist - requiredDist
+          const f = diff * SPRING_ATTRACTION_K
+          forces[i].fx += nx * f; forces[i].fy += ny * f
+          forces[j].fx -= nx * f; forces[j].fy -= ny * f
+        }
+        const minDist = hs_A + hs_B + MIN_GAP
+        if (dist < minDist) {
+          const f = (minDist - dist) * SPRING_REPULSION_K
+          forces[i].fx -= nx * f; forces[i].fy -= ny * f
+          forces[j].fx += nx * f; forces[j].fy += ny * f
+        }
+      }
+    }
+    for (let i = 0; i < posArr.length; i++) {
+      posArr[i].x += forces[i].fx
+      posArr[i].y += forces[i].fy
+    }
+  }
+  for (const p of posArr) {
+    tagBoxCenters.set(p.tag, { x: p.x, y: p.y, z: 0 })
+  }
+
+  // Phase 3: Virtual overlap boxes (A∩B)
+  const virtualBoxes: TagBoxEntry[] = []
+  const virtualBoxMap = new Map<string, TagBoxEntry>()
+  for (let i = 0; i < topTags.length; i++) {
+    for (let j = i + 1; j < topTags.length; j++) {
+      const tagA = topTags[i], tagB = topTags[j]
+      const pair = [tagA, tagB].sort()
+      const shared = sharedMap.get(`${pair[0]}|${pair[1]}`) ?? 0
+      if (shared < MIN_SHARED) continue
+      const cA = tagBoxCenters.get(tagA)!
+      const cB = tagBoxCenters.get(tagB)!
+      const hs_A = halfSizeMap.get(tagA)!
+      const hs_B = halfSizeMap.get(tagB)!
+      const overlapMinX = Math.max(cA.x - hs_A, cB.x - hs_B)
+      const overlapMaxX = Math.min(cA.x + hs_A, cB.x + hs_B)
+      const overlapMinY = Math.max(cA.y - hs_A, cB.y - hs_B)
+      const overlapMaxY = Math.min(cA.y + hs_A, cB.y + hs_B)
+      if (overlapMaxX > overlapMinX + 10 && overlapMaxY > overlapMinY + 10) {
+        const halfSizeZ = Math.min(hs_A, hs_B) * 0.5
+        const vb: TagBoxEntry = {
+          tag: `${tagA}∩${tagB}`,
+          cx: (overlapMinX + overlapMaxX) / 2,
+          cy: (overlapMinY + overlapMaxY) / 2,
+          cz: 0,
+          halfSizeX: (overlapMaxX - overlapMinX) / 2,
+          halfSizeY: (overlapMaxY - overlapMinY) / 2,
+          halfSizeZ,
+          count: shared,
+          isVirtual: true,
+          parentTags: [tagA, tagB],
+          halfSize: Math.min((overlapMaxX - overlapMinX) / 2, (overlapMaxY - overlapMinY) / 2),
+        }
+        virtualBoxes.push(vb)
+        virtualBoxMap.set(`${pair[0]}|${pair[1]}`, vb)
+      }
+    }
+  }
+
+  // Orphan height: above the highest box
+  const maxBoxY = posArr.length > 0 ? Math.max(...posArr.map(p => p.y + (halfSizeMap.get(p.tag) ?? BASE_HALF))) : 0
+  const orphanY = maxBoxY + TAG_BOX_GAP * 0.5
+
+  // Phase 4: Deterministic node placement
+  for (const node of simNodes) {
+    const matchedTags = (node.tags ?? []).filter(t => topTagSet.has(t))
+    const matchedCount = matchedTags.length
+
+    if (matchedCount === 0) {
+      tagBoxTargets.set(node.id, {
+        x: (Math.random() - 0.5) * TAG_BOX_COLS * TAG_BOX_GAP,
+        y: orphanY + (Math.random() - 0.5) * 100,
+        z: (Math.random() - 0.5) * 100,
+        tag: '', matchedCount: 0,
+        assignedBox: { cx: 0, cy: orphanY, cz: 0, halfSizeX: TAG_BOX_COLS * TAG_BOX_GAP / 2, halfSizeY: 100, halfSizeZ: 100 },
+      })
+    } else if (matchedCount === 1) {
+      const tag = matchedTags[0]
+      const center = tagBoxCenters.get(tag)!
+      const hs = halfSizeMap.get(tag)!
+      tagBoxTargets.set(node.id, {
+        x: center.x + (Math.random() - 0.5) * hs * 1.6,
+        y: center.y + (Math.random() - 0.5) * hs * 1.6,
+        z: (Math.random() - 0.5) * hs * 0.8,
+        tag, matchedCount: 1,
+        assignedBox: { cx: center.x, cy: center.y, cz: 0, halfSizeX: hs, halfSizeY: hs, halfSizeZ: hs },
+      })
+    } else if (matchedCount === 2) {
+      const pair = [...matchedTags].sort()
+      const vb = virtualBoxMap.get(`${pair[0]}|${pair[1]}`)
+      if (vb) {
+        const hx = vb.halfSizeX ?? vb.halfSize ?? 80
+        const hy = vb.halfSizeY ?? vb.halfSize ?? 80
+        const hz = vb.halfSizeZ ?? 40
+        tagBoxTargets.set(node.id, {
+          x: vb.cx + (Math.random() - 0.5) * hx * 1.6,
+          y: vb.cy + (Math.random() - 0.5) * hy * 1.6,
+          z: (Math.random() - 0.5) * hz * 1.6,
+          tag: vb.tag, matchedCount: 2,
+          assignedBox: { cx: vb.cx, cy: vb.cy, cz: 0, halfSizeX: hx, halfSizeY: hy, halfSizeZ: hz },
+        })
+      } else {
+        const tag = (tagCountMap.get(matchedTags[0]) ?? 0) <= (tagCountMap.get(matchedTags[1]) ?? 0) ? matchedTags[0] : matchedTags[1]
+        const center = tagBoxCenters.get(tag)!
+        const hs = halfSizeMap.get(tag)!
+        tagBoxTargets.set(node.id, {
+          x: center.x + (Math.random() - 0.5) * hs * 1.6,
+          y: center.y + (Math.random() - 0.5) * hs * 1.6,
+          z: (Math.random() - 0.5) * hs * 0.8,
+          tag, matchedCount: 1,
+          assignedBox: { cx: center.x, cy: center.y, cz: 0, halfSizeX: hs, halfSizeY: hs, halfSizeZ: hs },
+        })
+      }
+    } else {
+      // 3+ matched tags: compute n-way AABB intersection
+      const matchedBoxes = matchedTags.map(t => ({
+        cx: tagBoxCenters.get(t)!.x, cy: tagBoxCenters.get(t)!.y, hs: halfSizeMap.get(t)!,
+      }))
+      const minX = Math.max(...matchedBoxes.map(b => b.cx - b.hs))
+      const maxX = Math.min(...matchedBoxes.map(b => b.cx + b.hs))
+      const minY = Math.max(...matchedBoxes.map(b => b.cy - b.hs))
+      const maxY = Math.min(...matchedBoxes.map(b => b.cy + b.hs))
+      const hsZ = Math.min(...matchedBoxes.map(b => b.hs)) * 0.5
+      if (maxX > minX + 10 && maxY > minY + 10) {
+        const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
+        const hx = (maxX - minX) / 2, hy = (maxY - minY) / 2
+        tagBoxTargets.set(node.id, {
+          x: cx + (Math.random() - 0.5) * hx * 1.6,
+          y: cy + (Math.random() - 0.5) * hy * 1.6,
+          z: (Math.random() - 0.5) * hsZ * 1.6,
+          tag: matchedTags[0], matchedCount,
+          assignedBox: { cx, cy, cz: 0, halfSizeX: hx, halfSizeY: hy, halfSizeZ: hsZ },
+        })
+      } else {
+        // Fallback: find largest 2-way virtual box among matched pairs
+        let bestVb: TagBoxEntry | undefined, bestArea = 0
+        for (let i = 0; i < matchedTags.length; i++) {
+          for (let j = i + 1; j < matchedTags.length; j++) {
+            const p = [...[matchedTags[i], matchedTags[j]]].sort()
+            const vb = virtualBoxMap.get(`${p[0]}|${p[1]}`)
+            if (vb) {
+              const area = (vb.halfSizeX ?? vb.halfSize ?? 0) * (vb.halfSizeY ?? vb.halfSize ?? 0)
+              if (area > bestArea) { bestArea = area; bestVb = vb }
+            }
+          }
+        }
+        if (bestVb) {
+          const hx = bestVb.halfSizeX ?? bestVb.halfSize ?? 80
+          const hy = bestVb.halfSizeY ?? bestVb.halfSize ?? 80
+          const hz = bestVb.halfSizeZ ?? 40
+          tagBoxTargets.set(node.id, {
+            x: bestVb.cx + (Math.random() - 0.5) * hx * 1.6,
+            y: bestVb.cy + (Math.random() - 0.5) * hy * 1.6,
+            z: (Math.random() - 0.5) * hz * 1.6,
+            tag: bestVb.tag, matchedCount,
+            assignedBox: { cx: bestVb.cx, cy: bestVb.cy, cz: 0, halfSizeX: hx, halfSizeY: hy, halfSizeZ: hz },
+          })
+        } else {
+          const tag = matchedTags[0]
+          const center = tagBoxCenters.get(tag)!
+          const hs = halfSizeMap.get(tag)!
+          tagBoxTargets.set(node.id, {
+            x: center.x + (Math.random() - 0.5) * hs * 1.6,
+            y: center.y + (Math.random() - 0.5) * hs * 1.6,
+            z: (Math.random() - 0.5) * hs * 0.8,
+            tag, matchedCount: 1,
+            assignedBox: { cx: center.x, cy: center.y, cz: 0, halfSizeX: hs, halfSizeY: hs, halfSizeZ: hs },
+          })
+        }
+      }
+    }
+  }
+
+  // Build tagBoxesList: real boxes + virtual boxes
+  tagBoxesList = [
+    ...topTags.map(tag => {
+      const center = tagBoxCenters.get(tag)!
+      const hs = halfSizeMap.get(tag)!
+      return { tag, cx: center.x, cy: center.y, cz: center.z, count: tagCountMap.get(tag) ?? 0, halfSize: hs }
+    }),
+    ...virtualBoxes,
+  ]
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let sunOuterRadius = 300  // set during init, used by shape force
@@ -864,14 +1045,30 @@ self.onmessage = (e: MessageEvent) => {
           node.vz += (target.z * currentSpread - node.z) * k
         }
       } else if (graphShape === 'tagboxes') {
-        // Pull each node toward its world-space tag target (spread-independent)
-        const k = alpha * 0.6
+        // Venn diagram force: pull strength varies by overlap zone
+        const CONTAIN_K = 0.05
         for (const node of simNodes) {
           const target = tagBoxTargets.get(node.id)
           if (!target) continue
+          const mc = target.matchedCount ?? 1
+          let k: number
+          if (mc === 0) k = alpha * 0.008
+          else if (mc === 1) k = alpha * 0.012
+          else if (mc === 2) k = alpha * 0.008
+          else k = alpha * 0.004 / mc
           node.vx += (target.x - node.x) * k
           node.vy += (target.y - node.y) * k
           node.vz += (target.z - node.z) * k
+          // AABB containment: push back if node escapes its assigned zone
+          const box = target.assignedBox
+          if (box && mc > 0) {
+            if (node.x < box.cx - box.halfSizeX) node.vx += (box.cx - box.halfSizeX - node.x) * CONTAIN_K
+            else if (node.x > box.cx + box.halfSizeX) node.vx += (box.cx + box.halfSizeX - node.x) * CONTAIN_K
+            if (node.y < box.cy - box.halfSizeY) node.vy += (box.cy - box.halfSizeY - node.y) * CONTAIN_K
+            else if (node.y > box.cy + box.halfSizeY) node.vy += (box.cy + box.halfSizeY - node.y) * CONTAIN_K
+            if (node.z < box.cz - box.halfSizeZ) node.vz += (box.cz - box.halfSizeZ - node.z) * CONTAIN_K
+            else if (node.z > box.cz + box.halfSizeZ) node.vz += (box.cz + box.halfSizeZ - node.z) * CONTAIN_K
+          }
         }
       }
     }

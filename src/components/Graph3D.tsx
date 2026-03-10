@@ -515,14 +515,15 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (graphShape !== 'tagboxes' || !tagBoxes || tagBoxes.length === 0) return
 
     for (const box of tagBoxes) {
-      // Use the pre-calculated halfSize from the worker, fallback to 180
-      const hs = box.halfSize ?? 180
-      const zDepth = hs  // equal depth — true cube
-      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(hs * 2, hs * 2, zDepth * 2))
+      const isVirtual = box.isVirtual ?? false
+      const hx = box.halfSizeX ?? box.halfSize ?? 180
+      const hy = box.halfSizeY ?? box.halfSize ?? 180
+      const hz = box.halfSizeZ ?? box.halfSize ?? 180
+      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2))
       const mat = new THREE.LineBasicMaterial({
-        color: 0xffffff,
+        color: isVirtual ? 0x00ffcc : 0xffffff,
         transparent: true,
-        opacity: 1.0,
+        opacity: isVirtual ? 0.4 : 1.0,
         depthWrite: false,
         depthTest: false,
         blending: THREE.AdditiveBlending,
@@ -534,10 +535,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
       // Label sprite positioned below bottom front edge
       const sprite = createTagBoxLabelSprite(box.tag, box.count)
+      if (isVirtual) {
+        // Virtual boxes get smaller labels
+        sprite.scale.multiplyScalar(0.8)
+      }
       sprite.position.set(
         box.cx,
-        box.cy - hs - 20,
-        box.cz + zDepth,
+        box.cy - hy - 20,
+        box.cz + hz,
       )
       scene.add(sprite)
       tagBoxSpritesRef.current.push(sprite)
