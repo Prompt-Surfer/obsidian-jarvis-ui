@@ -19,7 +19,7 @@ export interface TagBox {
   isVirtual?: boolean; parentTags?: [string, string]
 }
 
-export function useForce3D(graphData: GraphData | null, graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid', topNTags?: number, tagBoxSizeScale?: number) {
+export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural', topNTags?: number, tagBoxSizeScale?: number) {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
   const [tagBoxes, setTagBoxes] = useState<TagBox[]>([])

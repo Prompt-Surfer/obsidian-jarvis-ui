@@ -23,8 +23,8 @@ interface SettingsProps {
   onResetPosition: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
-  graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
-  onGraphShapeChange: (v: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') => void
+  graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+  onGraphShapeChange: (v: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') => void
   tagBoxTopN: number
   onTagBoxTopNChange: (v: number) => void
   tagBoxSizeScale: number
@@ -212,7 +212,7 @@ export function Settings({
               {([
                 { value: 'natural', icon: '🌿', label: 'Natural' },
                 { value: 'sun', icon: '☀️', label: 'The Sun' },
-                { value: 'centroid', icon: '⚪', label: 'Centroid' },
+
                 { value: 'saturn', icon: '🪐', label: 'Saturn' },
                 { value: 'milkyway', icon: '🌌', label: 'Milky Way' },
                 { value: 'brain', icon: '🧠', label: 'Brain' },

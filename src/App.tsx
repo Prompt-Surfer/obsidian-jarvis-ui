@@ -63,10 +63,15 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 function App() {
   const { data: graphData, loading, error } = useVaultGraph()
   const _urlParams = new URLSearchParams(window.location.search)
-  const [graphShape, setGraphShape] = useState<'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'>(() => {
-    const url = _urlParams.get('graphShape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
+  const [graphShape, setGraphShape] = useState<'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'>(() => {
+    const url = _urlParams.get('graphShape') as 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
     if (url) return url
-    try { return (localStorage.getItem('jarvis-graph-shape') as 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') ?? 'centroid' } catch { return 'centroid' }
+    try {
+      const stored = localStorage.getItem('jarvis-graph-shape') as 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
+      // Migrate old 'centroid' value to 'natural'
+      if (stored === 'centroid' as string) return 'natural'
+      return stored ?? 'natural'
+    } catch { return 'natural' }
   })
   const [tagBoxTopN, setTagBoxTopN] = useState(24)
   const [tagBoxSizeScale, setTagBoxSizeScale] = useState(1.0)
@@ -515,8 +520,8 @@ function App() {
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
-    setGraphShape('centroid')
-    try { localStorage.setItem('jarvis-graph-shape', 'centroid') } catch { /* storage unavailable */ }
+    setGraphShape('natural')
+    try { localStorage.setItem('jarvis-graph-shape', 'natural') } catch { /* storage unavailable */ }
     resetPins() // clear all dragged node pins so layout reflows naturally
     reheat()
   }, [setSpread, reheat, resetPins])

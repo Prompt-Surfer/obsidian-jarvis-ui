@@ -37,7 +37,7 @@ let tickCount = 0
 let tickRunning = false
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
-let graphShape: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'centroid'
+let graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural'
 let currentSpread = 2.0
 interface TagBoxEntry {
   tag: string; cx: number; cy: number; cz: number; count: number; halfSize: number
@@ -418,13 +418,13 @@ self.onmessage = (e: MessageEvent) => {
     type: string
     nodes?: Array<{ id: string; folder: string; tags?: string[] }>
     links?: Array<{ source: string; target: string }>
-    graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+    graphShape?: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
     topN?: number
     tagBoxSizeScale?: number
   }
 
   if (type === 'setGraphShape') {
-    graphShape = (e.data as { graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'centroid'
+    graphShape = (e.data as { graphShape?: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'natural'
     if (e.data.topN != null) tagBoxTopN = e.data.topN as number
     if (e.data.tagBoxSizeScale != null) tagBoxSizeScale = e.data.tagBoxSizeScale as number
     // Build tag box targets on-demand when switching to tagboxes
@@ -1045,7 +1045,7 @@ self.onmessage = (e: MessageEvent) => {
 
     // ── Shape force: pulls nodes toward their target positions ──────────────
     const shapeForce = (alpha: number) => {
-      if (graphShape === 'centroid') {
+      if (graphShape === 'natural') {
         // Same-folder orphans attract each other (original centroid behavior)
         const k = alpha * 0.012
         for (const members of orphansByFolder.values()) {
