@@ -19,6 +19,7 @@ import { getNodeColor } from './lib/colors'
 // Defined outside App to avoid unnecessary re-renders
 const SHORTCUTS = [
   { key: '/', label: 'SEARCH', desc: 'Open search bar' },
+  { key: 'R', label: 'RESET VIEW', desc: 'Reset camera to fit all nodes' },
   { key: 'F', label: 'FAVOURITE', desc: 'Toggle favourite on selected note' },
   { key: 'ESC', label: 'CLOSE', desc: 'Close sidebar / dismiss search / exit focus mode' },
   { key: 'H', label: 'FOCUS', desc: 'Focus mode: hide all except selected + connected' },
@@ -73,8 +74,8 @@ function App() {
       return stored ?? 'natural'
     } catch { return 'natural' }
   })
-  const [tagBoxTopN, setTagBoxTopN] = useState(24)
-  const [tagBoxSizeScale, setTagBoxSizeScale] = useState(1.0)
+  const [tagBoxTopN, setTagBoxTopN] = useState(2)
+  const [tagBoxSizeScale, setTagBoxSizeScale] = useState(2.0)
   const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
@@ -384,6 +385,9 @@ function App() {
       if (e.key === '/') {
         e.preventDefault()
         setSearchVisible(v => !v)
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        graphRef.current?.resetCamera()
       } else if (e.key === 'f' || e.key === 'F') {
         if (selectedNode) toggleFavourite(selectedNode.id)
       } else if (e.key === 'h' || e.key === 'H') {
