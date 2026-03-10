@@ -69,7 +69,7 @@ function buildTagBoxTargets(topN: number) {
     .slice(0, topN)
     .map(([tag]) => tag)
 
-  // Flat 2D grid in world space (z=0) — no depth, no overlap from front camera
+  // Grid in world space — x/y for column/row, z=0 so boxes face the camera cleanly
   const tagBoxCenters = new Map<string, { x: number; y: number; z: number }>()
   topTags.forEach((tag, i) => {
     const col = i % TAG_BOX_COLS
@@ -80,6 +80,10 @@ function buildTagBoxTargets(topN: number) {
       z: 0,
     })
   })
+
+  // Orphan nodes float above the grid — y above the topmost row
+  const maxGridY = ((tagBoxRows - 1) / 2) * TAG_BOX_GAP
+  const orphanY = maxGridY + TAG_BOX_GAP * 0.9
 
   // Capped greedy assignment — each box holds ≤ MAX_PER_BOX nodes
   // Process nodes with fewer tag options first (most constrained first)
@@ -105,7 +109,7 @@ function buildTagBoxTargets(topN: number) {
       tagBoxTargets.set(node.id, {
         x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
         y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-        z: (Math.random() - 0.5) * 40,
+        z: center.z + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,  // full 3D scatter
         tag: primaryTag,
       })
     } else {
@@ -119,12 +123,17 @@ function buildTagBoxTargets(topN: number) {
         tagBoxTargets.set(node.id, {
           x: center.x + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
           y: center.y + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,
-          z: (Math.random() - 0.5) * 40,
+          z: center.z + (Math.random() - 0.5) * TAG_BOX_JITTER * 2,  // full 3D scatter
           tag: fallback,
         })
       } else {
-        // No boxes at all — scatter near origin
-        tagBoxTargets.set(node.id, { x: (Math.random() - 0.5) * 100, y: (Math.random() - 0.5) * 100, z: (Math.random() - 0.5) * 50, tag: '' })
+        // No matching tags — float above the grid as orphans
+        tagBoxTargets.set(node.id, {
+          x: (Math.random() - 0.5) * TAG_BOX_COLS * TAG_BOX_GAP,  // spread across grid width
+          y: orphanY + (Math.random() - 0.5) * TAG_BOX_HALF,       // above top row
+          z: (Math.random() - 0.5) * TAG_BOX_JITTER,
+          tag: '',
+        })
       }
     }
   }

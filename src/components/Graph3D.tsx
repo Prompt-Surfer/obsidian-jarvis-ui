@@ -213,7 +213,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (!canvas) return
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
-    renderer.setPixelRatio(window.devicePixelRatio)
+    // Cap at 2× — 3× pixel ratio on high-DPI triples GPU load and caps effective FPS.
+    // RAF loop is uncapped (targets display refresh, up to 120fps on 120Hz displays).
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(canvas.clientWidth, canvas.clientHeight)
     renderer.setClearColor(0x000000, 1)
     renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -254,13 +256,15 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     composerRef.current = composer
     bloomPassRef.current = bloomPass
 
-    // Stars — 2000 fixed points in world space, default OFF
+    // Stars — background only (z far negative so they never overlap the graph area).
+    // Camera is at z=600 looking toward origin; graph occupies roughly ±2000 in x/y/z.
+    // Stars at z=-1500 to -6000 are always behind the action regardless of camera angle.
     const starGeo = new THREE.BufferGeometry()
     const starPositions = new Float32Array(2000 * 3)
     for (let i = 0; i < 2000; i++) {
-      starPositions[i * 3]     = (Math.random() - 0.5) * 4000
-      starPositions[i * 3 + 1] = (Math.random() - 0.5) * 4000
-      starPositions[i * 3 + 2] = (Math.random() - 0.5) * 4000
+      starPositions[i * 3]     = (Math.random() - 0.5) * 12000  // wide x spread
+      starPositions[i * 3 + 1] = (Math.random() - 0.5) * 12000  // wide y spread
+      starPositions[i * 3 + 2] = -1500 - Math.random() * 4500   // z: -1500 to -6000 (background)
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
     const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, sizeAttenuation: true, transparent: true, opacity: 0.45 })
@@ -269,38 +273,22 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     scene.add(stars)
     starsRef.current = stars
 
-    // Galaxy sprites — 3 canvas radial-gradient textures at different depths
-    function makeGalaxyTexture(size: number): THREE.Texture {
-      const cvs = document.createElement('canvas')
-      cvs.width = size; cvs.height = size
-      const gctx = cvs.getContext('2d')!
-      const c = size / 2
-      const gr = gctx.createRadialGradient(c, c, 0, c, c, c)
-      gr.addColorStop(0,    'rgba(140,210,255,0.85)')
-      gr.addColorStop(0.18, 'rgba(80,140,220,0.45)')
-      gr.addColorStop(0.45, 'rgba(30,60,130,0.15)')
-      gr.addColorStop(1,    'rgba(0,0,0,0)')
-      gctx.fillStyle = gr
-      gctx.fillRect(0, 0, size, size)
-      return new THREE.CanvasTexture(cvs)
-    }
-    const galaxyData = [
-      { x: -1600, y:  900, z: -2200, sx: 1400, sy: 900 },
-      { x:  2000, y: -700, z: -3200, sx: 1000, sy: 700 },
-      { x:   300, y: -1500, z: -2700, sx: 1600, sy: 1100 },
+    // Galaxy stars — 8 large bright white points (5× star size) far in background.
+    // Replaces old radial-gradient blob sprites.
+    const galStarPositions = [
+      [-3000,  2000, -4200], [ 2500, -1800, -5000], [-1500, -3200, -3800],
+      [ 4200,  1200, -4600], [-2800,  3600, -5500], [ 1800,  3100, -3900],
+      [-4500, -2100, -4300], [ 3300, -3600, -6000],
     ]
-    const galSprites: THREE.Sprite[] = []
-    for (const gd of galaxyData) {
-      const galTex = makeGalaxyTexture(512)
-      const galMat = new THREE.SpriteMaterial({ map: galTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55 })
-      const galSprite = new THREE.Sprite(galMat)
-      galSprite.position.set(gd.x, gd.y, gd.z)
-      galSprite.scale.set(gd.sx, gd.sy, 1)
-      galSprite.visible = false
-      scene.add(galSprite)
-      galSprites.push(galSprite)
-    }
-    galaxySpritesRef.current = galSprites
+    const galGeo = new THREE.BufferGeometry()
+    const galPos = new Float32Array(galStarPositions.length * 3)
+    galStarPositions.forEach(([x, y, z], i) => { galPos[i*3]=x; galPos[i*3+1]=y; galPos[i*3+2]=z })
+    galGeo.setAttribute('position', new THREE.BufferAttribute(galPos, 3))
+    const galMat = new THREE.PointsMaterial({ color: 0xffffff, size: 6, sizeAttenuation: true, transparent: true, opacity: 0.95 })
+    const galaxyPoints = new THREE.Points(galGeo, galMat)
+    galaxyPoints.visible = false
+    scene.add(galaxyPoints)
+    galaxySpritesRef.current = [galaxyPoints as unknown as THREE.Sprite]
 
     // Annotation line: cursor → closest proximity node (solid cyan, drawn on top)
     const annotGeo = new THREE.BufferGeometry()
@@ -340,7 +328,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
   }, [])
 
-  // Toggle stars and galaxy visibility
+  // Toggle stars and galaxy points visibility
   useEffect(() => {
     if (starsRef.current) starsRef.current.visible = starsEnabled
     for (const gs of galaxySpritesRef.current) gs.visible = starsEnabled
