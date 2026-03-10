@@ -95,6 +95,7 @@ function App() {
   const [nodeOpacity, setNodeOpacity] = useState(1.0)
   const [starsEnabled, setStarsEnabled] = useState(false)
   const [labelsEnabled, setLabelsEnabled] = useState(true)
+  const [linksEnabled, setLinksEnabled] = useState(true)
   const [spread, setSpreadState] = useState(2.0)
   const [minNodeSize, setMinNodeSize] = useState(1.0)
   const [maxNodeSize, setMaxNodeSize] = useState(3.0)
@@ -643,6 +644,7 @@ function App() {
           bloomEnabled={bloomEnabled}
           starsEnabled={starsEnabled}
           labelsEnabled={labelsEnabled}
+          linksEnabled={linksEnabled}
           nodeDegrees={nodeDegrees}
           minNodeSize={minNodeSize}
           maxNodeSize={maxNodeSize}
@@ -674,6 +676,7 @@ function App() {
         nodeOpacity={nodeOpacity}
         starsEnabled={starsEnabled}
         labelsEnabled={labelsEnabled}
+        linksEnabled={linksEnabled}
         spread={spread}
         minNodeSize={minNodeSize}
         maxNodeSize={maxNodeSize}
@@ -682,6 +685,7 @@ function App() {
         onOpacityChange={setNodeOpacity}
         onStarsToggle={setStarsEnabled}
         onLabelsToggle={setLabelsEnabled}
+        onLinksToggle={setLinksEnabled}
         onSpreadChange={handleSpreadChange}
         onMinSizeChange={setMinNodeSize}
         onMaxSizeChange={setMaxNodeSize}

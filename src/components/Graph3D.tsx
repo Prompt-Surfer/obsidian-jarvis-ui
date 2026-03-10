@@ -39,6 +39,7 @@ interface Graph3DProps {
   electronScene?: THREE.Scene
   graphShape?: 'centroid' | 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
   tagBoxes?: TagBox[]
+  linksEnabled?: boolean
 }
 
 export interface Graph3DHandle {
@@ -100,23 +101,25 @@ function createLabelSprite(text: string): THREE.Sprite {
 }
 
 function createTagBoxLabelSprite(tag: string, count: number): THREE.Sprite {
-  const W = 300, H = 60
+  // Canvas resolution is 4× the world-unit scale for crisp text at zoom-out
+  const W = 720, H = 144
   const canvas = document.createElement('canvas')
   canvas.width = W
   canvas.height = H
   const ctx = canvas.getContext('2d')!
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.font = 'bold 16px "Inter", "Segoe UI", sans-serif'
+  ctx.font = 'bold 36px "Inter", "Segoe UI", sans-serif'
   ctx.fillStyle = '#ffffff'
-  ctx.fillText(tag, W / 2, H / 2 - 10)
-  ctx.font = '12px "Inter", "Segoe UI", sans-serif'
+  ctx.fillText(tag, W / 2, H / 2 - 20)
+  ctx.font = '26px "Inter", "Segoe UI", sans-serif'
   ctx.fillStyle = '#aaaaaa'
-  ctx.fillText(`${count} notes`, W / 2, H / 2 + 14)
+  ctx.fillText(`${count} notes`, W / 2, H / 2 + 30)
   const texture = new THREE.CanvasTexture(canvas)
   const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false })
   const sprite = new THREE.Sprite(mat)
-  sprite.scale.set(120, 24, 1)
+  // Scale to match box width (TAG_BOX_HALF=180 → box width=360); height proportional
+  sprite.scale.set(720, 144, 1)
   return sprite
 }
 
@@ -148,6 +151,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   onUnpinNodes,
   graphShape,
   tagBoxes,
+  linksEnabled = true,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -351,6 +355,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     isDirtyRef.current = true
   }, [bloomEnabled])
 
+  // Toggle link line visibility
+  useEffect(() => {
+    if (lineSegmentsRef.current) {
+      lineSegmentsRef.current.visible = linksEnabled
+      isDirtyRef.current = true
+    }
+  }, [linksEnabled])
+
   // Build instanced mesh when graph data is ready
   useEffect(() => {
     const scene = sceneRef.current
@@ -517,7 +529,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     for (const box of tagBoxes) {
       // Use the pre-calculated halfSize from the worker, fallback to 180
       const hs = box.halfSize ?? 180
-      const zDepth = hs * 0.6  // shallow depth for flat-grid layout
+      const zDepth = hs  // equal depth — true cube
       const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(hs * 2, hs * 2, zDepth * 2))
       const mat = new THREE.LineBasicMaterial({
         color: 0xffffff,

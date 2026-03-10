@@ -5,6 +5,7 @@ interface SettingsProps {
   nodeOpacity: number
   starsEnabled: boolean
   labelsEnabled: boolean
+  linksEnabled: boolean
   spread: number
   minNodeSize: number
   maxNodeSize: number
@@ -13,6 +14,7 @@ interface SettingsProps {
   onOpacityChange: (value: number) => void
   onStarsToggle: (enabled: boolean) => void
   onLabelsToggle: (enabled: boolean) => void
+  onLinksToggle: (enabled: boolean) => void
   onSpreadChange: (value: number) => void
   onMinSizeChange: (value: number) => void
   onMaxSizeChange: (value: number) => void
@@ -32,6 +34,7 @@ export function Settings({
   nodeOpacity,
   starsEnabled,
   labelsEnabled,
+  linksEnabled,
   spread,
   minNodeSize,
   maxNodeSize,
@@ -40,6 +43,7 @@ export function Settings({
   onOpacityChange,
   onStarsToggle,
   onLabelsToggle,
+  onLinksToggle,
   onSpreadChange,
   onMinSizeChange,
   onMaxSizeChange,
@@ -150,6 +154,11 @@ export function Settings({
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>LABELS</div>
             {toggleBtn(labelsEnabled, `[ LABELS ${labelsEnabled ? 'ON' : 'OFF'} ]`, () => onLabelsToggle(!labelsEnabled))}
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>LINKS</div>
+            {toggleBtn(linksEnabled, `[ LINKS ${linksEnabled ? 'ON' : 'OFF'} ]`, () => onLinksToggle(!linksEnabled))}
           </div>
 
           <div style={{ marginBottom: 14 }}>
