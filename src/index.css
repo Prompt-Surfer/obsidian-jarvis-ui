@@ -73,6 +73,12 @@ input[type="range"]::-moz-range-thumb {
   border: 2px solid #000;
 }
 
+/* Timelapse HUD indicator pulse */
+@keyframes timelapse-pulse {
+  0%, 100% { opacity: 1.0; }
+  50% { opacity: 0.6; }
+}
+
 /* Scanline overlay (optional, subtle) */
 body::after {
   content: '';

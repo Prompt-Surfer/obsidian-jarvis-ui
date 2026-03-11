@@ -1,12 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import type { GraphNode } from '../hooks/useVaultGraph'
 
 interface TimeFilterProps {
   nodes: GraphNode[]
   onChange: (filteredIds: Set<string> | null) => void
+  onDateChange?: (ts: number) => void
+  playing: boolean
+  playSpeed: number
+  onPlayChange: (playing: boolean) => void
+  onSpeedChange: (speed: number) => void
 }
 
 type Preset = '1D' | '1W' | '1M' | '1Y' | 'ALL'
+
+// Days advanced per second for each speed tier
+const SPEED_DAYS: Record<number, number> = { 1: 7, 5: 30, 20: 90 }
 
 function getPresetRange(preset: Preset): [Date, Date] | null {
   if (preset === 'ALL') return null
@@ -21,7 +29,7 @@ function getPresetRange(preset: Preset): [Date, Date] | null {
   return [start, now]
 }
 
-export function TimeFilter({ nodes, onChange }: TimeFilterProps) {
+export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, onPlayChange, onSpeedChange }: TimeFilterProps) {
   const { minTs, maxTs } = useMemo(() => {
     const timestamps = nodes.map(n => new Date(n.modifiedAt).getTime()).filter(Boolean)
     return {
@@ -33,6 +41,12 @@ export function TimeFilter({ nodes, onChange }: TimeFilterProps) {
   const [preset, setPreset] = useState<Preset>('ALL')
   const [range, setRange] = useState<[number, number]>([minTs, maxTs])
   const [, setDragging] = useState<'start' | 'end' | null>(null)
+
+  // Keep a stable ref to onChange/onDateChange to avoid stale closures in interval
+  const onChangeRef = useRef(onChange)
+  const onDateChangeRef = useRef(onDateChange)
+  useEffect(() => { onChangeRef.current = onChange }, [onChange])
+  useEffect(() => { onDateChangeRef.current = onDateChange }, [onDateChange])
 
   const applyPreset = (p: Preset) => {
     setPreset(p)
@@ -75,6 +89,55 @@ export function TimeFilter({ nodes, onChange }: TimeFilterProps) {
       )
       onChange(filtered)
     }
+    onDateChange?.(newRange[1])
+  }
+
+  // Auto-advance upper bound during playback
+  useEffect(() => {
+    if (!playing) return
+    const daysPerSec = SPEED_DAYS[playSpeed] ?? 7
+    const TICK_MS = 50
+    const msPerTick = (daysPerSec * TICK_MS * 86400000) / 1000
+
+    const id = setInterval(() => {
+      setRange(prev => {
+        const newEnd = Math.min(prev[1] + msPerTick, maxTs)
+        const next: [number, number] = [prev[0], newEnd]
+
+        const filtered = new Set(
+          nodes
+            .filter(n => {
+              const t = new Date(n.modifiedAt).getTime()
+              return t >= next[0] && t <= next[1]
+            })
+            .map(n => n.id)
+        )
+        onChangeRef.current(filtered.size === nodes.length ? null : filtered)
+        onDateChangeRef.current?.(newEnd)
+
+        if (newEnd >= maxTs) {
+          onPlayChange(false)
+        }
+        return next
+      })
+    }, TICK_MS)
+
+    return () => clearInterval(id)
+  }, [playing, playSpeed, maxTs, nodes, onPlayChange])
+
+  // Reset: rewind to the earliest date and pause
+  const handleReset = () => {
+    onPlayChange(false)
+    const next: [number, number] = [minTs, minTs]
+    setRange(next)
+    setPreset('ALL')
+    const filtered = new Set(
+      nodes
+        .filter(n => new Date(n.modifiedAt).getTime() <= minTs)
+        .map(n => n.id)
+    )
+    onChange(filtered.size === 0 ? null : filtered)
+    onDateChange?.(minTs)
   }
 
   const span = maxTs - minTs || 1
@@ -82,8 +145,28 @@ export function TimeFilter({ nodes, onChange }: TimeFilterProps) {
   const endPct = ((range[1] - minTs) / span) * 100
 
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+  const fmtPlayDate = (ts: number) => new Date(ts).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 
   const presets: Preset[] = ['1D', '1W', '1M', '1Y', 'ALL']
+  const speeds = [1, 5, 20] as const
+
+  const btnBase: React.CSSProperties = {
+    background: 'transparent',
+    border: '1px solid #1a3a4a',
+    color: '#00a8cc',
+    borderRadius: 4,
+    padding: '3px 8px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontSize: 11,
+    letterSpacing: '0.05em',
+  }
+  const btnActive: React.CSSProperties = {
+    ...btnBase,
+    background: '#00d4ff22',
+    border: '1px solid #00d4ff',
+    color: '#00d4ff',
+  }
 
   return (
     <div style={{
@@ -95,7 +178,7 @@ export function TimeFilter({ nodes, onChange }: TimeFilterProps) {
       border: '1px solid #1a3a4a',
       borderRadius: 8,
       padding: '10px 20px',
-      width: 400,
+      width: 420,
       zIndex: 50,
       fontFamily: '"Courier New", monospace',
       fontSize: 12,
@@ -108,17 +191,7 @@ export function TimeFilter({ nodes, onChange }: TimeFilterProps) {
           <button
             key={p}
             onClick={() => applyPreset(p)}
-            style={{
-              background: preset === p ? '#00d4ff22' : 'transparent',
-              border: `1px solid ${preset === p ? '#00d4ff' : '#1a3a4a'}`,
-              color: preset === p ? '#00d4ff' : '#00a8cc',
-              borderRadius: 4,
-              padding: '3px 10px',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              fontSize: 11,
-              letterSpacing: '0.05em',
-            }}
+            style={preset === p ? btnActive : btnBase}
           >
             {p}
           </button>
@@ -220,6 +293,37 @@ export function TimeFilter({ nodes, onChange }: TimeFilterProps) {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#00a8cc99' }}>
         <span>{fmtDate(range[0])}</span>
         <span>{fmtDate(range[1])}</span>
+      </div>
+
+      {/* Playback controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, justifyContent: 'center' }}>
+        {/* Reset */}
+        <button onClick={handleReset} style={btnBase} title="Reset to start">⏮</button>
+        {/* Play / Pause */}
+        <button
+          onClick={() => onPlayChange(!playing)}
+          style={{ ...btnBase, background: playing ? '#00d4ff22' : 'transparent', border: `1px solid ${playing ? '#00d4ff' : '#1a3a4a'}`, color: '#00d4ff', padding: '3px 12px' }}
+          title={playing ? 'Pause' : 'Play timelapse'}
+        >
+          {playing ? '⏸' : '▶'}
+        </button>
+        {/* Speed selector */}
+        {speeds.map(s => (
+          <button
+            key={s}
+            onClick={() => onSpeedChange(s)}
+            style={playSpeed === s ? btnActive : btnBase}
+            title={`${SPEED_DAYS[s]}d/sec`}
+          >
+            {s}×
+          </button>
+        ))}
+        {/* Current date during playback */}
+        {playing && (
+          <span style={{ color: '#00d4ff', fontSize: 11, letterSpacing: '0.04em', marginLeft: 4 }}>
+            {fmtPlayDate(range[1])}
+          </span>
+        )}
       </div>
     </div>
   )
