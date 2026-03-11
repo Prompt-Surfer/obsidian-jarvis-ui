@@ -109,6 +109,11 @@ function App() {
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchResults, setSearchResults] = useState<string[] | null>(null)
   const [timeFilterIds, setTimeFilterIds] = useState<Set<string> | null>(null)
+  const [timelapsePlaying, setTimelapsePlaying] = useState(false)
+  const [timelapseSpeed, setTimelapseSpeed] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('jarvis-timelapse-speed') ?? '1', 10) || 1 } catch { return 1 }
+  })
+  const [timelapseDate, setTimelapseDate] = useState<number | undefined>(undefined)
   const [tagIsolationIds, setTagIsolationIds] = useState<Set<string> | null>(null)
   const [tagIsolationTags, setTagIsolationTags] = useState<string[]>([])
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set())
@@ -168,6 +173,11 @@ function App() {
     } catch { /* storage unavailable */ }
     return 380
   })()
+
+  // Persist timelapse speed to localStorage
+  useEffect(() => {
+    try { localStorage.setItem('jarvis-timelapse-speed', String(timelapseSpeed)) } catch { /* storage unavailable */ }
+  }, [timelapseSpeed])
 
   // Fetch all tags for search autocomplete (once on mount)
   useEffect(() => {
@@ -738,6 +748,7 @@ function App() {
           onUnpinNodes={unpinNodes}
           graphShape={graphShape}
           tagBoxes={tagBoxes}
+          timeFilterActive={timeFilterIds !== null}
         />
       </ErrorBoundary>
 
@@ -747,6 +758,9 @@ function App() {
         visibleNodeCount={visibleCount}
         simDone={simDone}
         breadcrumb={patternLoading ? '◌ RECALCULATING...' : focusMode ? `[H] FOCUS LOCKED (${focusLockedNodeIds?.size ?? 0} nodes)` : navBreadcrumb}
+        timelapsePlaying={timelapsePlaying}
+        timelapseDate={timelapseDate}
+        onPauseTimelapse={() => setTimelapsePlaying(false)}
       />
 
       <Settings
@@ -806,6 +820,11 @@ function App() {
       <TimeFilter
         nodes={graphData.nodes}
         onChange={setTimeFilterIds}
+        onDateChange={setTimelapseDate}
+        playing={timelapsePlaying}
+        playSpeed={timelapseSpeed}
+        onPlayChange={setTimelapsePlaying}
+        onSpeedChange={setTimelapseSpeed}
       />
 
       <Tooltip node={hoveredNode} x={tooltipPos.x} y={tooltipPos.y} />

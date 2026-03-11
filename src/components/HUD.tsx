@@ -6,9 +6,12 @@ interface HUDProps {
   visibleNodeCount: number
   simDone: boolean
   breadcrumb?: string | null
+  timelapsePlaying?: boolean
+  timelapseDate?: number
+  onPauseTimelapse?: () => void
 }
 
-export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrumb }: HUDProps) {
+export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrumb, timelapsePlaying, timelapseDate, onPauseTimelapse }: HUDProps) {
   const [fps, setFps] = useState(0)
   const frameTimesRef = useRef<number[]>([])
   const lastFrameRef = useRef(performance.now())
@@ -31,6 +34,8 @@ export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrum
     rafId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafId)
   }, [])
+
+  const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 
   return (
     <div style={{
@@ -57,7 +62,33 @@ export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrum
           {breadcrumb}
         </div>
       )}
-
+      {timelapsePlaying && (
+        <div
+          onClick={onPauseTimelapse}
+          style={{
+            marginTop: 6,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            background: '#00d4ff11',
+            border: '1px solid #00d4ff44',
+            borderRadius: 4,
+            padding: '3px 8px',
+            color: '#00d4ff',
+            fontSize: 11,
+            letterSpacing: '0.08em',
+            animation: 'timelapse-pulse 1.5s ease-in-out infinite',
+            cursor: 'pointer',
+            pointerEvents: 'auto',
+          }}
+          title="Click to pause timelapse"
+        >
+          <span>▶ TIMELAPSE</span>
+          {timelapseDate !== undefined && (
+            <span style={{ color: '#00d4ffaa', fontSize: 10 }}>{fmtDate(timelapseDate)}</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
