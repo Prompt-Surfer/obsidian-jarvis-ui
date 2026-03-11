@@ -9,6 +9,7 @@ import { SearchBar } from './components/SearchBar'
 import { TimeFilter } from './components/TimeFilter'
 import { Settings } from './components/Settings'
 import { Minimap } from './components/Minimap'
+import { FirstRunSetup } from './components/FirstRunSetup'
 import { useVaultGraph, type GraphNode } from './hooks/useVaultGraph'
 import { useForce3D } from './hooks/useForce3D'
 import { useElectron } from './hooks/useElectron'
@@ -62,7 +63,20 @@ function ShortcutRow({ keyName, label, desc }: { keyName: string; label: string;
 }
 
 function App() {
-  const { data: graphData, loading, error } = useVaultGraph()
+  // Config check — must resolve before graph loads
+  const [configStatus, setConfigStatus] = useState<'checking' | 'unconfigured' | 'configured'>('checking')
+  const [showChangeVault, setShowChangeVault] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then(r => r.json())
+      .then((d: { configured: boolean }) => setConfigStatus(d.configured ? 'configured' : 'unconfigured'))
+      .catch(() => setConfigStatus('configured')) // if API unreachable, proceed to show graph/error
+  }, [])
+
+  const graphEnabled = configStatus === 'configured'
+
+  const { data: graphData, loading, error } = useVaultGraph(graphEnabled)
   const _urlParams = new URLSearchParams(window.location.search)
   const [graphShape, setGraphShape] = useState<'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'>(() => {
     const url = _urlParams.get('graphShape') as 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
@@ -606,6 +620,39 @@ function App() {
     navigateToNode(nodeId)
   }, [navigateToNode])
 
+  // Show first-run setup when vault is unconfigured or user requests change
+  if (configStatus === 'checking') {
+    return (
+      <div style={{
+        width: '100vw',
+        height: '100vh',
+        background: '#000',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: '"Courier New", monospace',
+        color: '#00d4ff',
+        fontSize: 16,
+      }}>
+        <div style={{ color: '#585b70', fontSize: 12, letterSpacing: '0.08em' }}>◌ INITIALISING...</div>
+      </div>
+    )
+  }
+
+  if (configStatus === 'unconfigured' || showChangeVault) {
+    return (
+      <FirstRunSetup
+        onConfigured={() => {
+          if (showChangeVault) {
+            window.location.reload()
+          } else {
+            window.location.reload()
+          }
+        }}
+      />
+    )
+  }
+
   if (loading) {
     return (
       <div style={{
@@ -743,6 +790,7 @@ function App() {
         onTagBoxTopNChange={setTagBoxTopN}
         tagBoxSizeScale={tagBoxSizeScale}
         onTagBoxSizeScaleChange={setTagBoxSizeScale}
+        onChangeVault={() => setShowChangeVault(true)}
       />
 
       <SearchBar

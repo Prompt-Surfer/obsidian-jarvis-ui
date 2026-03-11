@@ -30,12 +30,13 @@ export interface GraphData {
   links: GraphLink[]
 }
 
-export function useVaultGraph() {
+export function useVaultGraph(enabled = true) {
   const [data, setData] = useState<GraphData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!enabled) return
     setLoading(true)
     fetch('/api/graph')
       .then(res => {
@@ -50,7 +51,7 @@ export function useVaultGraph() {
         setError(err.message)
         setLoading(false)
       })
-  }, [])
+  }, [enabled])
 
   return { data, loading, error }
 }
