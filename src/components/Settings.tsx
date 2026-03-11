@@ -21,6 +21,7 @@ interface SettingsProps {
   onUltraNodeSizeChange: (value: number) => void
   onResetAll: () => void
   onResetPosition: () => void
+  onChangeVault: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
   graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
@@ -52,6 +53,7 @@ export function Settings({
   onUltraNodeSizeChange,
   onResetAll,
   onResetPosition,
+  onChangeVault,
   zoomToNode,
   onZoomToNodeToggle,
   graphShape,
@@ -254,6 +256,9 @@ export function Settings({
             {toggleBtn(false, '[ RESET ALL ]', onResetAll)}
             <div style={{ marginTop: 8 }}>
               {toggleBtn(false, '[ Reset View ]', onResetPosition)}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              {toggleBtn(false, '⚙ Change Vault', onChangeVault)}
             </div>
           </div>
         </div>
