@@ -298,19 +298,40 @@ function App() {
     setSpread(value)
   }, [setSpread])
 
-  // Handle tag isolation from SearchBar Enter
-  const handleTagIsolate = useCallback((ids: Set<string>, tags: string[]) => {
-    setTagIsolationIds(ids)
-    setTagIsolationTags(tags)
-    setSearchResults(null) // clear dim-search when isolating
-    setFilter([...ids])
-  }, [setFilter])
+  // Recompute tagIsolationIds whenever the tag list changes (additive filter logic)
+  useEffect(() => {
+    if (!graphData || tagIsolationTags.length === 0) {
+      setTagIsolationIds(null)
+      return
+    }
+    const matched = new Set(
+      graphData.nodes
+        .filter(n => {
+          const nodeTags = n.tags.map(t => t.toLowerCase())
+          return tagIsolationTags.every(tt => nodeTags.some(nt => nt.includes(tt)))
+        })
+        .map(n => n.id)
+    )
+    setTagIsolationIds(matched)
+  }, [tagIsolationTags, graphData])
+
+  // Handle tag isolation from SearchBar Enter — additive: appends new tags to existing filter
+  const handleTagIsolate = useCallback((_ids: Set<string>, tags: string[]) => {
+    setTagIsolationTags(prev => {
+      const combined = [...new Set([...prev, ...tags])]
+      return combined
+    })
+    setSearchResults(null)
+  }, [])
 
   const clearTagIsolation = useCallback(() => {
     setTagIsolationIds(null)
     setTagIsolationTags([])
-    if (graphData) setFilter(graphData.nodes.map(n => n.id))
-  }, [graphData, setFilter])
+  }, [])
+
+  const removeTagFromIsolation = useCallback((tag: string) => {
+    setTagIsolationTags(prev => prev.filter(t => t !== tag))
+  }, [])
 
   const toggleFavourite = useCallback((nodeId: string) => {
     setFavourites(prev => {
@@ -792,16 +813,27 @@ function App() {
           <span style={{ color: '#585b70' }}>FILTER:</span>
           {tagIsolationTags.map(t => (
             <span key={t} style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
               background: '#1a2a1a',
               color: '#a6e3a1',
               border: '1px solid #a6e3a133',
               borderRadius: 3,
               padding: '1px 6px',
-            }}>#{t}</span>
+            }}>
+              <span>#{t}</span>
+              <span
+                style={{ color: '#4a6a4a', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}
+                onClick={() => removeTagFromIsolation(t)}
+                title={`Remove #${t} filter`}
+              >×</span>
+            </span>
           ))}
           <span
             style={{ color: '#585b70', cursor: 'pointer', marginLeft: 4, fontSize: 13 }}
             onClick={clearTagIsolation}
+            title="Clear all tag filters"
           >×</span>
         </div>
       )}
