@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { GraphNode } from '../hooks/useVaultGraph'
 
+interface ContentResult {
+  id: string
+  title: string
+  folder: string
+  tags: string[]
+  snippet: string
+  score: number
+  matchType: 'content'
+}
+
 interface SearchBarProps {
   visible: boolean
   allNodes: GraphNode[]
@@ -16,6 +26,9 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
   const [results, setResults] = useState<GraphNode[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([])
+  const [contentResults, setContentResults] = useState<ContentResult[]>([])
+  const [contentLoading, setContentLoading] = useState(false)
+  const contentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -38,15 +51,43 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
       setQuery('')
       setResults([])
       setTagSuggestions([])
+      setContentResults([])
+      setContentLoading(false)
       onResults(null)
     }
   }, [visible, onResults])
+
+  // Debounced content search via API
+  const fetchContentResults = useCallback((q: string, titleIds: Set<string>) => {
+    if (contentDebounceRef.current) clearTimeout(contentDebounceRef.current)
+    if (!q.trim() || q.trim().startsWith('#')) {
+      setContentResults([])
+      setContentLoading(false)
+      return
+    }
+    setContentLoading(true)
+    contentDebounceRef.current = setTimeout(async () => {
+      try {
+        const resp = await fetch(`/api/search/content?q=${encodeURIComponent(q)}&limit=10`)
+        if (!resp.ok) throw new Error('search failed')
+        const data = await resp.json() as { results: ContentResult[] }
+        // Deduplicate: exclude IDs already found by title search
+        setContentResults(data.results.filter(r => !titleIds.has(r.id)).slice(0, 5))
+      } catch {
+        setContentResults([])
+      } finally {
+        setContentLoading(false)
+      }
+    }, 300)
+  }, [])
 
   const search = useCallback((q: string) => {
     if (!q.trim()) {
       onResults(null)
       setResults([])
       setTagSuggestions([])
+      setContentResults([])
+      setContentLoading(false)
       return
     }
 
@@ -94,7 +135,16 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
     setResults(matched)
     setSelectedIdx(0)
     onResults(matched.map(n => n.id))
-  }, [allNodes, allTags, onResults])
+
+    // Fire content search (skip for pure tag queries)
+    const isTagOnly = terms.every(t => t.startsWith('#'))
+    if (!isTagOnly) {
+      fetchContentResults(raw, new Set(matched.map(n => n.id)))
+    } else {
+      setContentResults([])
+      setContentLoading(false)
+    }
+  }, [allNodes, allTags, onResults, fetchContentResults])
 
   useEffect(() => {
     search(query)
@@ -146,9 +196,11 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
     }
   }
 
-  const hasDropdown = tagSuggestions.length > 0 || results.length > 0 || (!!query && results.length === 0)
+  const hasDropdown = tagSuggestions.length > 0 || results.length > 0 || contentResults.length > 0 || contentLoading || (!!query && results.length === 0 && !contentLoading && contentResults.length === 0)
 
   return (
+    <>
+      <style>{`.jarvis-snippet mark { background: #00d4ff22; color: #00d4ff; border-radius: 2px; padding: 0 1px; }`}</style>
     <div
       ref={containerRef}
       style={{
@@ -319,7 +371,64 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
             </div>
           )}
 
-          {query && results.length === 0 && tagSuggestions.length === 0 && (
+          {/* Content search section */}
+          {(contentLoading || contentResults.length > 0) && (
+            <div style={{ borderTop: '1px solid #1e2030' }}>
+              {/* Divider */}
+              <div style={{
+                padding: '5px 16px',
+                color: '#313244',
+                fontSize: 11,
+                letterSpacing: 1,
+                userSelect: 'none',
+              }}>
+                ─── In content ───
+              </div>
+
+              {/* Loading state */}
+              {contentLoading && contentResults.length === 0 && (
+                <div style={{ padding: '6px 16px 10px', color: '#313244', fontSize: 12, fontStyle: 'italic' }}>
+                  [searching content…]
+                </div>
+              )}
+
+              {/* Content results */}
+              {contentResults.map(result => (
+                <div
+                  key={result.id}
+                  onClick={() => onNavigate(result.id)}
+                  style={{
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    borderLeft: '2px solid transparent',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = '#00d4ff0d'
+                    e.currentTarget.style.borderLeftColor = '#00d4ff55'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.borderLeftColor = 'transparent'
+                  }}
+                >
+                  <div style={{ color: '#cdd6f4', fontSize: 13 }}>{result.title}</div>
+                  <div
+                    className="jarvis-snippet"
+                    style={{ color: '#6c7086', fontSize: 11, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
+                    dangerouslySetInnerHTML={{ __html: result.snippet }}
+                  />
+                  {result.tags.length > 0 && (
+                    <div style={{ color: '#a6e3a1', fontSize: 11, marginTop: 2 }}>
+                      {result.tags.slice(0, 3).map(t => `#${t}`).join(' ')}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {query && results.length === 0 && tagSuggestions.length === 0 && !contentLoading && contentResults.length === 0 && (
             <div style={{ padding: '12px 16px', color: '#585b70', fontSize: 13 }}>
               No results
             </div>
@@ -327,5 +436,6 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
         </div>
       )}
     </div>
+    </>
   )
 }
