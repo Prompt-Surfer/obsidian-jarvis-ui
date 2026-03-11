@@ -40,6 +40,7 @@ interface Graph3DProps {
   graphShape?: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
   tagBoxes?: TagBox[]
   linksEnabled?: boolean
+  timeFilterActive?: boolean
 }
 
 export interface Graph3DHandle {
@@ -152,6 +153,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   graphShape,
   tagBoxes,
   linksEnabled = true,
+  timeFilterActive = false,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -201,6 +203,20 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     tagIsolationIds: null as Set<string> | null,
     focusModeNodeIds: null as Set<string> | null,
   })
+
+  // Entrance animation tracking: nodeId → animation startTime (ms)
+  const entranceAnimsRef = useRef<Map<string, number>>(new Map())
+  // Set of currently-visible nodeIds for new-node detection
+  const visibleForAnimRef = useRef<Set<string>>(new Set())
+  // Latest props needed by the RAF animation loop (avoids stale closures)
+  const liveNodeSizeRef = useRef({ minNodeSize, maxNodeSize, ultraNodeSize })
+  const graphDataRef = useRef<GraphData | null>(null)
+  const timeFilterActiveRef = useRef(timeFilterActive)
+
+  // Keep animation-support refs in sync with props
+  useEffect(() => { liveNodeSizeRef.current = { minNodeSize, maxNodeSize, ultraNodeSize } }, [minNodeSize, maxNodeSize, ultraNodeSize])
+  useEffect(() => { graphDataRef.current = graphData }, [graphData])
+  useEffect(() => { timeFilterActiveRef.current = timeFilterActive }, [timeFilterActive])
 
   // Keep positionsRef in sync for proximity detection
   useEffect(() => {
@@ -582,6 +598,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       lastFiltersRef.current = { timeFilterIds, tagIsolationIds, focusModeNodeIds }
     }
 
+    const newVisibleSet = new Set<string>()
+
     nodes.forEach((node, i) => {
       const pos = positions.get(node.id)
       if (!pos) return
@@ -594,32 +612,58 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const inFocusMode = !focusModeNodeIds || focusModeNodeIds.has(node.id)
       const visible = inTimeFilter && isVisible && inTagIsolation && inFocusMode
 
+      if (visible) newVisibleSet.add(node.id)
+
       // PERF: InstancedMesh matrix skip — only re-upload when positions/visibility/size/filters change;
       // hover/selection-only changes skip the O(N) matrix loop entirely (color-only update path)
       if (needsMatrixUpdate) {
         const tier = pos.tier ?? 'regular'
         const sizeMultiplier = tier === 'ultranode' ? ultraNodeSize : tier === 'supernode' ? maxNodeSize : minNodeSize
-        const scale = visible ? sizeMultiplier : 0
 
-        dummy.position.set(pos.x, pos.y, pos.z)
-        dummy.scale.set(scale, scale, scale)
-        dummy.updateMatrix()
-        mesh.setMatrixAt(i, dummy.matrix)
+        // Entrance animation: detect nodes newly revealed by time filter
+        const wasVisible = visibleForAnimRef.current.has(node.id)
+        if (timeFilterActive && visible && !wasVisible) {
+          // Register animation — start scale at 0, RAF loop will animate it up
+          entranceAnimsRef.current.set(node.id, performance.now())
+        }
+
+        const isAnimating = entranceAnimsRef.current.has(node.id)
+        if (!isAnimating) {
+          // Normal matrix update
+          const scale = visible ? sizeMultiplier : 0
+          dummy.position.set(pos.x, pos.y, pos.z)
+          dummy.scale.set(scale, scale, scale)
+          dummy.updateMatrix()
+          mesh.setMatrixAt(i, dummy.matrix)
+        } else {
+          // Animating: set position but scale=0 so RAF loop can animate from 0→target
+          dummy.position.set(pos.x, pos.y, pos.z)
+          dummy.scale.set(0, 0, 0)
+          dummy.updateMatrix()
+          mesh.setMatrixAt(i, dummy.matrix)
+        }
       }
 
       // Color: always update (cheap — responds to hover/selection/search/opacity changes)
-      const baseColor = node.id === flashNodeId
-        ? 0xffffff
-        : getNodeColor(node.type, node.folder)
+      // Skip color for animating nodes — RAF loop handles their brightness
+      const isAnimating = entranceAnimsRef.current.has(node.id)
+      if (!isAnimating) {
+        const baseColor = node.id === flashNodeId
+          ? 0xffffff
+          : getNodeColor(node.type, node.folder)
 
-      const opacity = !inSearch && searchResults !== null
-        ? 0.1
-        : (visible ? nodeOpacity : 0)
+        const opacity = !inSearch && searchResults !== null
+          ? 0.1
+          : (visible ? nodeOpacity : 0)
 
-      color.set(baseColor).multiplyScalar(opacity > 0 ? 1 : 0)
-      if (node.id === hoveredNodeId) color.set(baseColor).multiplyScalar(1.5)
-      mesh.setColorAt(i, color)
+        color.set(baseColor).multiplyScalar(opacity > 0 ? 1 : 0)
+        if (node.id === hoveredNodeId) color.set(baseColor).multiplyScalar(1.5)
+        mesh.setColorAt(i, color)
+      }
     })
+
+    // Update visibility tracking for entrance animation detection
+    visibleForAnimRef.current = newVisibleSet
 
     if (needsMatrixUpdate) mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
@@ -738,7 +782,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     // PERF: dirty-flag render gate — Three.js scene objects updated; signal one render needed
     isDirtyRef.current = true
 
-  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, focusModeNodeIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize, labelsEnabled])
+  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, focusModeNodeIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize, labelsEnabled, timeFilterActive])
 
   // Animate loop
   useEffect(() => {
@@ -756,11 +800,73 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     let renderCount = 0
     const localControls = controls
     const localComposer = composer
+
+    // Reusable objects for entrance animation (avoid per-frame allocation)
+    const animDummy = new THREE.Object3D()
+    const animColor = new THREE.Color()
+    const SCALE_DUR = 600  // ms — scale 0 → 1
+    const GLOW_DUR = 800   // ms — emissive brightness spike → base
+
     function loop() {
       animId = requestAnimationFrame(loop)
       // PERF: controls.update() runs every frame to advance damping; the 'change' event fires
       // automatically during damping decay, keeping isDirtyRef true until camera fully settles
       localControls.update()
+
+      // Process node entrance animations (time-lapse reveal)
+      const anims = entranceAnimsRef.current
+      const mesh = instancedMeshRef.current
+      const gData = graphDataRef.current
+      if (anims.size > 0 && mesh && gData) {
+        const now = performance.now()
+        const toDelete: string[] = []
+        const { minNodeSize: mnSize, maxNodeSize: mxSize, ultraNodeSize: ulSize } = liveNodeSizeRef.current
+
+        for (const [nodeId, startTime] of anims) {
+          const elapsed = now - startTime
+          const idx = nodeIndexMapRef.current.get(nodeId)
+          if (idx === undefined) { toDelete.push(nodeId); continue }
+
+          const pos = positionsRef.current.get(nodeId)
+          if (!pos) continue
+
+          const tier = pos.tier ?? 'regular'
+          const baseSizeMult = tier === 'ultranode' ? ulSize : tier === 'supernode' ? mxSize : mnSize
+          const node = gData.nodes[idx]
+
+          if (elapsed >= Math.max(SCALE_DUR, GLOW_DUR)) {
+            // Animation complete — restore final state and remove
+            animDummy.position.set(pos.x, pos.y, pos.z)
+            animDummy.scale.set(baseSizeMult, baseSizeMult, baseSizeMult)
+            animDummy.updateMatrix()
+            mesh.setMatrixAt(idx, animDummy.matrix)
+            animColor.set(getNodeColor(node.type, node.folder))
+            mesh.setColorAt(idx, animColor)
+            toDelete.push(nodeId)
+            continue
+          }
+
+          // Scale: ease-out cubic 0 → baseSizeMult over SCALE_DUR
+          const st = Math.min(elapsed / SCALE_DUR, 1)
+          const scaleT = 1 - Math.pow(1 - st, 3)
+          animDummy.position.set(pos.x, pos.y, pos.z)
+          animDummy.scale.set(scaleT * baseSizeMult, scaleT * baseSizeMult, scaleT * baseSizeMult)
+          animDummy.updateMatrix()
+          mesh.setMatrixAt(idx, animDummy.matrix)
+
+          // Glow burst: brightness spike decays from 2.7× to 1× over GLOW_DUR
+          const gt = Math.min(elapsed / GLOW_DUR, 1)
+          const brightnessMult = 1 + 1.7 * (1 - gt)
+          animColor.set(getNodeColor(node.type, node.folder)).multiplyScalar(brightnessMult)
+          mesh.setColorAt(idx, animColor)
+        }
+
+        for (const id of toDelete) anims.delete(id)
+        mesh.instanceMatrix.needsUpdate = true
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+        isDirtyRef.current = true
+      }
+
       if (isDirtyRef.current) {
         isDirtyRef.current = false
         renderCount++
