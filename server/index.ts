@@ -1,5 +1,6 @@
 import express from 'express'
 import fs from 'fs'
+import MiniSearch from 'minisearch'
 import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -162,6 +163,47 @@ function extractExcerpt(content: string): string {
   return text.slice(0, 120)
 }
 
+function extractBody(content: string): string {
+  // Strip frontmatter, collapse whitespace, return searchable plain text
+  return content
+    .replace(/^---\n[\s\S]*?\n---\n?/, '')
+    .replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1')
+    .replace(/[*_`#]/g, '')
+    .replace(/\n+/g, ' ')
+    .trim()
+}
+
+function makeSnippet(body: string, query: string): string {
+  const lc = body.toLowerCase()
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+
+  let bestIdx = -1
+  for (const w of words) {
+    const idx = lc.indexOf(w)
+    if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) bestIdx = idx
+  }
+
+  const start = bestIdx === -1 ? 0 : Math.max(0, bestIdx - 40)
+  const end = Math.min(body.length, start + 120)
+  let snippet = (start > 0 ? '…' : '') + body.slice(start, end) + (end < body.length ? '…' : '')
+
+  for (const w of words) {
+    snippet = snippet.replace(
+      new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+      '<mark>$1</mark>',
+    )
+  }
+  return snippet
+}
+
+interface NoteDoc {
+  id: string
+  title: string
+  content: string
+  folder: string
+  tags: string[]
+}
+
 interface GraphData {
   nodes: VaultNode[]
   links: VaultLink[]
@@ -170,11 +212,32 @@ interface GraphData {
 let cachedGraph: GraphData | null = null
 let cacheTime = 0
 let cachedVaultPath: string | null = null
+let searchIndex: MiniSearch<NoteDoc> | null = null
+let noteBodyMap = new Map<string, string>()
 const CACHE_TTL = 30_000 // 30s
+
+function buildSearchIndex(nodes: VaultNode[]): void {
+  const ms = new MiniSearch<NoteDoc>({
+    fields: ['title', 'content'],
+    storeFields: ['title', 'folder', 'tags'],
+    searchOptions: { boost: { title: 2 }, fuzzy: 0.2, prefix: true },
+  })
+  ms.addAll(nodes.map(n => ({
+    id: n.id,
+    title: n.label,
+    content: noteBodyMap.get(n.id) ?? '',
+    folder: n.folder,
+    tags: n.tags,
+  })))
+  searchIndex = ms
+}
 
 function buildGraph(vaultPath: string): GraphData {
   const now = Date.now()
   if (cachedGraph && now - cacheTime < CACHE_TTL && cachedVaultPath === vaultPath) return cachedGraph
+
+  noteBodyMap = new Map()
+  searchIndex = null
 
   const nodeMap = new Map<string, VaultNode>()
   const mdFiles: string[] = []
@@ -223,6 +286,7 @@ function buildGraph(vaultPath: string): GraphData {
     }
 
     nodeMap.set(id, node)
+    noteBodyMap.set(id, extractBody(content))
   }
 
   // Build canonical id → node lookup with fuzzy matching
@@ -268,6 +332,7 @@ function buildGraph(vaultPath: string): GraphData {
   }
   cacheTime = now
   cachedVaultPath = vaultPath
+  buildSearchIndex(cachedGraph.nodes)
   return cachedGraph
 }
 
@@ -304,6 +369,8 @@ app.post('/api/config', (req, res) => {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({ vaultPath: trimmed }, null, 2), 'utf-8')
     cachedGraph = null
     cachedVaultPath = null
+    searchIndex = null
+    noteBodyMap = new Map()
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: String(err) })
@@ -419,6 +486,39 @@ app.get('/api/search', (req, res) => {
   res.json({ results })
 })
 
+app.get('/api/search/content', (req, res) => {
+  const q = (req.query.q as string || '').trim()
+  const limit = Math.min(parseInt(req.query.limit as string || '10', 10), 20)
+  if (!q) {
+    res.json({ results: [] })
+    return
+  }
+
+  // Ensure graph + index are built
+  buildGraph(loadConfig().vaultPath)
+
+  if (!searchIndex) {
+    res.json({ results: [] })
+    return
+  }
+
+  const hits = searchIndex.search(q, { limit: limit * 2 })
+  const results = hits.slice(0, limit).map(hit => {
+    const body = noteBodyMap.get(hit.id) ?? ''
+    return {
+      id: hit.id,
+      title: hit.title as string,
+      folder: hit.folder as string,
+      tags: hit.tags as string[],
+      snippet: makeSnippet(body, q),
+      score: hit.score,
+      matchType: 'content' as const,
+    }
+  })
+
+  res.json({ results })
+})
+
 app.get('/api/tags', (_req, res) => {
   const graph = buildGraph(loadConfig().vaultPath)
   const tagSet = new Set<string>()
@@ -446,6 +546,8 @@ app.post('/api/note', (req, res) => {
     fs.writeFileSync(resolved, content, 'utf-8')
     // Invalidate cache so next read reflects changes
     cachedGraph = null
+    searchIndex = null
+    noteBodyMap = new Map()
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: String(err) })
