@@ -9,7 +9,64 @@ void __filename // ESM compat shim
 
 const app = express()
 const PORT = 3001
-const VAULT_PATH = process.env.VAULT_PATH || path.join(os.homedir(), 'obsidian', 'otacon-vault')
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+const CONFIG_PATH = path.join(os.homedir(), '.jarvis-config.json')
+const FALLBACK_VAULT_PATH = process.env.JARVIS_VAULT_PATH || process.env.VAULT_PATH || path.join(os.homedir(), 'obsidian', 'otacon-vault')
+
+interface JarvisConfig {
+  vaultPath: string
+}
+
+function loadConfig(): JarvisConfig {
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf-8')
+    const cfg = JSON.parse(raw) as Partial<JarvisConfig>
+    if (cfg.vaultPath && typeof cfg.vaultPath === 'string' && cfg.vaultPath.trim()) {
+      return { vaultPath: cfg.vaultPath.trim() }
+    }
+  } catch {
+    // config missing or malformed — fall through
+  }
+  return { vaultPath: FALLBACK_VAULT_PATH }
+}
+
+function isConfigured(): boolean {
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf-8')
+    const cfg = JSON.parse(raw) as Partial<JarvisConfig>
+    return !!(cfg.vaultPath && typeof cfg.vaultPath === 'string' && cfg.vaultPath.trim())
+  } catch {
+    return false
+  }
+}
+
+function getSuggestedPaths(): string[] {
+  const platform = process.platform
+  const homedir = os.homedir()
+  const username = os.userInfo().username
+  if (platform === 'win32') {
+    const paths = [
+      `C:\\Users\\${username}\\Documents\\`,
+      `C:\\Users\\${username}\\Documents\\Obsidian`,
+    ]
+    if (process.env.APPDATA) paths.push(`${process.env.APPDATA}\\Obsidian`)
+    return paths
+  } else if (platform === 'darwin') {
+    return [
+      `/Users/${username}/Documents/`,
+      `/Users/${username}/Library/Mobile Documents/iCloud~md~obsidian/Documents/`,
+      `/Users/${username}/Documents/Obsidian`,
+    ]
+  } else {
+    return [
+      `${homedir}/obsidian/`,
+      `${homedir}/Documents/`,
+      `${homedir}/Documents/obsidian`,
+    ]
+  }
+}
 
 app.use(express.json())
 app.use((_req, res, next) => {
@@ -112,11 +169,12 @@ interface GraphData {
 
 let cachedGraph: GraphData | null = null
 let cacheTime = 0
+let cachedVaultPath: string | null = null
 const CACHE_TTL = 30_000 // 30s
 
-function buildGraph(): GraphData {
+function buildGraph(vaultPath: string): GraphData {
   const now = Date.now()
-  if (cachedGraph && now - cacheTime < CACHE_TTL) return cachedGraph
+  if (cachedGraph && now - cacheTime < CACHE_TTL && cachedVaultPath === vaultPath) return cachedGraph
 
   const nodeMap = new Map<string, VaultNode>()
   const mdFiles: string[] = []
@@ -134,10 +192,10 @@ function buildGraph(): GraphData {
     }
   }
 
-  walk(VAULT_PATH)
+  walk(vaultPath)
 
   for (const filePath of mdFiles) {
-    const relPath = path.relative(VAULT_PATH, filePath)
+    const relPath = path.relative(vaultPath, filePath)
     const ext = path.extname(relPath)
     const nameWithoutExt = path.basename(relPath, ext)
     const id = relPath.replace(/\.md$/, '').toLowerCase().replace(/\s+/g, '-')
@@ -209,14 +267,91 @@ function buildGraph(): GraphData {
     links,
   }
   cacheTime = now
+  cachedVaultPath = vaultPath
   return cachedGraph
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
+app.get('/api/config', (_req, res) => {
+  const configured = isConfigured()
+  res.json({
+    configured,
+    vaultPath: configured ? loadConfig().vaultPath : null,
+    platform: process.platform,
+    suggestedPaths: getSuggestedPaths(),
+  })
+})
+
+app.post('/api/config', (req, res) => {
+  const { vaultPath } = req.body as { vaultPath?: string }
+  if (!vaultPath || typeof vaultPath !== 'string' || !vaultPath.trim()) {
+    res.status(400).json({ error: 'vaultPath required' })
+    return
+  }
+  const trimmed = vaultPath.trim()
+  try {
+    const stat = fs.statSync(trimmed)
+    if (!stat.isDirectory()) {
+      res.status(400).json({ error: 'Path is not a directory' })
+      return
+    }
+  } catch {
+    res.status(400).json({ error: 'Path does not exist' })
+    return
+  }
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ vaultPath: trimmed }, null, 2), 'utf-8')
+    cachedGraph = null
+    cachedVaultPath = null
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+app.get('/api/config/validate', (req, res) => {
+  const vaultPath = req.query.path as string
+  if (!vaultPath) {
+    res.status(400).json({ error: 'path query param required' })
+    return
+  }
+  try {
+    const stat = fs.statSync(vaultPath)
+    if (!stat.isDirectory()) {
+      res.json({ valid: false, noteCount: 0, error: 'Path is not a directory' })
+      return
+    }
+  } catch {
+    res.json({ valid: false, noteCount: 0, error: 'Path does not exist' })
+    return
+  }
+  let noteCount = 0
+  function countMd(dir: string) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory() || (entry.isSymbolicLink() && fs.statSync(full).isDirectory())) {
+          countMd(full)
+        } else if (entry.name.endsWith('.md')) {
+          noteCount++
+        }
+      }
+    } catch { /* skip unreadable dirs */ }
+  }
+  countMd(vaultPath)
+  if (noteCount === 0) {
+    res.json({ valid: false, noteCount: 0, error: 'No .md files found in this directory' })
+    return
+  }
+  res.json({ valid: true, noteCount })
+})
+
 app.get('/api/graph', (_req, res) => {
   try {
-    const graph = buildGraph()
+    const graph = buildGraph(loadConfig().vaultPath)
     res.json(graph)
   } catch (err) {
     console.error('Error building graph:', err)
@@ -231,10 +366,11 @@ app.get('/api/note', (req, res) => {
     return
   }
 
-  const fullPath = path.join(VAULT_PATH, notePath)
+  const vaultPath = loadConfig().vaultPath
+  const fullPath = path.join(vaultPath, notePath)
   // Security: ensure path is within vault
   const resolved = path.resolve(fullPath)
-  const vaultResolved = path.resolve(VAULT_PATH)
+  const vaultResolved = path.resolve(vaultPath)
   if (!resolved.startsWith(vaultResolved)) {
     res.status(403).json({ error: 'Access denied' })
     return
@@ -255,7 +391,7 @@ app.get('/api/search', (req, res) => {
     return
   }
 
-  const graph = buildGraph()
+  const graph = buildGraph(loadConfig().vaultPath)
   const terms = q.split(/\s+/).filter(Boolean)
 
   const scored = graph.nodes.map(node => {
@@ -284,7 +420,7 @@ app.get('/api/search', (req, res) => {
 })
 
 app.get('/api/tags', (_req, res) => {
-  const graph = buildGraph()
+  const graph = buildGraph(loadConfig().vaultPath)
   const tagSet = new Set<string>()
   graph.nodes.forEach(n => n.tags.forEach(t => tagSet.add(t)))
   res.json({ tags: Array.from(tagSet).sort() })
@@ -297,9 +433,10 @@ app.post('/api/note', (req, res) => {
     return
   }
 
-  const fullPath = path.join(VAULT_PATH, notePath)
+  const vaultPath = loadConfig().vaultPath
+  const fullPath = path.join(vaultPath, notePath)
   const resolved = path.resolve(fullPath)
-  const vaultResolved = path.resolve(VAULT_PATH)
+  const vaultResolved = path.resolve(vaultPath)
   if (!resolved.startsWith(vaultResolved)) {
     res.status(403).json({ error: 'Access denied' })
     return
@@ -317,7 +454,9 @@ app.post('/api/note', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Jarvis API server running on http://localhost:${PORT}`)
-  console.log(`Vault: ${VAULT_PATH}`)
+  const cfg = loadConfig()
+  console.log(`Vault: ${cfg.vaultPath}`)
+  console.log(`Config: ${isConfigured() ? CONFIG_PATH : '(none — using fallback)'}`)
 })
 
 export default app
