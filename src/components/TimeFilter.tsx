@@ -9,6 +9,8 @@ interface TimeFilterProps {
   playSpeed: number
   onPlayChange: (playing: boolean) => void
   onSpeedChange: (speed: number) => void
+  activePreset?: string
+  onPresetChange?: (preset: string) => void
 }
 
 type Preset = '1D' | '1W' | '1M' | '1Y' | 'ALL'
@@ -29,7 +31,7 @@ function getPresetRange(preset: Preset): [Date, Date] | null {
   return [start, now]
 }
 
-export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, onPlayChange, onSpeedChange }: TimeFilterProps) {
+export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, onPlayChange, onSpeedChange, activePreset: controlledPreset, onPresetChange }: TimeFilterProps) {
   const { minTs, maxTs } = useMemo(() => {
     const timestamps = nodes.map(n => new Date(n.modifiedAt).getTime()).filter(Boolean)
     return {
@@ -48,8 +50,20 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
   useEffect(() => { onDateChangeRef.current = onDateChange }, [onDateChange])
 
+  // Sync controlled preset from parent (e.g. loading a saved preset)
+  useEffect(() => {
+    if (controlledPreset && controlledPreset !== preset) {
+      const valid: Preset[] = ['1D', '1W', '1M', '1Y', 'ALL']
+      if (valid.includes(controlledPreset as Preset)) {
+        applyPreset(controlledPreset as Preset)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlledPreset])
+
   const applyPreset = (p: Preset) => {
     setPreset(p)
+    onPresetChange?.(p)
     const r = getPresetRange(p)
     if (!r) {
       setRange([minTs, maxTs])
@@ -75,6 +89,7 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
       : [range[0], Math.max(value, range[0])]
     setRange(newRange)
     setPreset('ALL')
+    onPresetChange?.('ALL')
 
     if (newRange[0] <= minTs && newRange[1] >= maxTs) {
       onChange(null)
@@ -138,6 +153,7 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
     const next: [number, number] = [minTs, minTs]
     setRange(next)
     setPreset('ALL')
+    onPresetChange?.('ALL')
     const filtered = new Set(
       nodes
         .filter(n => new Date(n.modifiedAt).getTime() <= minTs)

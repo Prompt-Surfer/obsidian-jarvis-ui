@@ -111,6 +111,7 @@ function App() {
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchResults, setSearchResults] = useState<string[] | null>(null)
   const [timeFilterIds, setTimeFilterIds] = useState<Set<string> | null>(null)
+  const [activeTimePreset, setActiveTimePreset] = useState<string>('ALL')
   const [timelapsePlaying, setTimelapsePlaying] = useState(false)
   const [timelapseSpeed, setTimelapseSpeed] = useState<number>(() => {
     try { return parseInt(localStorage.getItem('jarvis-timelapse-speed') ?? '1', 10) || 1 } catch { return 1 }
@@ -613,7 +614,7 @@ function App() {
     }
     const filters: PresetFilters = {
       tagIsolationTags,
-      timeRange: null, // time range is ephemeral
+      timeRange: activeTimePreset || 'ALL',
       searchQuery: null,
     }
     const result = savePreset(name, settings, camera, [...favourites], filters)
@@ -663,6 +664,11 @@ function App() {
     const newFavs = new Set(preset.favourites)
     setFavourites(newFavs)
     try { localStorage.setItem('jarvis-favourites', JSON.stringify([...newFavs])) } catch { /* */ }
+
+    // Restore time range preset
+    if (preset.filters.timeRange) {
+      setActiveTimePreset(preset.filters.timeRange)
+    }
 
     // Restore tag filters
     if (preset.filters.tagIsolationTags.length > 0) {
@@ -930,6 +936,8 @@ function App() {
         playSpeed={timelapseSpeed}
         onPlayChange={setTimelapsePlaying}
         onSpeedChange={setTimelapseSpeed}
+        activePreset={activeTimePreset}
+        onPresetChange={setActiveTimePreset}
       />
 
       <Tooltip node={hoveredNode} x={tooltipPos.x} y={tooltipPos.y} />
