@@ -11,6 +11,13 @@ interface ContentResult {
   matchType: 'content'
 }
 
+interface SemanticResult {
+  id: string
+  label: string
+  score: number
+  excerpt: string
+}
+
 interface SearchBarProps {
   visible: boolean
   allNodes: GraphNode[]
@@ -28,7 +35,10 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([])
   const [contentResults, setContentResults] = useState<ContentResult[]>([])
   const [contentLoading, setContentLoading] = useState(false)
+  const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([])
+  const [semanticLoading, setSemanticLoading] = useState(false)
   const contentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const semanticDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -53,6 +63,8 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
       setTagSuggestions([])
       setContentResults([])
       setContentLoading(false)
+      setSemanticResults([])
+      setSemanticLoading(false)
       onResults(null)
     }
   }, [visible, onResults])
@@ -81,6 +93,28 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
     }, 300)
   }, [])
 
+  // Debounced semantic search via API
+  const fetchSemanticResults = useCallback((q: string) => {
+    if (semanticDebounceRef.current) clearTimeout(semanticDebounceRef.current)
+    setSemanticLoading(true)
+    semanticDebounceRef.current = setTimeout(async () => {
+      try {
+        const resp = await fetch(`/api/semantic-search?q=${encodeURIComponent(q)}`)
+        if (!resp.ok) throw new Error('semantic search failed')
+        const data = await resp.json() as { results: SemanticResult[]; ready: boolean }
+        if (!data.ready) {
+          setSemanticResults([])
+        } else {
+          setSemanticResults(data.results.slice(0, 10))
+        }
+      } catch {
+        setSemanticResults([])
+      } finally {
+        setSemanticLoading(false)
+      }
+    }, 400)
+  }, [])
+
   const search = useCallback((q: string) => {
     if (!q.trim()) {
       onResults(null)
@@ -88,10 +122,34 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
       setTagSuggestions([])
       setContentResults([])
       setContentLoading(false)
+      setSemanticResults([])
+      setSemanticLoading(false)
       return
     }
 
     const raw = q.trim()
+
+    // ── Semantic search mode (~ prefix) ──────────────────────────────────
+    if (raw.startsWith('~')) {
+      const semanticQuery = raw.slice(1).trim()
+      setResults([])
+      setTagSuggestions([])
+      setContentResults([])
+      setContentLoading(false)
+      onResults(null)
+      if (semanticQuery) {
+        fetchSemanticResults(semanticQuery)
+      } else {
+        setSemanticResults([])
+        setSemanticLoading(false)
+      }
+      return
+    }
+
+    // Clear semantic results for non-semantic queries
+    setSemanticResults([])
+    setSemanticLoading(false)
+
     const terms = raw.toLowerCase().split(/\s+/)
 
     // ── Tag autosuggest ────────────────────────────────────────────────────
@@ -144,7 +202,7 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
       setContentResults([])
       setContentLoading(false)
     }
-  }, [allNodes, allTags, onResults, fetchContentResults])
+  }, [allNodes, allTags, onResults, fetchContentResults, fetchSemanticResults])
 
   useEffect(() => {
     search(query)
@@ -196,7 +254,8 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
     }
   }
 
-  const hasDropdown = tagSuggestions.length > 0 || results.length > 0 || contentResults.length > 0 || contentLoading || (!!query && results.length === 0 && !contentLoading && contentResults.length === 0)
+  const isSemanticMode = query.trim().startsWith('~')
+  const hasDropdown = tagSuggestions.length > 0 || results.length > 0 || contentResults.length > 0 || contentLoading || semanticResults.length > 0 || semanticLoading || (!!query && results.length === 0 && !contentLoading && contentResults.length === 0 && !semanticLoading && semanticResults.length === 0)
 
   return (
     <>
@@ -226,7 +285,7 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search notes… or #tag  (Tab to complete)"
+            placeholder="Search notes… #tag  ~semantic  (Tab to complete)"
             style={{
               flex: 1,
               background: 'transparent',
@@ -428,7 +487,79 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
             </div>
           )}
 
-          {query && results.length === 0 && tagSuggestions.length === 0 && !contentLoading && contentResults.length === 0 && (
+          {/* Semantic search section */}
+          {isSemanticMode && (semanticLoading || semanticResults.length > 0) && (
+            <div style={{ borderTop: '1px solid #1e2030' }}>
+              <div style={{
+                padding: '5px 16px',
+                color: '#c4a7e7',
+                fontSize: 11,
+                letterSpacing: 1,
+                userSelect: 'none',
+              }}>
+                ─── Semantic ───
+              </div>
+
+              {semanticLoading && semanticResults.length === 0 && (
+                <div style={{ padding: '6px 16px 10px', color: '#c4a7e7', fontSize: 12, fontStyle: 'italic' }}>
+                  Semantic search...
+                </div>
+              )}
+
+              {semanticResults.map(result => (
+                <div
+                  key={result.id}
+                  onClick={() => onNavigate(result.id)}
+                  style={{
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    borderLeft: '2px solid transparent',
+                    transition: 'background 0.1s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = '#c4a7e70d'
+                    e.currentTarget.style.borderLeftColor = '#c4a7e755'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.borderLeftColor = 'transparent'
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: '#cdd6f4', fontSize: 13 }}>{result.label}</div>
+                    {result.excerpt && (
+                      <div style={{ color: '#6c7086', fontSize: 11, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                        {result.excerpt}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{
+                    background: '#c4a7e722',
+                    color: '#c4a7e7',
+                    border: '1px solid #c4a7e733',
+                    borderRadius: 3,
+                    padding: '1px 6px',
+                    fontSize: 10,
+                    marginLeft: 8,
+                    flexShrink: 0,
+                  }}>
+                    {Math.round(result.score * 100)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isSemanticMode && !semanticLoading && semanticResults.length === 0 && query.trim().length > 1 && (
+            <div style={{ padding: '12px 16px', color: '#585b70', fontSize: 13 }}>
+              No semantic results
+            </div>
+          )}
+
+          {!isSemanticMode && query && results.length === 0 && tagSuggestions.length === 0 && !contentLoading && contentResults.length === 0 && (
             <div style={{ padding: '12px 16px', color: '#585b70', fontSize: 13 }}>
               No results
             </div>
