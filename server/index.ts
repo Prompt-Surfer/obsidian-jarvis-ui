@@ -4,6 +4,7 @@ import MiniSearch from 'minisearch'
 import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { buildEmbeddingIndex, semanticSearch, getSemanticStatus, resetEmbeddingIndex } from './embeddings.js'
 
 const __filename = fileURLToPath(import.meta.url)
 void __filename // ESM compat shim
@@ -371,6 +372,7 @@ app.post('/api/config', (req, res) => {
     cachedVaultPath = null
     searchIndex = null
     noteBodyMap = new Map()
+    resetEmbeddingIndex()
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: String(err) })
@@ -554,11 +556,66 @@ app.post('/api/note', (req, res) => {
   }
 })
 
+// ─── Semantic Search ───────────────────────────────────────────────────────────
+
+// Trigger async embedding index build after graph is built
+function triggerEmbeddingBuild(): void {
+  if (!cachedGraph) return
+  const notes = cachedGraph.nodes.map(n => ({
+    id: n.id,
+    label: n.label,
+    content: noteBodyMap.get(n.id) ?? '',
+    excerpt: n.excerpt,
+    mtime: n.modifiedAt,
+  }))
+  buildEmbeddingIndex(notes).catch(err => {
+    console.error('[embeddings] Index build failed:', err)
+  })
+}
+
+app.get('/api/semantic-search', async (req, res) => {
+  const q = (req.query.q as string || '').trim()
+  if (!q) {
+    res.json({ results: [], ready: getSemanticStatus().ready })
+    return
+  }
+
+  // Ensure graph is built so we have note data
+  const graph = buildGraph(loadConfig().vaultPath)
+  const notes = graph.nodes.map(n => ({
+    id: n.id,
+    label: n.label,
+    content: noteBodyMap.get(n.id) ?? '',
+    excerpt: n.excerpt,
+    mtime: n.modifiedAt,
+  }))
+
+  try {
+    const result = await semanticSearch(q, notes)
+    res.json(result)
+  } catch (err) {
+    console.error('[semantic-search] Error:', err)
+    res.status(500).json({ error: 'Semantic search failed', ready: false })
+  }
+})
+
+app.get('/api/semantic-status', (_req, res) => {
+  res.json(getSemanticStatus())
+})
+
 app.listen(PORT, () => {
   console.log(`Jarvis API server running on http://localhost:${PORT}`)
   const cfg = loadConfig()
   console.log(`Vault: ${cfg.vaultPath}`)
   console.log(`Config: ${isConfigured() ? CONFIG_PATH : '(none — using fallback)'}`)
+
+  // Start async embedding index build
+  try {
+    buildGraph(cfg.vaultPath)
+    triggerEmbeddingBuild()
+  } catch (err) {
+    console.error('[embeddings] Failed to start initial index build:', err)
+  }
 })
 
 export default app
