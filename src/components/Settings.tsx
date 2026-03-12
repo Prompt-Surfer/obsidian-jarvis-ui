@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { PresetManager } from './PresetManager'
+import type { Preset } from '../hooks/usePresets'
 
 interface SettingsProps {
   bloomEnabled: boolean
@@ -30,6 +32,10 @@ interface SettingsProps {
   onTagBoxTopNChange: (v: number) => void
   tagBoxSizeScale: number
   onTagBoxSizeScaleChange: (v: number) => void
+  presets: Preset[]
+  onPresetSave: (name: string) => void
+  onPresetLoad: (id: string) => void
+  onPresetDelete: (id: string) => void
 }
 
 export function Settings({
@@ -62,6 +68,10 @@ export function Settings({
   onTagBoxTopNChange,
   tagBoxSizeScale,
   onTagBoxSizeScaleChange,
+  presets,
+  onPresetSave,
+  onPresetLoad,
+  onPresetDelete,
 }: SettingsProps) {
   const [hoveredShape, setHoveredShape] = useState<string | null>(null)
   const [open, setOpen] = useState(() => {
@@ -251,6 +261,13 @@ export function Settings({
               })}
             </div>
           </div>
+
+          <PresetManager
+            presets={presets}
+            onSave={onPresetSave}
+            onLoad={onPresetLoad}
+            onDelete={onPresetDelete}
+          />
 
           <div style={{ borderTop: '1px solid #1a3a4a', paddingTop: 14, marginBottom: 0 }}>
             {toggleBtn(false, '[ RESET ALL ]', onResetAll)}

@@ -14,6 +14,7 @@ import { useVaultGraph, type GraphNode } from './hooks/useVaultGraph'
 import { useForce3D } from './hooks/useForce3D'
 import { useElectron } from './hooks/useElectron'
 import { useHistory } from './hooks/useHistory'
+import { usePresets, type PresetSettings, type PresetCamera, type PresetFilters } from './hooks/usePresets'
 import { captureToClipboard } from './utils/screenshot'
 import { getNodeColor } from './lib/colors'
 
@@ -93,6 +94,7 @@ function App() {
   const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
+  const { presets, save: savePreset, remove: removePreset, load: loadPreset } = usePresets()
 
   const graphRef = useRef<Graph3DHandle>(null)
   const hasAutoResetRef = useRef(false)
@@ -575,6 +577,85 @@ function App() {
     reheat()
   }, [setSpread, reheat, resetPins])
 
+  const handlePresetSave = useCallback((name: string) => {
+    const settings: PresetSettings = {
+      bloomEnabled, nodeOpacity, starsEnabled, labelsEnabled, linksEnabled,
+      spread, minNodeSize, maxNodeSize, ultraNodeSize, zoomToNode,
+      graphShape, tagBoxTopN, tagBoxSizeScale,
+    }
+    let camera: PresetCamera | null = null
+    const pos = graphRef.current?.getCameraPosition()
+    const tgt = graphRef.current?.getCameraTarget()
+    if (pos && tgt) {
+      camera = {
+        position: [pos.x, pos.y, pos.z],
+        target: [tgt.x, tgt.y, tgt.z],
+      }
+    }
+    const filters: PresetFilters = {
+      tagIsolationTags,
+      timeRange: null, // time range is ephemeral
+      searchQuery: null,
+    }
+    const result = savePreset(name, settings, camera, [...favourites], filters)
+    if (!result.ok) {
+      showToast(result.warning ?? 'Could not save preset')
+    } else {
+      showToast(result.warning ? `Preset saved (${result.warning})` : 'Preset saved')
+    }
+  }, [bloomEnabled, nodeOpacity, starsEnabled, labelsEnabled, linksEnabled,
+    spread, minNodeSize, maxNodeSize, ultraNodeSize, zoomToNode,
+    graphShape, tagBoxTopN, tagBoxSizeScale, tagIsolationTags, favourites, savePreset, showToast])
+
+  const handlePresetLoad = useCallback((id: string) => {
+    const preset = loadPreset(id)
+    if (!preset) return
+
+    const s = preset.settings
+    setBloomEnabled(s.bloomEnabled)
+    setNodeOpacity(s.nodeOpacity)
+    setStarsEnabled(s.starsEnabled)
+    setLabelsEnabled(s.labelsEnabled)
+    setLinksEnabled(s.linksEnabled)
+    setSpreadState(s.spread)
+    setSpread(s.spread)
+    setMinNodeSize(s.minNodeSize)
+    setMaxNodeSize(s.maxNodeSize)
+    setUltraNodeSize(s.ultraNodeSize)
+    setZoomToNode(s.zoomToNode)
+    try { localStorage.setItem('jarvis-zoom-to-node', String(s.zoomToNode)) } catch { /* */ }
+    setTagBoxTopN(s.tagBoxTopN)
+    setTagBoxSizeScale(s.tagBoxSizeScale)
+
+    if (s.graphShape !== graphShape) {
+      setGraphShape(s.graphShape)
+      try { localStorage.setItem('jarvis-graph-shape', s.graphShape) } catch { /* */ }
+    }
+
+    // Restore camera
+    if (preset.camera) {
+      const cam = graphRef.current?.getCamera()
+      if (cam) {
+        cam.position.set(...preset.camera.position)
+      }
+    }
+
+    // Restore favourites
+    const newFavs = new Set(preset.favourites)
+    setFavourites(newFavs)
+    try { localStorage.setItem('jarvis-favourites', JSON.stringify([...newFavs])) } catch { /* */ }
+
+    // Restore tag filters
+    if (preset.filters.tagIsolationTags.length > 0) {
+      setTagIsolationTags(preset.filters.tagIsolationTags)
+    } else {
+      setTagIsolationTags([])
+      setTagIsolationIds(null)
+    }
+
+    showToast(`Loaded: ${preset.name}`)
+  }, [loadPreset, graphShape, setSpread, showToast])
+
   const navigateToNode = useCallback((nodeId: string) => {
     if (!graphData) return
 
@@ -805,6 +886,10 @@ function App() {
         tagBoxSizeScale={tagBoxSizeScale}
         onTagBoxSizeScaleChange={setTagBoxSizeScale}
         onChangeVault={() => setShowChangeVault(true)}
+        presets={presets}
+        onPresetSave={handlePresetSave}
+        onPresetLoad={handlePresetLoad}
+        onPresetDelete={removePreset}
       />
 
       <SearchBar
