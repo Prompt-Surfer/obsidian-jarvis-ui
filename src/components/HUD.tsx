@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
+interface SemanticStatus {
+  ready: boolean
+  indexed: number
+  total: number
+  model: string
+}
+
 interface HUDProps {
   nodeCount: number
   linkCount: number
@@ -9,9 +16,10 @@ interface HUDProps {
   timelapsePlaying?: boolean
   timelapseDate?: number
   onPauseTimelapse?: () => void
+  semanticStatus?: SemanticStatus | null
 }
 
-export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrumb, timelapsePlaying, timelapseDate, onPauseTimelapse }: HUDProps) {
+export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrumb, timelapsePlaying, timelapseDate, onPauseTimelapse, semanticStatus }: HUDProps) {
   const [fps, setFps] = useState(0)
   const frameTimesRef = useRef<number[]>([])
   const lastFrameRef = useRef(performance.now())
@@ -60,6 +68,19 @@ export function HUD({ nodeCount, linkCount, visibleNodeCount, simDone, breadcrum
       {breadcrumb && (
         <div style={{ marginTop: 4, color: '#00d4ff', fontSize: 10, letterSpacing: '0.06em' }}>
           {breadcrumb}
+        </div>
+      )}
+      {semanticStatus && !semanticStatus.ready && semanticStatus.total > 0 && (
+        <div style={{
+          marginTop: 6,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          color: '#c4a7e7',
+          fontSize: 11,
+          letterSpacing: '0.08em',
+        }}>
+          INDEXING: {semanticStatus.indexed}/{semanticStatus.total}
         </div>
       )}
       {timelapsePlaying && (

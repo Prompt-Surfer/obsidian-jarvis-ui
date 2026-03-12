@@ -148,10 +148,29 @@ function App() {
       return stored ? new Set(JSON.parse(stored)) : new Set()
     } catch { return new Set() }
   })
+  const [semanticStatus, setSemanticStatus] = useState<{ ready: boolean; indexed: number; total: number; model: string } | null>(null)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(null), 2000)
+  }, [])
+
+  // Poll semantic indexing status
+  useEffect(() => {
+    let active = true
+    const poll = async () => {
+      try {
+        const resp = await fetch('/api/semantic-status')
+        if (!resp.ok) return
+        const data = await resp.json() as { ready: boolean; indexed: number; total: number; model: string }
+        if (active) setSemanticStatus(data)
+        // Stop polling once ready
+        if (data.ready) return
+      } catch { /* server not ready yet */ }
+      if (active) setTimeout(poll, 2000)
+    }
+    poll()
+    return () => { active = false }
   }, [])
 
   // Camera position for minimap (update at 10fps)
@@ -842,6 +861,7 @@ function App() {
         timelapsePlaying={timelapsePlaying}
         timelapseDate={timelapseDate}
         onPauseTimelapse={() => setTimelapsePlaying(false)}
+        semanticStatus={semanticStatus}
       />
 
       <Settings
