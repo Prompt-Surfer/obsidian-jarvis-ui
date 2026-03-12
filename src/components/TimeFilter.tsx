@@ -92,6 +92,12 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
     onDateChange?.(newRange[1])
   }
 
+  // Track range in a ref so the interval can read current value without
+  // using a functional setRange updater (which runs during React's render
+  // phase and would trigger "setState during render" warnings).
+  const rangeRef = useRef(range)
+  useEffect(() => { rangeRef.current = range }, [range])
+
   // Auto-advance upper bound during playback
   useEffect(() => {
     if (!playing) return
@@ -100,26 +106,27 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
     const msPerTick = (daysPerSec * TICK_MS * 86400000) / 1000
 
     const id = setInterval(() => {
-      setRange(prev => {
-        const newEnd = Math.min(prev[1] + msPerTick, maxTs)
-        const next: [number, number] = [prev[0], newEnd]
+      const prev = rangeRef.current
+      const newEnd = Math.min(prev[1] + msPerTick, maxTs)
+      const next: [number, number] = [prev[0], newEnd]
 
-        const filtered = new Set(
-          nodes
-            .filter(n => {
-              const t = new Date(n.modifiedAt).getTime()
-              return t >= next[0] && t <= next[1]
-            })
-            .map(n => n.id)
-        )
-        onChangeRef.current(filtered.size === nodes.length ? null : filtered)
-        onDateChangeRef.current?.(newEnd)
+      rangeRef.current = next
+      setRange(next)
 
-        if (newEnd >= maxTs) {
-          onPlayChange(false)
-        }
-        return next
-      })
+      const filtered = new Set(
+        nodes
+          .filter(n => {
+            const t = new Date(n.modifiedAt).getTime()
+            return t >= next[0] && t <= next[1]
+          })
+          .map(n => n.id)
+      )
+      onChangeRef.current(filtered.size === nodes.length ? null : filtered)
+      onDateChangeRef.current?.(newEnd)
+
+      if (newEnd >= maxTs) {
+        onPlayChange(false)
+      }
     }, TICK_MS)
 
     return () => clearInterval(id)
