@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useRef, useState } from 'react'
+import { Children, isValidElement, useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { GraphNode } from '../hooks/useVaultGraph'
@@ -293,6 +293,27 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
     els.forEach(el => observer.observe(el))
     return () => observer.disconnect()
   }, [body, headings.length])
+
+  // Similar notes (semantic search)
+  const [similarNotes, setSimilarNotes] = useState<{ id: string; label: string; score: number }[]>([])
+
+  const fetchSimilarNotes = useCallback(async (nodeId: string, title: string, excerpt: string) => {
+    try {
+      const query = `${title} ${excerpt.slice(0, 200)}`
+      const resp = await fetch(`/api/semantic-search?q=${encodeURIComponent(query)}`)
+      if (!resp.ok) return
+      const data = await resp.json() as { results: { id: string; label: string; score: number }[]; ready: boolean }
+      if (!data.ready) { setSimilarNotes([]); return }
+      setSimilarNotes(data.results.filter(r => r.id !== nodeId).slice(0, 5))
+    } catch {
+      setSimilarNotes([])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!node || !fullView) { setSimilarNotes([]); return }
+    fetchSimilarNotes(node.id, node.label, node.excerpt)
+  }, [node?.id, fullView, fetchSimilarNotes])
 
   // Find backlinks
   const backlinks = node
@@ -736,6 +757,44 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
                 >
                   ← {bl.label}
                 </span>
+              ))}
+            </div>
+          )}
+
+          {/* ── Similar Notes (Semantic) ────────────────────────────────── */}
+          {similarNotes.length > 0 && (
+            <div style={{ padding: '12px 20px', borderBottom: '1px solid #181825' }}>
+              <div style={{ color: '#c4a7e7', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                Similar Notes
+              </div>
+              {similarNotes.map(sn => (
+                <div
+                  key={sn.id}
+                  onClick={() => onNavigate(sn.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '3px 0',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ color: '#89dceb', fontSize: 13, textDecoration: 'none' }}>
+                    {sn.label}
+                  </span>
+                  <span style={{
+                    color: '#c4a7e7',
+                    fontSize: 10,
+                    background: '#c4a7e711',
+                    border: '1px solid #c4a7e722',
+                    borderRadius: 3,
+                    padding: '0 5px',
+                    flexShrink: 0,
+                    marginLeft: 8,
+                  }}>
+                    {Math.round(sn.score * 100)}%
+                  </span>
+                </div>
               ))}
             </div>
           )}
