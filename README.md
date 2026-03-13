@@ -6,7 +6,7 @@ Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-d
 
 ## Animated Notes by Time Created
 
-https://github.com/user-attachments/assets/8c8d1245-53f7-48e2-81cd-ef29f7f877ad
+<video src="https://github.com/user-attachments/assets/8c8d1245-53f7-48e2-81cd-ef29f7f877ad" autoplay loop muted playsinline width="100%"></video>
 
 
 > Nodes appear in the order they were created — watch your knowledge base grow over time.
