@@ -33,7 +33,7 @@ function getPresetRange(preset: Preset): [Date, Date] | null {
 
 export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, onPlayChange, onSpeedChange, activePreset: controlledPreset, onPresetChange }: TimeFilterProps) {
   const { minTs, maxTs } = useMemo(() => {
-    const timestamps = nodes.map(n => new Date(n.modifiedAt).getTime()).filter(Boolean)
+    const timestamps = nodes.map(n => new Date(n.createdAt).getTime()).filter(Boolean)
     return {
       minTs: Math.min(...timestamps),
       maxTs: Math.max(...timestamps),
@@ -74,7 +74,7 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
       const filtered = new Set(
         nodes
           .filter(n => {
-            const t = new Date(n.modifiedAt).getTime()
+            const t = new Date(n.createdAt).getTime()
             return t >= s.getTime() && t <= e.getTime()
           })
           .map(n => n.id)
@@ -97,7 +97,7 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
       const filtered = new Set(
         nodes
           .filter(n => {
-            const t = new Date(n.modifiedAt).getTime()
+            const t = new Date(n.createdAt).getTime()
             return t >= newRange[0] && t <= newRange[1]
           })
           .map(n => n.id)
@@ -116,9 +116,10 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
   // Auto-advance upper bound during playback
   useEffect(() => {
     if (!playing) return
-    const daysPerSec = SPEED_DAYS[playSpeed] ?? 7
+    const daysPerSec = SPEED_DAYS[playSpeed] ?? 1
     const TICK_MS = 50
-    const msPerTick = (daysPerSec * TICK_MS * 86400000) / 1000
+    const ticksPerSec = 1000 / TICK_MS  // 20 ticks per second
+    const msPerTick = (daysPerSec * 86400000) / ticksPerSec
 
     const id = setInterval(() => {
       const prev = rangeRef.current
@@ -131,7 +132,7 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
       const filtered = new Set(
         nodes
           .filter(n => {
-            const t = new Date(n.modifiedAt).getTime()
+            const t = new Date(n.createdAt).getTime()
             return t >= next[0] && t <= next[1]
           })
           .map(n => n.id)
@@ -156,7 +157,7 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
     onPresetChange?.('ALL')
     const filtered = new Set(
       nodes
-        .filter(n => new Date(n.modifiedAt).getTime() <= minTs)
+        .filter(n => new Date(n.createdAt).getTime() <= minTs)
         .map(n => n.id)
     )
     onChange(filtered.size === 0 ? null : filtered)
