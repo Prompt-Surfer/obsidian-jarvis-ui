@@ -16,7 +16,7 @@ interface TimeFilterProps {
 type Preset = '1D' | '1W' | '1M' | '1Y' | 'ALL'
 
 // Days advanced per second for each speed tier
-const SPEED_DAYS: Record<number, number> = { 1: 1, 5: 7, 20: 30 }
+const SPEED_DAYS: Record<number, number> = { 1: 1, 2: 2, 5: 5, 10: 10, 20: 20 }
 
 function getPresetRange(preset: Preset): [Date, Date] | null {
   if (preset === 'ALL') return null
@@ -172,7 +172,7 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
   const fmtPlayDate = (ts: number) => new Date(ts).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 
   const presets: Preset[] = ['1D', '1W', '1M', '1Y', 'ALL']
-  const speeds = [1, 5, 20] as const
+  const speeds = [1, 2, 5, 10, 20] as const
 
   const btnBase: React.CSSProperties = {
     background: 'transparent',
