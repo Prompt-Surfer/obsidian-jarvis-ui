@@ -325,7 +325,22 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
         <button onClick={handleReset} style={btnBase} title="Reset to start">⏮</button>
         {/* Play / Pause */}
         <button
-          onClick={() => onPlayChange(!playing)}
+          onClick={() => {
+            if (!playing) {
+              // Auto-reset to start if already at the end
+              if (range[1] >= maxTs - 86400000) {
+                const next: [number, number] = [minTs, minTs]
+                setRange(next)
+                rangeRef.current = next
+                const filtered = new Set(
+                  nodes.filter(n => new Date(n.createdAt).getTime() <= minTs).map(n => n.id)
+                )
+                onChange(filtered.size === 0 ? null : filtered)
+                onDateChange?.(minTs)
+              }
+            }
+            onPlayChange(!playing)
+          }}
           style={{ ...btnBase, background: playing ? '#00d4ff22' : 'transparent', border: `1px solid ${playing ? '#00d4ff' : '#1a3a4a'}`, color: '#00d4ff', padding: '3px 12px' }}
           title={playing ? 'Pause' : 'Play timelapse'}
         >
