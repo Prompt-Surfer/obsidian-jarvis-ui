@@ -21,9 +21,8 @@ Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-d
 | 🧠 **Brain** — nodes arranged in an anatomical brain mesh | ![Brain](./screenshots/jarvis-brain-preview.png) |
 | 🪐 **Saturn** — sphere + tilted ring for orphan nodes | ![Saturn](./screenshots/jarvis-saturn-final.png) |
 | 🌌 **Milky Way** — flat 2-arm Archimedean spiral | ![Milky Way](./screenshots/jarvis-milkyway-final.png) |
-| 🌿 **Natural** — organic force-directed layout |  |
-| ☀️ **The Sun** — hierarchical 3-shell sphere (ultra/super/regular tiers) |  |
-| ⚛️ **Centroid** — standard force-directed cluster |  |
+| 🌿 **Natural** — organic force-directed layout | ![Natural](./screenshots/jarvis-natural.png) |
+| ☀️ **The Sun** — hierarchical 3-shell sphere (ultra/super/regular tiers) | ![Sun](./screenshots/jarvis-sun.png) |
 
 ---
 
