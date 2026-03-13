@@ -4,6 +4,12 @@
 
 Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-directed graph — nodes float in space, connections bloom with light, and navigation feels like flying through a knowledge system. Built with Three.js, React, and TypeScript.
 
+## Animated Notes by Time Created
+
+<video src="./demo/timelapse.mp4" autoplay loop muted playsinline width="100%"></video>
+
+> Nodes appear in the order they were created — watch your knowledge base grow over time.
+
 ![Jarvis UI — Brain Shape](./screenshots/jarvis-brain-preview.png)
 
 ---
