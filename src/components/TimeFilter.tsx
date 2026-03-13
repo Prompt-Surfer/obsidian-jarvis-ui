@@ -16,7 +16,7 @@ interface TimeFilterProps {
 type Preset = '1D' | '1W' | '1M' | '1Y' | 'ALL'
 
 // Days advanced per second for each speed tier
-const SPEED_DAYS: Record<number, number> = { 1: 7, 5: 30, 20: 90 }
+const SPEED_DAYS: Record<number, number> = { 1: 1, 5: 7, 20: 30 }
 
 function getPresetRange(preset: Preset): [Date, Date] | null {
   if (preset === 'ALL') return null
