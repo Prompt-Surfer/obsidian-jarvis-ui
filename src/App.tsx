@@ -263,8 +263,10 @@ function App() {
   }, [patternLoading])
 
   // Propagate time/tag/search filter changes to force simulation center
+  // Skip during timelapse playback — nodes should appear at settled positions, not reheat
   useEffect(() => {
     if (!graphData) return
+    if (timelapsePlaying) return  // Don't reheat sim during timelapse
     const active = graphData.nodes
       .filter(n =>
         (!timeFilterIds || timeFilterIds.has(n.id)) &&
@@ -272,7 +274,7 @@ function App() {
       )
       .map(n => n.id)
     setFilter(active)
-  }, [graphData, timeFilterIds, tagIsolationIds, setFilter])
+  }, [graphData, timeFilterIds, tagIsolationIds, setFilter, timelapsePlaying])
 
   // Compute node degrees from links
   const nodeDegrees = useMemo(() => {
