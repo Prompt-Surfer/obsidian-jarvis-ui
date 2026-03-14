@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
+
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'

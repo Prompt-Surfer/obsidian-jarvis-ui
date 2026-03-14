@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
+
 import fs from 'fs'
 import os from 'os'
 import path from 'path'

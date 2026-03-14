@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
+
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Graph3D, type Graph3DHandle } from './components/Graph3D'
 import { ErrorBoundary } from './components/ErrorBoundary'

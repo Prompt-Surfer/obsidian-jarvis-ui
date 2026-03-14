@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
+
 // Node type → hex color
 export const NODE_COLORS = {
   drop: 0x00d4ff,    // cyan
