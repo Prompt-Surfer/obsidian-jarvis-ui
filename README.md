@@ -173,6 +173,12 @@ See [tracking/tracking.md](./tracking/tracking.md) for full version history.
 
 ---
 
+## Author
+
+**Prompt-Surfer** — [prompt-surfer@protonmail.com](mailto:prompt-surfer@protonmail.com)
+
+---
+
 ## License
 
-MIT
+AGPL-3.0-only
