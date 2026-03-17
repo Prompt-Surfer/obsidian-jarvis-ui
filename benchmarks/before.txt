@@ -1,0 +1,15 @@
+Server not running (skipping response time check)
+
+=== SYNC BENCHMARK ===
+Vault: /home/samuel/obsidian/otacon-vault
+Walk:       65ms  (3271 .md files found)
+Read:       675ms  (3271 ok, 0 failed)
+Total:      741ms
+
+--- Raw ---
+mode=sync
+vault=/home/samuel/obsidian/otacon-vault
+files=3271
+walkMs=65
+readMs=675
+totalMs=741

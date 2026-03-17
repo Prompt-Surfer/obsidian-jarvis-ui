@@ -33,28 +33,71 @@ export interface GraphData {
   links: GraphLink[]
 }
 
+export interface BuildProgress {
+  totalFiles: number
+  processedFiles: number
+}
+
+interface BuildingResponse {
+  status: 'building'
+  progress: BuildProgress
+}
+
 export function useVaultGraph(enabled = true) {
   const [data, setData] = useState<GraphData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [buildProgress, setBuildProgress] = useState<BuildProgress | null>(null)
 
   useEffect(() => {
     if (!enabled) return
-    setLoading(true)
-    fetch('/api/graph')
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json() as Promise<GraphData>
-      })
-      .then(graph => {
-        setData(graph)
-        setLoading(false)
-      })
-      .catch(err => {
-        setError(err.message)
-        setLoading(false)
-      })
+
+    let active = true
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+    async function fetchGraph(): Promise<void> {
+      if (!active) return
+      try {
+        const res = await fetch('/api/graph')
+        if (!active) return
+
+        if (res.ok) {
+          const graph = await res.json() as GraphData
+          if (active) {
+            setData(graph)
+            setLoading(false)
+            setBuildProgress(null)
+          }
+          return
+        }
+
+        if (res.status === 202) {
+          const body = await res.json() as BuildingResponse
+          if (active) {
+            setBuildProgress(body.progress)
+            setLoading(false)
+            // Poll again after 500ms
+            pollTimer = setTimeout(fetchGraph, 500)
+          }
+          return
+        }
+
+        throw new Error(`HTTP ${res.status}`)
+      } catch (err) {
+        if (active) {
+          setError((err as Error).message)
+          setLoading(false)
+        }
+      }
+    }
+
+    fetchGraph()
+
+    return () => {
+      active = false
+      if (pollTimer !== null) clearTimeout(pollTimer)
+    }
   }, [enabled])
 
-  return { data, loading, error }
+  return { data, loading, error, buildProgress }
 }

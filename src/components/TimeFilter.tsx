@@ -61,7 +61,6 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
         applyPreset(controlledPreset as Preset)
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controlledPreset])
 
   const applyPreset = (p: Preset) => {

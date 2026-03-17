@@ -13,6 +13,7 @@ import { TimeFilter } from './components/TimeFilter'
 import { Settings } from './components/Settings'
 import { Minimap } from './components/Minimap'
 import { FirstRunSetup } from './components/FirstRunSetup'
+import { GraphBuildProgress } from './components/GraphBuildProgress'
 import { useVaultGraph, type GraphNode } from './hooks/useVaultGraph'
 import { useForce3D } from './hooks/useForce3D'
 import { useElectron } from './hooks/useElectron'
@@ -80,7 +81,7 @@ function App() {
 
   const graphEnabled = configStatus === 'configured'
 
-  const { data: graphData, loading, error } = useVaultGraph(graphEnabled)
+  const { data: graphData, loading, error, buildProgress } = useVaultGraph(graphEnabled)
   const _urlParams = new URLSearchParams(window.location.search)
   const [graphShape, setGraphShape] = useState<'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'>(() => {
     const url = _urlParams.get('graphShape') as 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
@@ -774,25 +775,8 @@ function App() {
     )
   }
 
-  if (loading) {
-    return (
-      <div style={{
-        width: '100vw',
-        height: '100vh',
-        background: '#000',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: '"Courier New", monospace',
-        color: '#00d4ff',
-        fontSize: 16,
-      }}>
-        <div>
-          <div style={{ marginBottom: 8 }}>◌ LOADING VAULT GRAPH...</div>
-          <div style={{ color: '#00a8cc', fontSize: 12 }}>{import.meta.env.VITE_VAULT_PATH ?? 'Scanning vault...'}</div>
-        </div>
-      </div>
-    )
+  if (loading || buildProgress !== null) {
+    return <GraphBuildProgress progress={buildProgress} />
   }
 
   if (error) {

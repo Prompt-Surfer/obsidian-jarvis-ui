@@ -6,8 +6,10 @@ import fs from 'fs'
 import MiniSearch from 'minisearch'
 import os from 'os'
 import path from 'path'
+import { Worker } from 'worker_threads'
 import { fileURLToPath } from 'url'
 import { buildEmbeddingIndex, semanticSearch, getSemanticStatus, resetEmbeddingIndex } from './embeddings.js'
+import type { WorkerMsg, WorkerProgressMsg } from './graph-worker.js'
 
 const __filename = fileURLToPath(import.meta.url)
 void __filename // ESM compat shim
@@ -104,78 +106,139 @@ interface VaultLink {
   target: string
 }
 
-// ─── Vault Parsing ────────────────────────────────────────────────────────────
-
-function getNodeType(relPath: string): NodeType {
-  const parts = relPath.split('/')
-  const folder = parts[0]?.toLowerCase() || ''
-  if (folder === 'drops') return 'drop'
-  if (folder === 'memory') return 'memory'
-  return 'note'
+interface GraphData {
+  nodes: VaultNode[]
+  links: VaultLink[]
 }
 
-function getTopFolder(relPath: string): string {
-  const parts = relPath.split('/')
-  return parts.length > 1 ? parts[0] : ''
+// ─── Build state ─────────────────────────────────────────────────────────────
+
+interface BuildState {
+  status: 'idle' | 'building' | 'ready' | 'error'
+  progress: { totalFiles: number; processedFiles: number }
+  retries: number
+  errorMessage?: string
 }
 
-function extractTitle(content: string, filename: string): string {
-  const h1Match = content.match(/^#\s+(.+)$/m)
-  if (h1Match) return h1Match[1].trim()
-  return filename
+let buildState: BuildState = {
+  status: 'idle',
+  progress: { totalFiles: 0, processedFiles: 0 },
+  retries: 0,
 }
 
-function extractTags(content: string): string[] {
-  const tags = new Set<string>()
-  // YAML frontmatter tags
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
-  if (fmMatch) {
-    const tagsMatch = fmMatch[1].match(/tags:\s*\[([^\]]+)\]/)
-    if (tagsMatch) {
-      tagsMatch[1].split(',').forEach(t => tags.add(t.trim().replace(/['"]/g, '')))
-    }
-    const tagsListMatch = fmMatch[1].match(/tags:\s*\n((?:\s+-\s+.+\n?)+)/)
-    if (tagsListMatch) {
-      const items = tagsListMatch[1].match(/-\s+(.+)/g)
-      items?.forEach(item => tags.add(item.replace(/^-\s+/, '').trim()))
-    }
+let activeWorker: Worker | null = null
+
+// ─── Graph cache ──────────────────────────────────────────────────────────────
+
+interface NoteDoc {
+  id: string
+  title: string
+  content: string
+  folder: string
+  tags: string[]
+}
+
+let cachedGraph: GraphData | null = null
+let cacheTime = 0
+let cachedVaultPath: string | null = null
+let searchIndex: MiniSearch<NoteDoc> | null = null
+let noteBodyMap = new Map<string, string>()
+const CACHE_TTL = 5 * 60_000 // 5 min — async builds are triggered explicitly
+
+function buildSearchIndex(nodes: VaultNode[]): void {
+  const ms = new MiniSearch<NoteDoc>({
+    fields: ['title', 'content'],
+    storeFields: ['title', 'folder', 'tags'],
+    searchOptions: { boost: { title: 2 }, fuzzy: 0.2, prefix: true },
+  })
+  ms.addAll(nodes.map(n => ({
+    id: n.id,
+    title: n.label,
+    content: noteBodyMap.get(n.id) ?? '',
+    folder: n.folder,
+    tags: n.tags,
+  })))
+  searchIndex = ms
+}
+
+// ─── Worker management ────────────────────────────────────────────────────────
+
+const MAX_RETRIES = 3
+const WORKER_PATH = fileURLToPath(new URL('./graph-worker.ts', import.meta.url))
+
+function handleWorkerFailure(vaultPath: string): void {
+  buildState.retries++
+  if (buildState.retries > MAX_RETRIES) {
+    console.error(`[graph-worker] Max retries (${MAX_RETRIES}) exceeded — giving up`)
+    buildState.status = 'error'
+    buildState.errorMessage = `Worker failed after ${MAX_RETRIES} retries`
+    return
   }
-  // Inline #tags
-  const inlineTags = content.match(/#([a-zA-Z0-9_/-]+)/g)
-  inlineTags?.forEach(t => tags.add(t.slice(1)))
-  return Array.from(tags)
+  const delay = 1000 * Math.pow(2, buildState.retries - 1)
+  console.warn(`[graph-worker] Restarting in ${delay}ms (retry ${buildState.retries}/${MAX_RETRIES})`)
+  setTimeout(() => startGraphBuild(vaultPath), delay)
 }
 
-function extractWikilinks(content: string): string[] {
-  const matches = content.match(/\[\[([^\]|#]+?)(?:\|[^\]]+)?\]\]/g) || []
-  return matches.map(m => {
-    const inner = m.slice(2, -2).split('|')[0].split('#')[0].trim()
-    return inner.toLowerCase().replace(/\s+/g, '-')
+function startGraphBuild(vaultPath: string): void {
+  if (buildState.status === 'building') return
+
+  buildState.status = 'building'
+  buildState.progress = { totalFiles: 0, processedFiles: 0 }
+
+  console.log(`[graph-worker] Starting build: ${vaultPath}`)
+
+  const worker = new Worker(WORKER_PATH, {
+    workerData: { vaultPath },
+    // Inherit the tsx loader so the worker can execute TypeScript
+    execArgv: [...process.execArgv],
+  })
+  activeWorker = worker
+
+  worker.on('message', (msg: WorkerMsg) => {
+    if (msg.type === 'progress') {
+      const p = msg as WorkerProgressMsg
+      buildState.progress = { totalFiles: p.totalFiles, processedFiles: p.processedFiles }
+    } else if (msg.type === 'done') {
+      cachedGraph = msg.graph
+      cacheTime = Date.now()
+      cachedVaultPath = vaultPath
+      noteBodyMap = new Map(msg.noteBodyMap)
+      buildSearchIndex(cachedGraph.nodes)
+      buildState.status = 'ready'
+      buildState.retries = 0
+      activeWorker = null
+      console.log(`[graph-worker] Done — ${cachedGraph.nodes.length} nodes, ${cachedGraph.links.length} links`)
+      triggerEmbeddingBuild()
+    } else if (msg.type === 'error') {
+      console.error(`[graph-worker] Build error: ${msg.message}`)
+      buildState.status = 'idle'
+      activeWorker = null
+      handleWorkerFailure(vaultPath)
+    }
+  })
+
+  worker.on('error', (err) => {
+    console.error(`[graph-worker] Uncaught error: ${err.message}`)
+    buildState.status = 'idle'
+    activeWorker = null
+    handleWorkerFailure(vaultPath)
+  })
+
+  worker.on('exit', (code) => {
+    if (code !== 0 && buildState.status === 'building') {
+      console.error(`[graph-worker] Exited with code ${code}`)
+      buildState.status = 'idle'
+      activeWorker = null
+      handleWorkerFailure(vaultPath)
+    }
   })
 }
 
-function extractExcerpt(content: string): string {
-  // Remove frontmatter
-  const stripped = content.replace(/^---\n[\s\S]*?\n---\n?/, '')
-  // Remove headings and wikilinks, get first 120 chars of text
-  const text = stripped
-    .replace(/^#+\s+.+$/gm, '')
-    .replace(/\[\[([^\]]+)\]\]/g, '$1')
-    .replace(/[*_`]/g, '')
-    .replace(/\n+/g, ' ')
-    .trim()
-  return text.slice(0, 120)
+function isCacheValid(vaultPath: string): boolean {
+  return !!(cachedGraph && Date.now() - cacheTime < CACHE_TTL && cachedVaultPath === vaultPath)
 }
 
-function extractBody(content: string): string {
-  // Strip frontmatter, collapse whitespace, return searchable plain text
-  return content
-    .replace(/^---\n[\s\S]*?\n---\n?/, '')
-    .replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1')
-    .replace(/[*_`#]/g, '')
-    .replace(/\n+/g, ' ')
-    .trim()
-}
+// ─── Vault parsing (for /api/config/validate) ─────────────────────────────────
 
 function makeSnippet(body: string, query: string): string {
   const lc = body.toLowerCase()
@@ -198,146 +261,6 @@ function makeSnippet(body: string, query: string): string {
     )
   }
   return snippet
-}
-
-interface NoteDoc {
-  id: string
-  title: string
-  content: string
-  folder: string
-  tags: string[]
-}
-
-interface GraphData {
-  nodes: VaultNode[]
-  links: VaultLink[]
-}
-
-let cachedGraph: GraphData | null = null
-let cacheTime = 0
-let cachedVaultPath: string | null = null
-let searchIndex: MiniSearch<NoteDoc> | null = null
-let noteBodyMap = new Map<string, string>()
-const CACHE_TTL = 30_000 // 30s
-
-function buildSearchIndex(nodes: VaultNode[]): void {
-  const ms = new MiniSearch<NoteDoc>({
-    fields: ['title', 'content'],
-    storeFields: ['title', 'folder', 'tags'],
-    searchOptions: { boost: { title: 2 }, fuzzy: 0.2, prefix: true },
-  })
-  ms.addAll(nodes.map(n => ({
-    id: n.id,
-    title: n.label,
-    content: noteBodyMap.get(n.id) ?? '',
-    folder: n.folder,
-    tags: n.tags,
-  })))
-  searchIndex = ms
-}
-
-function buildGraph(vaultPath: string): GraphData {
-  const now = Date.now()
-  if (cachedGraph && now - cacheTime < CACHE_TTL && cachedVaultPath === vaultPath) return cachedGraph
-
-  noteBodyMap = new Map()
-  searchIndex = null
-
-  const nodeMap = new Map<string, VaultNode>()
-  const mdFiles: string[] = []
-
-  function walk(dir: string) {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory() || (entry.isSymbolicLink() && fs.statSync(full).isDirectory())) {
-        walk(full)
-      } else if (entry.name.endsWith('.md')) {
-        mdFiles.push(full)
-      }
-    }
-  }
-
-  walk(vaultPath)
-
-  for (const filePath of mdFiles) {
-    const relPath = path.relative(vaultPath, filePath)
-    const ext = path.extname(relPath)
-    const nameWithoutExt = path.basename(relPath, ext)
-    const id = relPath.replace(/\.md$/, '').toLowerCase().replace(/\s+/g, '-')
-
-    let content = ''
-    try {
-      content = fs.readFileSync(filePath, 'utf-8')
-    } catch {
-      continue
-    }
-
-    const stat = fs.statSync(filePath)
-
-    const node: VaultNode = {
-      id,
-      label: extractTitle(content, nameWithoutExt),
-      path: relPath,
-      type: getNodeType(relPath),
-      tags: extractTags(content),
-      links: extractWikilinks(content),
-      excerpt: extractExcerpt(content),
-      createdAt: stat.birthtime.toISOString(),
-      modifiedAt: stat.mtime.toISOString(),
-      folder: getTopFolder(relPath),
-    }
-
-    nodeMap.set(id, node)
-    noteBodyMap.set(id, extractBody(content))
-  }
-
-  // Build canonical id → node lookup with fuzzy matching
-  const allIds = new Set(nodeMap.keys())
-
-  // Resolve links to actual node IDs
-  const links: VaultLink[] = []
-  const linkSet = new Set<string>()
-
-  for (const node of nodeMap.values()) {
-    for (const rawLink of node.links) {
-      // Try to find the target node
-      let targetId: string | undefined
-
-      // Exact match first
-      if (allIds.has(rawLink)) {
-        targetId = rawLink
-      } else {
-        // Try matching just the filename part
-        const linkBase = path.basename(rawLink)
-        for (const id of allIds) {
-          const idBase = path.basename(id)
-          if (idBase === linkBase || id.endsWith('/' + linkBase)) {
-            targetId = id
-            break
-          }
-        }
-      }
-
-      if (targetId && targetId !== node.id) {
-        const key = [node.id, targetId].sort().join('→')
-        if (!linkSet.has(key)) {
-          linkSet.add(key)
-          links.push({ source: node.id, target: targetId })
-        }
-      }
-    }
-  }
-
-  cachedGraph = {
-    nodes: Array.from(nodeMap.values()),
-    links,
-  }
-  cacheTime = now
-  cachedVaultPath = vaultPath
-  buildSearchIndex(cachedGraph.nodes)
-  return cachedGraph
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -371,10 +294,17 @@ app.post('/api/config', (req, res) => {
   }
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({ vaultPath: trimmed }, null, 2), 'utf-8')
+    // Reset all state so next /api/graph triggers a fresh build
     cachedGraph = null
     cachedVaultPath = null
+    cacheTime = 0
     searchIndex = null
     noteBodyMap = new Map()
+    buildState = { status: 'idle', progress: { totalFiles: 0, processedFiles: 0 }, retries: 0 }
+    if (activeWorker) {
+      void activeWorker.terminate()
+      activeWorker = null
+    }
     resetEmbeddingIndex()
     res.json({ ok: true })
   } catch (err) {
@@ -421,14 +351,41 @@ app.get('/api/config/validate', (req, res) => {
   res.json({ valid: true, noteCount })
 })
 
+// ─── Graph endpoint (async) ───────────────────────────────────────────────────
+
 app.get('/api/graph', (_req, res) => {
-  try {
-    const graph = buildGraph(loadConfig().vaultPath)
-    res.json(graph)
-  } catch (err) {
-    console.error('Error building graph:', err)
-    res.status(500).json({ error: 'Failed to build graph' })
+  const vaultPath = loadConfig().vaultPath
+
+  if (isCacheValid(vaultPath)) {
+    res.json(cachedGraph)
+    return
   }
+
+  if (buildState.status === 'error') {
+    res.status(500).json({ error: buildState.errorMessage ?? 'Graph build failed' })
+    return
+  }
+
+  if (buildState.status !== 'building') {
+    startGraphBuild(vaultPath)
+  }
+
+  res.status(202).json({
+    status: 'building',
+    progress: buildState.progress,
+  })
+})
+
+// ─── Graph status endpoint ────────────────────────────────────────────────────
+
+app.get('/api/graph/status', (_req, res) => {
+  res.json({
+    status: buildState.status,
+    progress: buildState.progress,
+    cached: cachedGraph !== null,
+    nodeCount: cachedGraph?.nodes.length ?? 0,
+    linkCount: cachedGraph?.links.length ?? 0,
+  })
 })
 
 app.get('/api/note', (req, res) => {
@@ -440,7 +397,6 @@ app.get('/api/note', (req, res) => {
 
   const vaultPath = loadConfig().vaultPath
   const fullPath = path.join(vaultPath, notePath)
-  // Security: ensure path is within vault
   const resolved = path.resolve(fullPath)
   const vaultResolved = path.resolve(vaultPath)
   if (!resolved.startsWith(vaultResolved)) {
@@ -458,15 +414,14 @@ app.get('/api/note', (req, res) => {
 
 app.get('/api/search', (req, res) => {
   const q = (req.query.q as string || '').toLowerCase().trim()
-  if (!q) {
+  if (!q || !cachedGraph) {
     res.json({ results: [] })
     return
   }
 
-  const graph = buildGraph(loadConfig().vaultPath)
   const terms = q.split(/\s+/).filter(Boolean)
 
-  const scored = graph.nodes.map(node => {
+  const scored = cachedGraph.nodes.map(node => {
     let score = 0
     const titleLower = node.label.toLowerCase()
     const excerptLower = node.excerpt.toLowerCase()
@@ -494,15 +449,7 @@ app.get('/api/search', (req, res) => {
 app.get('/api/search/content', (req, res) => {
   const q = (req.query.q as string || '').trim()
   const limit = Math.min(parseInt(req.query.limit as string || '10', 10), 20)
-  if (!q) {
-    res.json({ results: [] })
-    return
-  }
-
-  // Ensure graph + index are built
-  buildGraph(loadConfig().vaultPath)
-
-  if (!searchIndex) {
+  if (!q || !searchIndex) {
     res.json({ results: [] })
     return
   }
@@ -525,9 +472,12 @@ app.get('/api/search/content', (req, res) => {
 })
 
 app.get('/api/tags', (_req, res) => {
-  const graph = buildGraph(loadConfig().vaultPath)
+  if (!cachedGraph) {
+    res.json({ tags: [] })
+    return
+  }
   const tagSet = new Set<string>()
-  graph.nodes.forEach(n => n.tags.forEach(t => tagSet.add(t)))
+  cachedGraph.nodes.forEach(n => n.tags.forEach(t => tagSet.add(t)))
   res.json({ tags: Array.from(tagSet).sort() })
 })
 
@@ -551,8 +501,10 @@ app.post('/api/note', (req, res) => {
     fs.writeFileSync(resolved, content, 'utf-8')
     // Invalidate cache so next read reflects changes
     cachedGraph = null
+    cacheTime = 0
     searchIndex = null
     noteBodyMap = new Map()
+    buildState = { status: 'idle', progress: { totalFiles: 0, processedFiles: 0 }, retries: 0 }
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: String(err) })
@@ -561,7 +513,6 @@ app.post('/api/note', (req, res) => {
 
 // ─── Semantic Search ───────────────────────────────────────────────────────────
 
-// Trigger async embedding index build after graph is built
 function triggerEmbeddingBuild(): void {
   if (!cachedGraph) return
   const notes = cachedGraph.nodes.map(n => ({
@@ -583,9 +534,12 @@ app.get('/api/semantic-search', async (req, res) => {
     return
   }
 
-  // Ensure graph is built so we have note data
-  const graph = buildGraph(loadConfig().vaultPath)
-  const notes = graph.nodes.map(n => ({
+  if (!cachedGraph) {
+    res.json({ results: [], ready: false })
+    return
+  }
+
+  const notes = cachedGraph.nodes.map(n => ({
     id: n.id,
     label: n.label,
     content: noteBodyMap.get(n.id) ?? '',
@@ -612,13 +566,7 @@ app.listen(PORT, () => {
   console.log(`Vault: ${cfg.vaultPath}`)
   console.log(`Config: ${isConfigured() ? CONFIG_PATH : '(none — using fallback)'}`)
 
-  // Start async embedding index build
-  try {
-    buildGraph(cfg.vaultPath)
-    triggerEmbeddingBuild()
-  } catch (err) {
-    console.error('[embeddings] Failed to start initial index build:', err)
-  }
+  startGraphBuild(cfg.vaultPath)
 })
 
 export default app
