@@ -64,9 +64,15 @@ export function useVaultGraph(enabled = true) {
         if (res.ok) {
           const graph = await res.json() as GraphData
           if (active) {
-            setData(graph)
-            setLoading(false)
+            // Set data first, clear build progress in a microtask so React
+            // doesn't render a single frame with data=null + buildProgress=null
+            // (which causes a black flash on first load)
             setBuildProgress(null)
+            setData(graph)
+            // Defer loading=false to give Three.js a frame to mount the scene
+            requestAnimationFrame(() => {
+              if (active) setLoading(false)
+            })
           }
           return
         }

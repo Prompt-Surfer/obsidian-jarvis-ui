@@ -775,7 +775,7 @@ function App() {
     )
   }
 
-  if (loading || buildProgress !== null) {
+  if (loading || (buildProgress !== null && !graphData)) {
     return <GraphBuildProgress progress={buildProgress} />
   }
 
