@@ -394,26 +394,38 @@ function runTick() {
     return
   }
   tickRunning = true
-  simulation.tick()
-  tickCount++
 
-  // PERF: worker tick throttle — postMessage every 5th tick during active convergence;
-  // halve to every 10th when alpha < 0.1 (sim nearly stable) → ~50% fewer React re-renders
-  // during the long tail of slow convergence with zero visible quality loss
-  const currentAlpha = simulation.alpha()
-  const reportInterval = currentAlpha < 0.1 ? 10 : 5
-  if (tickCount % reportInterval === 0 || tickCount === 1) {
-    self.postMessage({
-      type: 'tick',
-      nodes: getNodePositions(simNodes),
-      tickCount,
-      alpha: currentAlpha,
-      firstTick: tickCount === 1,
-      tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
-    })
+  // PERF: frame-budgeted batching — run as many ticks as fit in ~16ms (60fps budget),
+  // then post one message per batch. This avoids oversaturating the message channel
+  // while still converging fast. Worker yields between batches via setTimeout(,1).
+  const frameStart = performance.now()
+  const FRAME_BUDGET_MS = 16
+
+  while (tickCount < MAX_TICKS && simulation.alpha() >= ALPHA_MIN) {
+    simulation.tick()
+    tickCount++
+    if (performance.now() - frameStart > FRAME_BUDGET_MS) break
   }
 
-  setTimeout(runTick, 0)
+  // Post one message per frame batch
+  const currentAlpha = simulation.alpha()
+  const done = tickCount >= MAX_TICKS || currentAlpha < ALPHA_MIN
+  self.postMessage({
+    type: done ? 'end' : 'tick',
+    nodes: getNodePositions(simNodes),
+    tickCount,
+    alpha: currentAlpha,
+    firstTick: tickCount <= 5,
+    tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
+  })
+
+  if (done) {
+    tickRunning = false
+    return
+  }
+
+  // Yield to main thread between batches (1ms gap avoids busy-spinning)
+  setTimeout(runTick, 1)
 }
 
 self.onmessage = (e: MessageEvent) => {
@@ -1049,8 +1061,9 @@ self.onmessage = (e: MessageEvent) => {
     // ── Shape force: pulls nodes toward their target positions ──────────────
     const shapeForce = (alpha: number) => {
       if (graphShape === 'natural') {
-        // Same-folder orphans attract each other (original centroid behavior)
-        const k = alpha * 0.012
+        // Same-folder orphans attract each other; scale with spread so centroid pull
+        // keeps pace with the repulsive charge (which also scales with spread)
+        const k = alpha * 0.012 * currentSpread
         for (const members of orphansByFolder.values()) {
           if (members.length < 2) continue
           let cx = 0, cy = 0, cz = 0
@@ -1178,12 +1191,13 @@ self.onmessage = (e: MessageEvent) => {
       const baseCharge = (graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain') ? 0 : -120
       if (cf?.strength) {
         if (graphShape === 'natural') {
+          // sqrt scaling: prevents runaway repulsion at high spread values while
+          // still allowing meaningful spread. Linear was too aggressive at spread > 3.
           cf.strength((d: unknown) => {
             const node = d as WorkerNode
             const tier = tierMap.get(node.id) ?? 'regular'
-            if (tier === 'ultranode') return -350 * spread
-            if (tier === 'supernode') return -200 * spread
-            return -120 * spread
+            const base = tier === 'ultranode' ? -350 : tier === 'supernode' ? -200 : -120
+            return base * Math.sqrt(spread)
           })
         } else {
           cf.strength(baseCharge * spread)

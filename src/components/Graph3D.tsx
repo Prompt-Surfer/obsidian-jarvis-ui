@@ -44,6 +44,7 @@ interface Graph3DProps {
   tagBoxes?: TagBox[]
   linksEnabled?: boolean
   timeFilterActive?: boolean
+  textSize?: number
 }
 
 export interface Graph3DHandle {
@@ -157,6 +158,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   tagBoxes,
   linksEnabled = true,
   timeFilterActive = false,
+  textSize = 1.0,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -213,11 +215,20 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const visibleForAnimRef = useRef<Set<string>>(new Set())
   // Latest props needed by the RAF animation loop (avoids stale closures)
   const liveNodeSizeRef = useRef({ minNodeSize, maxNodeSize, ultraNodeSize })
+  const textSizeRef = useRef(textSize)
   const graphDataRef = useRef<GraphData | null>(null)
   const timeFilterActiveRef = useRef(timeFilterActive)
 
   // Keep animation-support refs in sync with props
   useEffect(() => { liveNodeSizeRef.current = { minNodeSize, maxNodeSize, ultraNodeSize } }, [minNodeSize, maxNodeSize, ultraNodeSize])
+  useEffect(() => {
+    textSizeRef.current = textSize
+    // Rescale all existing label sprites to reflect new text size
+    for (const sprite of labelsMapRef.current.values()) {
+      sprite.scale.set(40 * textSize, 7.5 * textSize, 1)
+    }
+    isDirtyRef.current = true
+  }, [textSize])
   useEffect(() => { graphDataRef.current = graphData }, [graphData])
   useEffect(() => { timeFilterActiveRef.current = timeFilterActive }, [timeFilterActive])
 
@@ -233,7 +244,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
     // Cap at 2× — 3× pixel ratio on high-DPI triples GPU load and caps effective FPS.
-    // RAF loop is uncapped (targets display refresh, up to 120fps on 120Hz displays).
+    // RAF loop — uncapped, targets display refresh rate (60Hz/120Hz/144Hz).
+    // No manual throttling. setPixelRatio cap only affects resolution, not frame rate.
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(canvas.clientWidth, canvas.clientHeight)
     renderer.setClearColor(0x000000, 1)
@@ -743,6 +755,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       let sprite = labelsMapRef.current.get(nodeId)
       if (!sprite && shouldShow && labelScene) {
         sprite = createLabelSprite(node.label)
+        // Apply current text size scale (default is 40×7.5 world units at 1×)
+        sprite.scale.set(40 * textSizeRef.current, 7.5 * textSizeRef.current, 1)
         sprite.visible = false
         labelScene.add(sprite)
         labelsMapRef.current.set(nodeId, sprite)
@@ -810,6 +824,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const SCALE_DUR = 600  // ms — scale 0 → 1
     const GLOW_DUR = 800   // ms — emissive brightness spike → base
 
+    // RAF loop — uncapped, targets display refresh rate (60Hz/120Hz/144Hz).
+    // No manual throttling. Dirty-flag gate skips render when scene is unchanged.
     function loop() {
       animId = requestAnimationFrame(loop)
       // PERF: controls.update() runs every frame to advance damping; the 'change' event fires

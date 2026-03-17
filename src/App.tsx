@@ -130,6 +130,9 @@ function App() {
   const [labelsEnabled, setLabelsEnabled] = useState(true)
   const [linksEnabled, setLinksEnabled] = useState(true)
   const [spread, setSpreadState] = useState(2.0)
+  const [textSize, setTextSizeState] = useState(() => {
+    try { const v = localStorage.getItem('jarvis-text-size'); return v ? parseFloat(v) : 1.0 } catch { return 1.0 }
+  })
   const [minNodeSize, setMinNodeSize] = useState(1.0)
   const [maxNodeSize, setMaxNodeSize] = useState(3.0)
   const [ultraNodeSize, setUltraNodeSize] = useState(() => {
@@ -828,6 +831,7 @@ function App() {
           starsEnabled={starsEnabled}
           labelsEnabled={labelsEnabled}
           linksEnabled={linksEnabled}
+          textSize={textSize}
           nodeDegrees={nodeDegrees}
           minNodeSize={minNodeSize}
           maxNodeSize={maxNodeSize}
@@ -874,6 +878,11 @@ function App() {
         onStarsToggle={setStarsEnabled}
         onLabelsToggle={setLabelsEnabled}
         onLinksToggle={setLinksEnabled}
+        textSize={textSize}
+        onTextSizeChange={(v) => {
+          setTextSizeState(v)
+          try { localStorage.setItem('jarvis-text-size', String(v)) } catch { /* storage unavailable */ }
+        }}
         onSpreadChange={handleSpreadChange}
         onMinSizeChange={setMinNodeSize}
         onMaxSizeChange={setMaxNodeSize}
