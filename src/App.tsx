@@ -73,15 +73,39 @@ function App() {
   const [showChangeVault, setShowChangeVault] = useState(false)
 
   useEffect(() => {
-    fetch('/api/config')
-      .then(r => r.json())
-      .then((d: { configured: boolean }) => setConfigStatus(d.configured ? 'configured' : 'unconfigured'))
-      .catch(() => setConfigStatus('configured')) // if API unreachable, proceed to show graph/error
+    let active = true
+    let attempt = 0
+    const MAX_RETRIES = 10
+    const BASE_DELAY = 500 // ms
+
+    async function fetchConfig() {
+      while (active && attempt < MAX_RETRIES) {
+        try {
+          const res = await fetch('/api/config')
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const d = await res.json() as { configured: boolean }
+          if (active) setConfigStatus(d.configured ? 'configured' : 'unconfigured')
+          return
+        } catch {
+          attempt++
+          if (attempt >= MAX_RETRIES) {
+            // After all retries, assume configured (fallback behavior)
+            if (active) setConfigStatus('configured')
+            return
+          }
+          // Exponential backoff: 500, 1000, 2000, 2000, 2000... (capped at 2s)
+          await new Promise(r => setTimeout(r, Math.min(BASE_DELAY * Math.pow(2, attempt - 1), 2000)))
+        }
+      }
+    }
+
+    fetchConfig()
+    return () => { active = false }
   }, [])
 
   const graphEnabled = configStatus === 'configured'
 
-  const { data: graphData, loading, error, buildProgress } = useVaultGraph(graphEnabled)
+  const { data: graphData, loading, error, buildProgress, embeddingProgress } = useVaultGraph(graphEnabled)
   const _urlParams = new URLSearchParams(window.location.search)
   const [graphShape, setGraphShape] = useState<'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'>(() => {
     const url = _urlParams.get('graphShape') as 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
@@ -747,21 +771,7 @@ function App() {
 
   // Show first-run setup when vault is unconfigured or user requests change
   if (configStatus === 'checking') {
-    return (
-      <div style={{
-        width: '100vw',
-        height: '100vh',
-        background: '#000',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: '"Courier New", monospace',
-        color: '#00d4ff',
-        fontSize: 16,
-      }}>
-        <div style={{ color: '#585b70', fontSize: 12, letterSpacing: '0.08em' }}>◌ INITIALISING...</div>
-      </div>
-    )
+    return <GraphBuildProgress progress={null} />
   }
 
   if (configStatus === 'unconfigured' || showChangeVault) {
@@ -778,8 +788,8 @@ function App() {
     )
   }
 
-  if (loading || (buildProgress !== null && !graphData)) {
-    return <GraphBuildProgress progress={buildProgress} />
+  if (loading || embeddingProgress !== null) {
+    return <GraphBuildProgress progress={buildProgress} embeddingProgress={embeddingProgress} />
   }
 
   if (error) {

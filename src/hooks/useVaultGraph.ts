@@ -38,6 +38,11 @@ export interface BuildProgress {
   processedFiles: number
 }
 
+export interface EmbeddingProgress {
+  indexed: number
+  total: number
+}
+
 interface BuildingResponse {
   status: 'building'
   progress: BuildProgress
@@ -48,6 +53,7 @@ export function useVaultGraph(enabled = true) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [buildProgress, setBuildProgress] = useState<BuildProgress | null>(null)
+  const [embeddingProgress, setEmbeddingProgress] = useState<EmbeddingProgress | null>(null)
 
   useEffect(() => {
     if (!enabled) return
@@ -55,7 +61,30 @@ export function useVaultGraph(enabled = true) {
     let active = true
     let pollTimer: ReturnType<typeof setTimeout> | null = null
 
-    async function fetchGraph(): Promise<void> {
+    async function pollEmbeddings(): Promise<void> {
+      if (!active) return
+      try {
+        const res = await fetch('/api/semantic-status')
+        if (!active) return
+        if (res.ok) {
+          const status = await res.json() as { ready: boolean; indexed: number; total: number }
+          if (!active) return
+          if (status.ready) {
+            setEmbeddingProgress(null)
+            requestAnimationFrame(() => {
+              if (active) setLoading(false)
+            })
+            return
+          }
+          setEmbeddingProgress({ indexed: status.indexed, total: status.total })
+        }
+      } catch {
+        // Server busy — retry
+      }
+      if (active) pollTimer = setTimeout(pollEmbeddings, 500)
+    }
+
+    async function fetchGraph(retryCount = 0): Promise<void> {
       if (!active) return
       try {
         const res = await fetch('/api/graph')
@@ -64,15 +93,13 @@ export function useVaultGraph(enabled = true) {
         if (res.ok) {
           const graph = await res.json() as GraphData
           if (active) {
-            // Set data first, clear build progress in a microtask so React
-            // doesn't render a single frame with data=null + buildProgress=null
-            // (which causes a black flash on first load)
+            // Set data first, clear build progress
             setBuildProgress(null)
             setData(graph)
-            // Defer loading=false to give Three.js a frame to mount the scene
-            requestAnimationFrame(() => {
-              if (active) setLoading(false)
-            })
+            // Set placeholder embedding progress to avoid flash between phases
+            setEmbeddingProgress({ indexed: 0, total: 0 })
+            // Check embedding status — only clear loading once embeddings are done
+            pollEmbeddings()
           }
           return
         }
@@ -81,7 +108,7 @@ export function useVaultGraph(enabled = true) {
           const body = await res.json() as BuildingResponse
           if (active) {
             setBuildProgress(body.progress)
-            setLoading(false)
+            // Keep loading=true — don't clear it during graph build phase
             // Poll again after 500ms
             pollTimer = setTimeout(fetchGraph, 500)
           }
@@ -90,10 +117,16 @@ export function useVaultGraph(enabled = true) {
 
         throw new Error(`HTTP ${res.status}`)
       } catch (err) {
-        if (active) {
-          setError((err as Error).message)
-          setLoading(false)
+        if (!active) return
+        if (retryCount < 8) {
+          // Backend might not be ready yet — retry with backoff
+          const delay = Math.min(500 * Math.pow(2, retryCount), 3000)
+          pollTimer = setTimeout(() => fetchGraph(retryCount + 1), delay)
+          return
         }
+        // After all retries, show error
+        setError((err as Error).message)
+        setLoading(false)
       }
     }
 
@@ -105,5 +138,5 @@ export function useVaultGraph(enabled = true) {
     }
   }, [enabled])
 
-  return { data, loading, error, buildProgress }
+  return { data, loading, error, buildProgress, embeddingProgress }
 }

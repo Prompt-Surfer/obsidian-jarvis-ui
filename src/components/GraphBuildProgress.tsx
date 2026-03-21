@@ -1,25 +1,45 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
 
-import type { BuildProgress } from '../hooks/useVaultGraph'
+import type { BuildProgress, EmbeddingProgress } from '../hooks/useVaultGraph'
 
 interface Props {
   progress: BuildProgress | null
+  embeddingProgress?: EmbeddingProgress | null
 }
 
-export function GraphBuildProgress({ progress }: Props) {
-  const hasTotal = progress !== null && progress.totalFiles > 0
-  const pct = hasTotal ? Math.min(100, Math.round((progress.processedFiles / progress.totalFiles) * 100)) : 0
+export function GraphBuildProgress({ progress, embeddingProgress }: Props) {
+  const isEmbeddingPhase = embeddingProgress != null
+
+  // Graph build progress
+  const graphHasTotal = progress !== null && progress.totalFiles > 0
+  const graphPct = graphHasTotal ? Math.min(100, Math.round((progress.processedFiles / progress.totalFiles) * 100)) : 0
+
+  // Embedding progress
+  const embHasTotal = isEmbeddingPhase && embeddingProgress.total > 0
+  const embPct = embHasTotal ? Math.min(100, Math.round((embeddingProgress.indexed / embeddingProgress.total) * 100)) : 0
+
+  // Active phase values
+  const pct = isEmbeddingPhase ? embPct : graphPct
+  const hasTotal = isEmbeddingPhase ? embHasTotal : graphHasTotal
 
   // Phase label
   let phaseLabel: string
-  if (progress === null) {
+  if (isEmbeddingPhase) {
+    if (!embHasTotal) {
+      phaseLabel = 'Preparing embeddings...'
+    } else {
+      phaseLabel = `${embeddingProgress.indexed.toLocaleString()} / ${embeddingProgress.total.toLocaleString()} notes`
+    }
+  } else if (progress === null) {
     phaseLabel = 'Connecting to server...'
   } else if (progress.totalFiles === 0) {
     phaseLabel = 'Scanning vault...'
   } else {
     phaseLabel = `${progress.processedFiles.toLocaleString()} / ${progress.totalFiles.toLocaleString()} notes`
   }
+
+  const statusLabel = isEmbeddingPhase ? '◌ INDEXING NOTES...' : '◌ BUILDING GRAPH...'
 
   return (
     <div style={{
@@ -45,6 +65,18 @@ export function GraphBuildProgress({ progress }: Props) {
         JARVIS // VAULT GRAPH
       </div>
 
+      {/* Phase 1 completed indicator (only in embedding phase) */}
+      {isEmbeddingPhase && (
+        <div style={{
+          fontSize: 11,
+          letterSpacing: '0.08em',
+          color: '#1a4a5a',
+          marginBottom: 12,
+        }}>
+          ✓ GRAPH BUILT
+        </div>
+      )}
+
       {/* Main status label */}
       <div style={{
         fontSize: 13,
@@ -52,7 +84,7 @@ export function GraphBuildProgress({ progress }: Props) {
         color: '#00a8cc',
         marginBottom: 20,
       }}>
-        ◌ BUILDING GRAPH...
+        {statusLabel}
       </div>
 
       {/* Progress bar container */}
@@ -103,7 +135,7 @@ export function GraphBuildProgress({ progress }: Props) {
         {phaseLabel}
       </div>
 
-      {/* Percentage (only when we have file counts) */}
+      {/* Percentage (only when we have counts) */}
       {hasTotal && (
         <div style={{
           marginTop: 8,
