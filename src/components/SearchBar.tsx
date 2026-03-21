@@ -46,16 +46,23 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
   const containerRef = useRef<HTMLDivElement>(null)
 
   // ── Click-outside to close ────────────────────────────────────────────────
+  // Use a ref so the effect doesn't re-attach on every render (onClose is an
+  // unstable inline arrow in the parent).  Capture-phase pointerdown fires
+  // before OrbitControls' setPointerCapture can redirect subsequent events,
+  // guaranteeing we always see clicks on the Three.js canvas.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   useEffect(() => {
     if (!visible) return
-    const handleMouseDown = (e: MouseEvent) => {
+    const handlePointerDown = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        onClose()
+        onCloseRef.current()
       }
     }
-    document.addEventListener('mousedown', handleMouseDown)
-    return () => document.removeEventListener('mousedown', handleMouseDown)
-  }, [visible, onClose])
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [visible])
 
   useEffect(() => {
     if (visible) {
