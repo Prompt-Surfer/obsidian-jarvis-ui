@@ -309,7 +309,7 @@ function App() {
 
   // Compute node degrees from links
   const nodeDegrees = useMemo(() => {
-    if (!graphData) return new Map<string, number>()
+    if (!graphData?.nodes || !graphData?.links) return new Map<string, number>()
     const degrees = new Map<string, number>()
     graphData.nodes.forEach(n => degrees.set(n.id, 0))
     graphData.links.forEach(l => {
