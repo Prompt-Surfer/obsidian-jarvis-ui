@@ -894,7 +894,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const animColor = new THREE.Color()
     const SCALE_DUR = 600  // ms — scale 0 → 1
     const GLOW_DUR = 800   // ms — emissive brightness spike → base
-    const LERP_FACTOR = 0.15 // Smooth but responsive — higher=snappier, lower=smoother
+    const LERP_FACTOR = 0.08 // Lower = smoother/more fluid, higher = snappier. At 3fps sim + 60fps render, 0.08 gives ~40 interpolated frames between ticks
     const LERP_EPSILON_SQ = 0.01 // Squared distance threshold for convergence
 
     // RAF loop — uncapped, targets display refresh rate (60Hz/120Hz/144Hz).
