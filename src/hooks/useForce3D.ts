@@ -53,7 +53,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   const prevPositionsRef = useRef<Map<string, { x: number; y: number; z: number }>>(new Map())
 
   useEffect(() => {
-    if (!graphData) return
+    if (!graphData?.nodes || !graphData?.links) return
 
     // Detect shape-only change: same graphData ref, different graphShape
     const isShapeOnlyChange = prevGraphDataRef.current === graphData && workerRef.current !== null
