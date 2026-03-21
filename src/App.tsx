@@ -296,7 +296,7 @@ function App() {
   // Propagate time/tag/search filter changes to force simulation center
   // Skip during timelapse playback — nodes should appear at settled positions, not reheat
   useEffect(() => {
-    if (!graphData) return
+    if (!graphData?.nodes || !graphData?.links) return
     if (timelapsePlaying) return  // Don't reheat sim during timelapse
     const active = graphData.nodes
       .filter(n =>
@@ -323,7 +323,7 @@ function App() {
 
   // Cluster centre per folder = highest-degree node (used for collapse + label threshold)
   const folderCentresMap = useMemo(() => {
-    if (!graphData || nodeDegrees.size === 0) return new Map<string, string>()
+    if (!graphData?.nodes || nodeDegrees.size === 0) return new Map<string, string>()
     const centres = new Map<string, string>()
     const bestDeg = new Map<string, number>()
     for (const node of graphData.nodes) {
@@ -338,7 +338,7 @@ function App() {
 
   // Visible nodes: when a folder is collapsed only show its centre node
   const visibleNodes = useMemo(() => {
-    if (!graphData) return new Set<string>()
+    if (!graphData?.nodes) return new Set<string>()
     if (collapsedNodes.size === 0 || folderCentresMap.size === 0) {
       return new Set(graphData.nodes.map(n => n.id))
     }
@@ -361,7 +361,7 @@ function App() {
 
   // Minimap node data
   const minimapNodes = useMemo(() => {
-    if (!graphData) return []
+    if (!graphData?.nodes) return []
     return graphData.nodes
       .filter(n => positions.has(n.id))
       .map(n => {
@@ -379,7 +379,7 @@ function App() {
 
   // Recompute tagIsolationIds whenever the tag list changes (additive filter logic)
   useEffect(() => {
-    if (!graphData || tagIsolationTags.length === 0) {
+    if (!graphData?.nodes || tagIsolationTags.length === 0) {
       setTagIsolationIds(null)
       return
     }
@@ -424,7 +424,7 @@ function App() {
 
   // Arrow key navigation helper
   const navigateArrow = useCallback((direction: 'left' | 'right' | 'up' | 'down') => {
-    if (!graphData || !selectedNode) return
+    if (!graphData?.nodes || !graphData?.links || !selectedNode) return
 
     const folder = selectedNode.folder
     const siblings = graphData.nodes
@@ -715,7 +715,7 @@ function App() {
   }, [loadPreset, graphShape, setSpread, showToast])
 
   const navigateToNode = useCallback((nodeId: string) => {
-    if (!graphData) return
+    if (!graphData?.nodes || !graphData?.links) return
 
     if (nodeId.startsWith('tag:')) {
       const tag = nodeId.slice(4)
@@ -815,7 +815,7 @@ function App() {
     )
   }
 
-  if (!graphData) return null
+  if (!graphData?.nodes) return null
 
   const visibleCount = graphData.nodes.filter(n =>
     visibleNodes.has(n.id) && (!timeFilterIds || timeFilterIds.has(n.id))
