@@ -70,10 +70,10 @@ export function useVaultGraph(enabled = true) {
           const status = await res.json() as { ready: boolean; indexed: number; total: number }
           if (!active) return
           if (status.ready) {
+            // Both must update in same batch to avoid a frame where
+            // loading=true + embeddingProgress=null shows "Connecting..."
             setEmbeddingProgress(null)
-            requestAnimationFrame(() => {
-              if (active) setLoading(false)
-            })
+            setLoading(false)
             return
           }
           setEmbeddingProgress({ indexed: status.indexed, total: status.total })
