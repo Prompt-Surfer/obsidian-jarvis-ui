@@ -287,36 +287,57 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     composerRef.current = composer
     bloomPassRef.current = bloomPass
 
-    // Stars — background only (z far negative so they never overlap the graph area).
-    // Camera is at z=600 looking toward origin; graph occupies roughly ±2000 in x/y/z.
-    // Stars at z=-1500 to -6000 are always behind the action regardless of camera angle.
-    const starGeo = new THREE.BufferGeometry()
-    const starPositions = new Float32Array(2000 * 3)
-    for (let i = 0; i < 2000; i++) {
-      starPositions[i * 3]     = (Math.random() - 0.5) * 12000  // wide x spread
-      starPositions[i * 3 + 1] = (Math.random() - 0.5) * 12000  // wide y spread
-      starPositions[i * 3 + 2] = -1500 - Math.random() * 4500   // z: -1500 to -6000 (background)
-    }
-    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
-    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, sizeAttenuation: true, transparent: true, opacity: 0.45 })
-    const stars = new THREE.Points(starGeo, starMat)
-    stars.visible = false
-    scene.add(stars)
-    starsRef.current = stars
+    // Stars — spherical distribution surrounding the scene from all directions.
+    // Three brightness tiers for natural variation (dim 30%, medium 60%, bright 10%).
+    const starGroup = new THREE.Group()
+    starGroup.renderOrder = -1
 
-    // Galaxy stars — 8 large bright white points (5× star size) far in background.
-    // Replaces old radial-gradient blob sprites.
-    const galStarPositions = [
-      [-3000,  2000, -4200], [ 2500, -1800, -5000], [-1500, -3200, -3800],
-      [ 4200,  1200, -4600], [-2800,  3600, -5500], [ 1800,  3100, -3900],
-      [-4500, -2100, -4300], [ 3300, -3600, -6000],
-    ]
+    const makeStarSphere = (count: number, size: number, opacity: number) => {
+      const geo = new THREE.BufferGeometry()
+      const pos = new Float32Array(count * 3)
+      for (let i = 0; i < count; i++) {
+        const radius = 5000 + Math.random() * 3000
+        const theta = Math.random() * Math.PI * 2
+        const phi = Math.acos(2 * Math.random() - 1)
+        pos[i * 3]     = radius * Math.sin(phi) * Math.cos(theta)
+        pos[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta)
+        pos[i * 3 + 2] = radius * Math.cos(phi)
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      const mat = new THREE.PointsMaterial({
+        color: 0xffffff, size, sizeAttenuation: true,
+        transparent: true, opacity, depthWrite: false,
+      })
+      return new THREE.Points(geo, mat)
+    }
+
+    starGroup.add(makeStarSphere(600, 0.6, 0.2))   // dim stars (30%)
+    starGroup.add(makeStarSphere(1200, 1.2, 0.45))  // medium stars (60%)
+    starGroup.add(makeStarSphere(200, 2.5, 0.9))    // bright stars (10%)
+
+    starGroup.visible = false
+    scene.add(starGroup)
+    starsRef.current = starGroup as unknown as THREE.Points
+
+    // Galaxy stars — 14 large bright points distributed on a sphere.
+    const galCount = 14
     const galGeo = new THREE.BufferGeometry()
-    const galPos = new Float32Array(galStarPositions.length * 3)
-    galStarPositions.forEach(([x, y, z], i) => { galPos[i*3]=x; galPos[i*3+1]=y; galPos[i*3+2]=z })
+    const galPos = new Float32Array(galCount * 3)
+    for (let i = 0; i < galCount; i++) {
+      const radius = 5500 + Math.random() * 2000
+      const theta = Math.random() * Math.PI * 2
+      const phi = Math.acos(2 * Math.random() - 1)
+      galPos[i * 3]     = radius * Math.sin(phi) * Math.cos(theta)
+      galPos[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta)
+      galPos[i * 3 + 2] = radius * Math.cos(phi)
+    }
     galGeo.setAttribute('position', new THREE.BufferAttribute(galPos, 3))
-    const galMat = new THREE.PointsMaterial({ color: 0xffffff, size: 6, sizeAttenuation: true, transparent: true, opacity: 0.95 })
+    const galMat = new THREE.PointsMaterial({
+      color: 0xffffff, size: 6, sizeAttenuation: true,
+      transparent: true, opacity: 0.95, depthWrite: false,
+    })
     const galaxyPoints = new THREE.Points(galGeo, galMat)
+    galaxyPoints.renderOrder = -1
     galaxyPoints.visible = false
     scene.add(galaxyPoints)
     galaxySpritesRef.current = [galaxyPoints as unknown as THREE.Sprite]
