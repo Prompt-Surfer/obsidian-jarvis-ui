@@ -788,7 +788,7 @@ function App() {
     )
   }
 
-  if (loading || embeddingProgress !== null) {
+  if (loading || (buildProgress !== null && !graphData)) {
     return <GraphBuildProgress progress={buildProgress} embeddingProgress={embeddingProgress} />
   }
 

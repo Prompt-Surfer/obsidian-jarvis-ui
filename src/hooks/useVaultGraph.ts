@@ -93,12 +93,12 @@ export function useVaultGraph(enabled = true) {
         if (res.ok) {
           const graph = await res.json() as GraphData
           if (active) {
-            // Set data first, clear build progress
+            // Graph is ready — show the 3D view immediately
             setBuildProgress(null)
+            setEmbeddingProgress(null)
             setData(graph)
-            // Set placeholder embedding progress to avoid flash between phases
-            setEmbeddingProgress({ indexed: 0, total: 0 })
-            // Check embedding status — only clear loading once embeddings are done
+            setLoading(false)
+            // Poll embeddings in background (only needed for semantic search)
             pollEmbeddings()
           }
           return
