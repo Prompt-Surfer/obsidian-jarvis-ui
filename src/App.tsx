@@ -153,7 +153,7 @@ function App() {
   const [starsEnabled, setStarsEnabled] = useState(false)
   const [labelsEnabled, setLabelsEnabled] = useState(false)
   const [linksEnabled, setLinksEnabled] = useState(true)
-  const [spread, setSpreadState] = useState(2.0)
+  const [spread, setSpreadState] = useState(4.0)
   const [textSize, setTextSizeState] = useState(() => {
     try { const v = localStorage.getItem('jarvis-text-size'); return v ? parseFloat(v) : 1.0 } catch { return 1.0 }
   })
