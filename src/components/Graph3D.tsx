@@ -182,7 +182,6 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const frameRef = useRef<number>(0)
   const lastClickTimeRef = useRef<number>(0)
   const lastClickNodeRef = useRef<string | null>(null)
-  const positionsRef = useRef<Map<string, NodePosition>>(new Map())
   const projRef = useRef(new THREE.Vector3())
   const proximityNodeRef = useRef<GraphNode | null>(null)
   const mouseDownPosRef = useRef({ x: 0, y: 0 })
@@ -208,6 +207,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   // PERF: dirty-flag render gate — only call renderer.render() when scene has changed
   const isDirtyRef = useRef(true)
 
+  // Position interpolation (lerp) — decouple render rate from sim rate for smooth 60fps motion
+  const targetPositionsRef = useRef(new Map<string, { x: number; y: number; z: number }>())
+  const displayedPositionsRef = useRef(new Map<string, { x: number; y: number; z: number }>())
+  const isLerpingRef = useRef(false)
+  const simPositionsRef = useRef<Map<string, NodePosition>>(new Map()) // latest sim data (for tier lookup)
+  const hasAppliedMatricesRef = useRef(false) // track initial matrix application
+
   // Change-detection refs: skip expensive Three.js matrix+link updates when positions unchanged
   const lastPositionsRef = useRef<Map<string, NodePosition> | null>(null)
   const lastVisibleNodesRef = useRef<Set<string> | null>(null)
@@ -227,6 +233,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const textSizeRef = useRef(textSize)
   const graphDataRef = useRef<GraphData | null>(null)
   const timeFilterActiveRef = useRef(timeFilterActive)
+  const selectedNodeIdRef = useRef(selectedNodeId)
+  // Set of currently-visible node IDs for RAF lerp loop (avoids making hidden nodes visible)
+  const liveVisibleSetRef = useRef<Set<string>>(new Set())
 
   // Keep animation-support refs in sync with props
   useEffect(() => { liveNodeSizeRef.current = { minNodeSize, maxNodeSize, ultraNodeSize } }, [minNodeSize, maxNodeSize, ultraNodeSize])
@@ -238,12 +247,31 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     isDirtyRef.current = true
   }, [textSize])
-  useEffect(() => { graphDataRef.current = graphData }, [graphData])
-  useEffect(() => { timeFilterActiveRef.current = timeFilterActive }, [timeFilterActive])
-
-  // Keep positionsRef in sync for proximity detection
   useEffect(() => {
-    positionsRef.current = positions
+    graphDataRef.current = graphData
+    // Reset lerp state on graph data change (new graph or shape change)
+    targetPositionsRef.current.clear()
+    displayedPositionsRef.current.clear()
+    isLerpingRef.current = false
+    hasAppliedMatricesRef.current = false
+  }, [graphData])
+  useEffect(() => { timeFilterActiveRef.current = timeFilterActive }, [timeFilterActive])
+  useEffect(() => { selectedNodeIdRef.current = selectedNodeId }, [selectedNodeId])
+
+  // When new sim positions arrive: update lerp targets.
+  // displayedPositionsRef tracks interpolated positions for raycasting & proximity.
+  useEffect(() => {
+    if (positions.size === 0) return
+    simPositionsRef.current = positions
+    for (const [id, pos] of positions) {
+      targetPositionsRef.current.set(id, { x: pos.x, y: pos.y, z: pos.z })
+      // First tick: snap displayed positions to target (no lerp on first frame)
+      if (!displayedPositionsRef.current.has(id)) {
+        displayedPositionsRef.current.set(id, { x: pos.x, y: pos.y, z: pos.z })
+      }
+    }
+    isLerpingRef.current = true
+    isDirtyRef.current = true
   }, [positions])
 
   // Build scene once
@@ -531,8 +559,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     // Size bracket proportional to node size (tier from worker)
     if (bracket) {
-      const selPos = positionsRef.current.get(selectedNodeId)
-      const selTier = selPos?.tier ?? 'regular'
+      const selTier = simPositionsRef.current.get(selectedNodeId)?.tier ?? 'regular'
       const sizeMult = selTier === 'ultranode' ? ultraNodeSize : selTier === 'supernode' ? maxNodeSize : minNodeSize
       const bracketSize = NODE_RADIUS * sizeMult * 3
       bracket.scale.set(bracketSize, bracketSize, bracketSize)
@@ -540,7 +567,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
 
     // Position immediately if position data is available
-    const selPos = positionsRef.current.get(selectedNodeId)
+    const selPos = displayedPositionsRef.current.get(selectedNodeId)
     if (selPos) {
       if (bracket) bracket.position.set(selPos.x, selPos.y, selPos.z)
       sprite.position.set(selPos.x, selPos.y + NODE_RADIUS * 5.5, selPos.z)
@@ -638,10 +665,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       timeFilterIds !== lastFiltersRef.current.timeFilterIds ||
       tagIsolationIds !== lastFiltersRef.current.tagIsolationIds ||
       focusModeNodeIds !== lastFiltersRef.current.focusModeNodeIds
-    // Matrix update needed when positions, visibility, size, or filter layout changes
-    const needsMatrixUpdate = positionsChanged || visibleNodesChanged || sizeChanged || filtersChanged
+    // Matrix update needed for visibility/size/filter changes, or initial application.
+    // Position-only changes are handled by the RAF lerp loop (smooth 60fps interpolation).
+    const needsMatrixUpdate = (!hasAppliedMatricesRef.current && displayedPositionsRef.current.size > 0) || visibleNodesChanged || sizeChanged || filtersChanged
 
     if (needsMatrixUpdate) {
+      hasAppliedMatricesRef.current = true
+    }
+    if (positionsChanged || needsMatrixUpdate) {
       lastPositionsRef.current = positions
       lastVisibleNodesRef.current = visibleNodes
       lastSizeParamsRef.current = { minNodeSize, maxNodeSize, ultraNodeSize }
@@ -651,8 +682,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const newVisibleSet = new Set<string>()
 
     nodes.forEach((node, i) => {
-      const pos = positions.get(node.id)
-      if (!pos) return
+      // Use displayed (lerped) positions for coordinates; sim positions for tier info
+      const dPos = displayedPositionsRef.current.get(node.id)
+      if (!dPos) return
 
       // Visibility: respect time filter, collapse state, tag isolation, and focus mode
       const inTimeFilter = !timeFilterIds || timeFilterIds.has(node.id)
@@ -664,10 +696,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
       if (visible) newVisibleSet.add(node.id)
 
-      // PERF: InstancedMesh matrix skip — only re-upload when positions/visibility/size/filters change;
-      // hover/selection-only changes skip the O(N) matrix loop entirely (color-only update path)
+      // PERF: InstancedMesh matrix skip — only re-upload when visibility/size/filters change;
+      // position-only changes are handled by RAF lerp loop at 60fps
       if (needsMatrixUpdate) {
-        const tier = pos.tier ?? 'regular'
+        const tier = simPositionsRef.current.get(node.id)?.tier ?? 'regular'
         const sizeMultiplier = tier === 'ultranode' ? ultraNodeSize : tier === 'supernode' ? maxNodeSize : minNodeSize
 
         // Entrance animation: detect nodes newly revealed by time filter
@@ -681,13 +713,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         if (!isAnimating) {
           // Normal matrix update
           const scale = visible ? sizeMultiplier : 0
-          dummy.position.set(pos.x, pos.y, pos.z)
+          dummy.position.set(dPos.x, dPos.y, dPos.z)
           dummy.scale.set(scale, scale, scale)
           dummy.updateMatrix()
           mesh.setMatrixAt(i, dummy.matrix)
         } else {
           // Animating: set position but scale=0 so RAF loop can animate from 0→target
-          dummy.position.set(pos.x, pos.y, pos.z)
+          dummy.position.set(dPos.x, dPos.y, dPos.z)
           dummy.scale.set(0, 0, 0)
           dummy.updateMatrix()
           mesh.setMatrixAt(i, dummy.matrix)
@@ -712,21 +744,23 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     })
 
-    // Update visibility tracking for entrance animation detection
+    // Update visibility tracking for entrance animation detection and RAF lerp loop
     visibleForAnimRef.current = newVisibleSet
+    liveVisibleSetRef.current = newVisibleSet
 
     if (needsMatrixUpdate) mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 
     // PERF: link geometry — in-place BufferAttribute update; no new Float32Array/BufferGeometry
-    // allocated per tick → zero GC pressure; needsUpdate flag uploads only the changed slice
+    // allocated per tick → zero GC pressure. Position-only updates handled by RAF lerp loop.
     if (needsMatrixUpdate) {
+      const displayed = displayedPositionsRef.current
       const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
       graphData.links.forEach((link, i) => {
         const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
         const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
-        const src = positions.get(srcId)
-        const dst = positions.get(dstId)
+        const src = displayed.get(srcId)
+        const dst = displayed.get(dstId)
 
         const srcVisible = visibleNodes.has(srcId) && (!timeFilterIds || timeFilterIds.has(srcId)) && (!tagIsolationIds || tagIsolationIds.has(srcId)) && (!focusModeNodeIds || focusModeNodeIds.has(srcId))
         const dstVisible = visibleNodes.has(dstId) && (!timeFilterIds || timeFilterIds.has(dstId)) && (!tagIsolationIds || tagIsolationIds.has(dstId)) && (!focusModeNodeIds || focusModeNodeIds.has(dstId))
@@ -756,13 +790,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const hlLines = selectedEdgeLinesRef.current
     if (hlLines) {
       if (selectedNodeId) {
+        const displayed = displayedPositionsRef.current
         const hlPos = (hlLines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
         let hlCount = 0
         graphData.links.forEach((link) => {
           const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
           const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
           if (srcId !== selectedNodeId && dstId !== selectedNodeId) return
-          const src = positions.get(srcId); const dst = positions.get(dstId)
+          const src = displayed.get(srcId); const dst = displayed.get(dstId)
           if (!src || !dst) return
           const base = hlCount * 6
           hlPos[base]=src.x; hlPos[base+1]=src.y; hlPos[base+2]=src.z
@@ -777,12 +812,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
 
     // PERF: lazy label sprites — allocate CanvasTexture only when node first becomes visible
-    // with labelsEnabled on; avoids 927 upfront allocations when labels are off at startup
+    // with labelsEnabled on; avoids 927 upfront allocations when labels are off at startup.
+    // Label positions are updated by the RAF lerp loop for smooth motion.
     const labelScene = sceneRef.current
     for (const node of nodes) {
       const nodeId = node.id
-      const pos = positions.get(nodeId)
-      if (!pos) continue
+      const dPos = displayedPositionsRef.current.get(nodeId)
+      if (!dPos) continue
       const inTagIso = !tagIsolationIds || tagIsolationIds.has(nodeId)
       const inTimeF = !timeFilterIds || timeFilterIds.has(nodeId)
       const inFocusM = !focusModeNodeIds || focusModeNodeIds.has(nodeId)
@@ -797,8 +833,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         labelsMapRef.current.set(nodeId, sprite)
       }
       if (!sprite) continue
-      if (positionsChanged) {
-        sprite.position.set(pos.x, pos.y + NODE_RADIUS * 3, pos.z)
+      if (needsMatrixUpdate) {
+        sprite.position.set(dPos.x, dPos.y + NODE_RADIUS * 3, dPos.z)
       }
       sprite.visible = shouldShow
     }
@@ -808,7 +844,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (nowMs - lastMaxDistUpdateRef.current > 2000 || lastMaxDistUpdateRef.current === 0) {
       lastMaxDistUpdateRef.current = nowMs
       const bsPts: THREE.Vector3[] = []
-      for (const [, p] of positions) bsPts.push(new THREE.Vector3(p.x, p.y, p.z))
+      for (const [, p] of displayedPositionsRef.current) bsPts.push(new THREE.Vector3(p.x, p.y, p.z))
       if (bsPts.length > 0 && controlsRef.current && cameraRef.current) {
         const bsBox = new THREE.Box3().setFromPoints(bsPts)
         const bsSphere = new THREE.Sphere()
@@ -820,7 +856,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     // Update selected node bracket and title sprite positions
     if (selectedNodeId) {
-      const selPos = positions.get(selectedNodeId)
+      const selPos = displayedPositionsRef.current.get(selectedNodeId)
       if (selPos) {
         if (selectedBracketRef.current?.visible) {
           selectedBracketRef.current.position.set(selPos.x, selPos.y, selPos.z)
@@ -853,11 +889,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const localControls = controls
     const localComposer = composer
 
-    // Reusable objects for entrance animation (avoid per-frame allocation)
+    // Reusable objects for entrance animation and lerp (avoid per-frame allocation)
     const animDummy = new THREE.Object3D()
     const animColor = new THREE.Color()
     const SCALE_DUR = 600  // ms — scale 0 → 1
     const GLOW_DUR = 800   // ms — emissive brightness spike → base
+    const LERP_FACTOR = 0.15 // Smooth but responsive — higher=snappier, lower=smoother
+    const LERP_EPSILON_SQ = 0.01 // Squared distance threshold for convergence
 
     // RAF loop — uncapped, targets display refresh rate (60Hz/120Hz/144Hz).
     // No manual throttling. Dirty-flag gate skips render when scene is unchanged.
@@ -866,6 +904,96 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       // PERF: controls.update() runs every frame to advance damping; the 'change' event fires
       // automatically during damping decay, keeping isDirtyRef true until camera fully settles
       localControls.update()
+
+      // Position interpolation: lerp displayed positions toward sim targets at 60fps
+      // This decouples render rate from sim rate (~3fps) for smooth visual motion
+      if (isLerpingRef.current) {
+        const mesh = instancedMeshRef.current
+        const gData = graphDataRef.current
+        const lines = lineSegmentsRef.current
+        if (mesh && gData) {
+          const displayed = displayedPositionsRef.current
+          const targets = targetPositionsRef.current
+          const { minNodeSize: mnSize, maxNodeSize: mxSize, ultraNodeSize: ulSize } = liveNodeSizeRef.current
+          let maxDelta = 0
+
+          gData.nodes.forEach((node, i) => {
+            const target = targets.get(node.id)
+            const current = displayed.get(node.id)
+            if (!target || !current) return
+
+            // Skip nodes currently in entrance animation (RAF animation block handles them)
+            if (entranceAnimsRef.current.has(node.id)) return
+
+            // Lerp each axis
+            current.x += (target.x - current.x) * LERP_FACTOR
+            current.y += (target.y - current.y) * LERP_FACTOR
+            current.z += (target.z - current.z) * LERP_FACTOR
+
+            // Track max delta for convergence check
+            const dx = target.x - current.x
+            const dy = target.y - current.y
+            const dz = target.z - current.z
+            maxDelta = Math.max(maxDelta, dx * dx + dy * dy + dz * dz)
+
+            // Apply to mesh matrix (respect visibility — don't resurrect hidden nodes)
+            const visible = liveVisibleSetRef.current.has(node.id)
+            const tier = simPositionsRef.current.get(node.id)?.tier ?? 'regular'
+            const size = visible ? (tier === 'ultranode' ? ulSize : tier === 'supernode' ? mxSize : mnSize) : 0
+            animDummy.position.set(current.x, current.y, current.z)
+            animDummy.scale.set(size, size, size)
+            animDummy.updateMatrix()
+            mesh.setMatrixAt(i, animDummy.matrix)
+          })
+
+          mesh.instanceMatrix.needsUpdate = true
+
+          // Update link geometry to match lerped positions
+          if (lines) {
+            const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+            gData.links.forEach((link, li) => {
+              const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
+              const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
+              const src = displayed.get(srcId)
+              const dst = displayed.get(dstId)
+              if (src && dst) {
+                posArray[li * 6] = src.x; posArray[li * 6 + 1] = src.y; posArray[li * 6 + 2] = src.z
+                posArray[li * 6 + 3] = dst.x; posArray[li * 6 + 4] = dst.y; posArray[li * 6 + 5] = dst.z
+              }
+            })
+            ;(lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+          }
+
+          // Update label positions to track interpolated nodes
+          if (labelsMapRef.current.size > 0) {
+            for (const [nodeId, sprite] of labelsMapRef.current) {
+              if (!sprite.visible) continue
+              const dPos = displayed.get(nodeId)
+              if (dPos) sprite.position.set(dPos.x, dPos.y + NODE_RADIUS * 3, dPos.z)
+            }
+          }
+
+          // Update selected bracket/title to follow lerped position
+          if (selectedBracketRef.current?.visible || selectedTitleSpriteRef.current?.visible) {
+            const selPos = displayed.get(selectedNodeIdRef.current ?? '')
+            if (selPos) {
+              if (selectedBracketRef.current?.visible) {
+                selectedBracketRef.current.position.set(selPos.x, selPos.y, selPos.z)
+              }
+              if (selectedTitleSpriteRef.current?.visible) {
+                selectedTitleSpriteRef.current.position.set(selPos.x, selPos.y + NODE_RADIUS * 5.5, selPos.z)
+              }
+            }
+          }
+
+          isDirtyRef.current = true
+
+          // Stop lerping when all nodes have converged
+          if (maxDelta < LERP_EPSILON_SQ) {
+            isLerpingRef.current = false
+          }
+        }
+      }
 
       // Process node entrance animations (time-lapse reveal)
       const anims = entranceAnimsRef.current
@@ -881,16 +1009,16 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
           const idx = nodeIndexMapRef.current.get(nodeId)
           if (idx === undefined) { toDelete.push(nodeId); continue }
 
-          const pos = positionsRef.current.get(nodeId)
-          if (!pos) continue
+          const dPos = displayedPositionsRef.current.get(nodeId)
+          if (!dPos) continue
 
-          const tier = pos.tier ?? 'regular'
+          const tier = simPositionsRef.current.get(nodeId)?.tier ?? 'regular'
           const baseSizeMult = tier === 'ultranode' ? ulSize : tier === 'supernode' ? mxSize : mnSize
           const node = gData.nodes[idx]
 
           if (elapsed >= Math.max(SCALE_DUR, GLOW_DUR)) {
             // Animation complete — restore final state and remove
-            animDummy.position.set(pos.x, pos.y, pos.z)
+            animDummy.position.set(dPos.x, dPos.y, dPos.z)
             animDummy.scale.set(baseSizeMult, baseSizeMult, baseSizeMult)
             animDummy.updateMatrix()
             mesh.setMatrixAt(idx, animDummy.matrix)
@@ -903,7 +1031,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
           // Scale: ease-out cubic 0 → baseSizeMult over SCALE_DUR
           const st = Math.min(elapsed / SCALE_DUR, 1)
           const scaleT = 1 - Math.pow(1 - st, 3)
-          animDummy.position.set(pos.x, pos.y, pos.z)
+          animDummy.position.set(dPos.x, dPos.y, dPos.z)
           animDummy.scale.set(scaleT * baseSizeMult, scaleT * baseSizeMult, scaleT * baseSizeMult)
           animDummy.updateMatrix()
           mesh.setMatrixAt(idx, animDummy.matrix)
@@ -1048,8 +1176,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         const isDragSrc = drag.nodeIds.includes(srcId)
         const isDragDst = drag.nodeIds.includes(dstId)
         if (!isDragSrc && !isDragDst) return
-        const srcPos = isDragSrc ? drag.overridePositions.get(srcId) : positionsRef.current.get(srcId)
-        const dstPos = isDragDst ? drag.overridePositions.get(dstId) : positionsRef.current.get(dstId)
+        const srcPos = isDragSrc ? drag.overridePositions.get(srcId) : displayedPositionsRef.current.get(srcId)
+        const dstPos = isDragDst ? drag.overridePositions.get(dstId) : displayedPositionsRef.current.get(dstId)
         if (!srcPos || !dstPos) return
         posArray[i * 6] = srcPos.x; posArray[i * 6 + 1] = srcPos.y; posArray[i * 6 + 2] = srcPos.z
         posArray[i * 6 + 3] = dstPos.x; posArray[i * 6 + 4] = dstPos.y; posArray[i * 6 + 5] = dstPos.z
@@ -1126,7 +1254,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       if (!visibleNodes.has(node.id)) continue
       if (tagIsolationIds && !tagIsolationIds.has(node.id)) continue
       if (timeFilterIds && !timeFilterIds.has(node.id)) continue
-      const pos = positionsRef.current.get(node.id)
+      const pos = displayedPositionsRef.current.get(node.id)
       if (!pos) continue
 
       projRef.current.set(pos.x, pos.y, pos.z).project(camera)
@@ -1150,7 +1278,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const annotLine = annotLineRef.current
     if (annotLine) {
       if (nearestNode) {
-        const nodePos = positionsRef.current.get(nearestNode.id)
+        const nodePos = displayedPositionsRef.current.get(nearestNode.id)
         if (nodePos && camera && canvas) {
           const nr = canvas.getBoundingClientRect()
           const mx = ((e.clientX - nr.left) / nr.width) * 2 - 1
@@ -1245,7 +1373,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     // Compute bounding sphere of all node positions
     const pts: THREE.Vector3[] = []
-    for (const [, pos] of positionsRef.current) {
+    for (const [, pos] of displayedPositionsRef.current) {
       pts.push(new THREE.Vector3(pos.x, pos.y, pos.z))
     }
 
@@ -1373,7 +1501,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         if (!visibleNodes.has(node.id)) continue
         if (tagIsolationIds && !tagIsolationIds.has(node.id)) continue
         if (timeFilterIds && !timeFilterIds.has(node.id)) continue
-        const pos = positionsRef.current.get(node.id)
+        const pos = displayedPositionsRef.current.get(node.id)
         if (!pos) continue
         projRef.current.set(pos.x, pos.y, pos.z).project(camera)
         if (projRef.current.z > 1) continue
@@ -1386,7 +1514,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       if (!nearestNode) return
 
       // Only drag the grabbed node — connected nodes follow naturally via sim link forces
-      const primaryPos = positionsRef.current.get(nearestNode.id)
+      const primaryPos = displayedPositionsRef.current.get(nearestNode.id)
       if (!primaryPos) return
 
       const overridePositions = new Map<string, { x: number; y: number; z: number }>()
