@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.15.0 — Performance & UX Overhaul (2026-03-22)
+
+### Loading UX
+- Multi-phase loading progress bar: graph build → embedding indexing with live progress
+- Event loop yield during embedding build so status API stays responsive
+- Graph renders immediately when ready — no longer blocked on embedding completion
+- Fixed hot-start black screen (cached embeddings race condition)
+
+### Visual
+- **Stars**: spherical distribution surrounding scene from all directions, 3 brightness tiers (dim/medium/bright)
+- **Bloom slider**: range 0.0–3.0 (was toggle). Click label to toggle on/off. Preset backward compat
+- Default labels off
+
+### Performance
+- **Position interpolation (lerp)**: 60fps smooth motion decoupled from 3fps sim ticks. Render loop lerps displayed positions toward targets continuously
+- **Half-resolution bloom**: UnrealBloomPass at canvas/2, 4× less fill rate
+- **3 mip levels** (was 5): fewer blur passes
+- **Bloom pass disabled when strength=0**: skips entire pipeline
+- Removed bloom profiling double-render that caused visible flash
+
+### Fixes
+- Search bar click-to-close: `pointerdown` capture phase works with Three.js canvas
+- Guard all `graphData.nodes/links` access with optional chaining (crash fix)
+
+### Dev Tools
+- Perf HUD (`?perf` flag): Render FPS, Sim FPS, frame time, bloom Δ, worker→main latency, movement convergence
+
 ## Phase 7 — Interaction & Layout Enhancements (v1.2.8)
 - Initial load auto-resets camera to bounding-sphere fit (same as Reset View)
 - Centre of gravity recalculates on ALL filter changes (tag, time, search)
