@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { PresetManager } from './PresetManager'
 import type { Preset } from '../hooks/usePresets'
 
 interface SettingsProps {
-  bloomEnabled: boolean
+  bloomStrength: number
   nodeOpacity: number
   starsEnabled: boolean
   labelsEnabled: boolean
@@ -15,7 +15,7 @@ interface SettingsProps {
   minNodeSize: number
   maxNodeSize: number
   ultraNodeSize: number
-  onBloomToggle: (enabled: boolean) => void
+  onBloomStrengthChange: (value: number) => void
   onOpacityChange: (value: number) => void
   onStarsToggle: (enabled: boolean) => void
   onLabelsToggle: (enabled: boolean) => void
@@ -44,7 +44,7 @@ interface SettingsProps {
 }
 
 export function Settings({
-  bloomEnabled,
+  bloomStrength,
   nodeOpacity,
   starsEnabled,
   labelsEnabled,
@@ -53,7 +53,7 @@ export function Settings({
   minNodeSize,
   maxNodeSize,
   ultraNodeSize,
-  onBloomToggle,
+  onBloomStrengthChange,
   onOpacityChange,
   onStarsToggle,
   onLabelsToggle,
@@ -80,6 +80,7 @@ export function Settings({
   onPresetLoad,
   onPresetDelete,
 }: SettingsProps) {
+  const prevBloom = useRef(bloomStrength > 0 ? bloomStrength : 1.5)
   const [hoveredShape, setHoveredShape] = useState<string | null>(null)
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
@@ -165,8 +166,25 @@ export function Settings({
           overflowY: 'auto',
         }}>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>BLOOM</div>
-            {toggleBtn(bloomEnabled, `[ BLOOM ${bloomEnabled ? 'ON' : 'OFF'} ]`, () => onBloomToggle(!bloomEnabled))}
+            <div
+              onClick={() => onBloomStrengthChange(bloomStrength > 0 ? 0 : (prevBloom.current || 1.5))}
+              style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70', cursor: 'pointer', userSelect: 'none' }}
+            >
+              BLOOM: {bloomStrength > 0 ? bloomStrength.toFixed(1) : 'OFF'}
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={3}
+              step={0.1}
+              value={bloomStrength}
+              onChange={e => {
+                const v = Number(e.target.value)
+                if (v > 0) prevBloom.current = v
+                onBloomStrengthChange(v)
+              }}
+              style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
+            />
           </div>
 
           <div style={{ marginBottom: 14 }}>

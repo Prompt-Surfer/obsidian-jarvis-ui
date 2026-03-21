@@ -148,7 +148,7 @@ function App() {
   const [tagIsolationIds, setTagIsolationIds] = useState<Set<string> | null>(null)
   const [tagIsolationTags, setTagIsolationTags] = useState<string[]>([])
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set())
-  const [bloomEnabled, setBloomEnabled] = useState(true)
+  const [bloomStrength, setBloomStrength] = useState(1.5)
   const [nodeOpacity, setNodeOpacity] = useState(1.0)
   const [starsEnabled, setStarsEnabled] = useState(false)
   const [labelsEnabled, setLabelsEnabled] = useState(true)
@@ -632,7 +632,7 @@ function App() {
 
   const handlePresetSave = useCallback((name: string) => {
     const settings: PresetSettings = {
-      bloomEnabled, nodeOpacity, starsEnabled, labelsEnabled, linksEnabled,
+      bloomStrength, nodeOpacity, starsEnabled, labelsEnabled, linksEnabled,
       spread, minNodeSize, maxNodeSize, ultraNodeSize, zoomToNode,
       graphShape, tagBoxTopN, tagBoxSizeScale,
     }
@@ -656,7 +656,7 @@ function App() {
     } else {
       showToast(result.warning ? `Preset saved (${result.warning})` : 'Preset saved')
     }
-  }, [bloomEnabled, nodeOpacity, starsEnabled, labelsEnabled, linksEnabled,
+  }, [bloomStrength, nodeOpacity, starsEnabled, labelsEnabled, linksEnabled,
     spread, minNodeSize, maxNodeSize, ultraNodeSize, zoomToNode,
     graphShape, tagBoxTopN, tagBoxSizeScale, tagIsolationTags, favourites, savePreset, showToast])
 
@@ -665,7 +665,7 @@ function App() {
     if (!preset) return
 
     const s = preset.settings
-    setBloomEnabled(s.bloomEnabled)
+    setBloomStrength('bloomStrength' in s ? s.bloomStrength : ((s as Record<string, unknown>).bloomEnabled ? 1.5 : 0))
     setNodeOpacity(s.nodeOpacity)
     setStarsEnabled(s.starsEnabled)
     setLabelsEnabled(s.labelsEnabled)
@@ -837,7 +837,7 @@ function App() {
           collapsedNodes={collapsedNodes}
           visibleNodes={visibleNodes}
           nodeOpacity={nodeOpacity}
-          bloomEnabled={bloomEnabled}
+          bloomStrength={bloomStrength}
           starsEnabled={starsEnabled}
           labelsEnabled={labelsEnabled}
           linksEnabled={linksEnabled}
@@ -874,7 +874,7 @@ function App() {
       />
 
       <Settings
-        bloomEnabled={bloomEnabled}
+        bloomStrength={bloomStrength}
         nodeOpacity={nodeOpacity}
         starsEnabled={starsEnabled}
         labelsEnabled={labelsEnabled}
@@ -883,7 +883,7 @@ function App() {
         minNodeSize={minNodeSize}
         maxNodeSize={maxNodeSize}
         ultraNodeSize={ultraNodeSize}
-        onBloomToggle={setBloomEnabled}
+        onBloomStrengthChange={setBloomStrength}
         onOpacityChange={setNodeOpacity}
         onStarsToggle={setStarsEnabled}
         onLabelsToggle={setLabelsEnabled}
@@ -909,10 +909,10 @@ function App() {
           setGraphShape(v)
           try { localStorage.setItem('jarvis-graph-shape', v) } catch { /* storage unavailable */ }
           if (v === 'tagboxes') {
-            setBloomEnabled(false) // bloom washes out box structure
+            setBloomStrength(0) // bloom washes out box structure
             setTimeout(() => graphRef.current?.resetCamera(), 3000)
-          } else {
-            setBloomEnabled(true) // restore bloom for other shapes
+          } else if (bloomStrength === 0) {
+            setBloomStrength(1.5) // restore bloom for other shapes
           }
         }}
         tagBoxTopN={tagBoxTopN}
