@@ -8,7 +8,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { GraphNode, GraphData } from '../hooks/useVaultGraph'
-import type { NodePosition, TagBox } from '../hooks/useForce3D'
+import type { NodePosition, TagBox, PerfMetrics } from '../hooks/useForce3D'
 import { getNodeColor } from '../lib/colors'
 
 interface Graph3DProps {
@@ -45,6 +45,7 @@ interface Graph3DProps {
   linksEnabled?: boolean
   timeFilterActive?: boolean
   textSize?: number
+  perfRef?: React.RefObject<PerfMetrics>
 }
 
 export interface Graph3DHandle {
@@ -159,6 +160,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   linksEnabled = true,
   timeFilterActive = false,
   textSize = 1.0,
+  perfRef: simPerfRef,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -196,6 +198,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
   const selectedTitleSpriteRef = useRef<THREE.Sprite | null>(null)
   const [, forceUpdate] = useState(0)
+
+  // Performance HUD state (only active with ?perf flag)
+  const perfHudRef = useRef<HTMLDivElement | null>(null)
+  const renderFpsTimesRef = useRef<number[]>([])
+  const renderMsSamplesRef = useRef<number[]>([])
+  const bloomCostSamplesRef = useRef<number[]>([])
+
   // PERF: dirty-flag render gate — only call renderer.render() when scene has changed
   const isDirtyRef = useRef(true)
 
@@ -910,7 +919,64 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       if (isDirtyRef.current) {
         isDirtyRef.current = false
         renderCount++
-        localComposer.render()
+
+        if (DEBUG) {
+          // --- Render FPS tracking ---
+          const renderNow = performance.now()
+          const rfps = renderFpsTimesRef.current
+          rfps.push(renderNow)
+          while (rfps.length > 0 && renderNow - rfps[0] > 1000) rfps.shift()
+
+          // --- Bloom cost profiling: time composer.render() (includes bloom) ---
+          const t0 = performance.now()
+          localComposer.render()
+          const composerMs = performance.now() - t0
+
+          // Track render time rolling average (last 60 frames)
+          const rms = renderMsSamplesRef.current
+          rms.push(composerMs)
+          if (rms.length > 60) rms.shift()
+
+          // Bloom-specific cost: measure direct render vs composer render
+          // Only sample every 30 frames to avoid adding overhead
+          if (renderCount % 30 === 0) {
+            const localRenderer = rendererRef.current
+            const localScene = sceneRef.current
+            const localCamera = cameraRef.current
+            if (localRenderer && localScene && localCamera) {
+              const dt0 = performance.now()
+              localRenderer.render(localScene, localCamera)
+              const directMs = performance.now() - dt0
+              const bloomDelta = composerMs - directMs
+              const bcs = bloomCostSamplesRef.current
+              bcs.push(bloomDelta)
+              if (bcs.length > 20) bcs.shift()
+            }
+          }
+
+          // Update perf HUD every 15 frames
+          if (renderCount % 15 === 0) {
+            const hud = perfHudRef.current
+            if (hud) {
+              const avgRenderMs = rms.reduce((a, b) => a + b, 0) / rms.length
+              const avgBloomCost = bloomCostSamplesRef.current.length > 0
+                ? bloomCostSamplesRef.current.reduce((a, b) => a + b, 0) / bloomCostSamplesRef.current.length
+                : 0
+              const simMetrics = simPerfRef?.current
+              hud.textContent = [
+                `Render FPS: ${rfps.length}`,
+                `Sim FPS: ${simMetrics?.simFps ?? 0}`,
+                `Frame: ${avgRenderMs.toFixed(1)}ms`,
+                `Bloom Δ: ${avgBloomCost.toFixed(1)}ms`,
+                `W→M latency: ${(simMetrics?.workerLatencyMs ?? 0).toFixed(1)}ms`,
+                `Movement: ${(simMetrics?.avgMovement ?? 0).toFixed(2)}`,
+              ].join('\n')
+            }
+          }
+        } else {
+          localComposer.render()
+        }
+
         // Periodic draw-call profiling (only in dev with ?perf flag)
         if (DEBUG && renderCount % 60 === 0) {
           const r = rendererRef.current
@@ -1383,24 +1449,48 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   }, [graphData, onUnpinNodes])
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-      onMouseLeave={() => {
-        proximityNodeRef.current = null
-        if (annotLineRef.current) annotLineRef.current.visible = false
-        onNodeHover(null, 0, 0)
-        // Clear any active right-drag on mouse leave
-        if (rightDragRef.current?.active) {
-          rightDragRef.current = null
-        }
-      }}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onMouseLeave={() => {
+          proximityNodeRef.current = null
+          if (annotLineRef.current) annotLineRef.current.visible = false
+          onNodeHover(null, 0, 0)
+          // Clear any active right-drag on mouse leave
+          if (rightDragRef.current?.active) {
+            rightDragRef.current = null
+          }
+        }}
+      />
+      {DEBUG && (
+        <div
+          ref={perfHudRef}
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            background: 'rgba(0,0,0,0.75)',
+            color: '#0ff',
+            fontFamily: '"Courier New", monospace',
+            fontSize: 11,
+            padding: '6px 10px',
+            borderRadius: 4,
+            pointerEvents: 'none',
+            whiteSpace: 'pre',
+            zIndex: 1000,
+            border: '1px solid rgba(0,255,255,0.2)',
+          }}
+        >
+          Perf HUD loading...
+        </div>
+      )}
+    </>
   )
 })
 

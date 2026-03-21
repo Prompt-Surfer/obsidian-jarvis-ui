@@ -390,7 +390,7 @@ function runTick() {
   // Stop when max ticks reached OR simulation has converged (alpha below threshold)
   if (!simulation || tickCount >= MAX_TICKS || simulation.alpha() < ALPHA_MIN) {
     tickRunning = false
-    self.postMessage({ type: 'end', nodes: getNodePositions(simNodes), tickCount, tagBoxes: tagBoxesList })
+    self.postMessage({ type: 'end', nodes: getNodePositions(simNodes), tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() })
     return
   }
   tickRunning = true
@@ -417,6 +417,7 @@ function runTick() {
     alpha: currentAlpha,
     firstTick: tickCount <= 5,
     tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
+    timestamp: performance.now(),
   })
 
   if (done) {
@@ -492,7 +493,7 @@ self.onmessage = (e: MessageEvent) => {
       tickCount = 0; simulation.alpha(0.4)
       if (!tickRunning) runTick()
     }
-    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0 })
+    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() })
     return
   }
 
@@ -508,7 +509,7 @@ self.onmessage = (e: MessageEvent) => {
       if (simulation.alpha() < 0.25) simulation.alpha(0.35)
       if (!tickRunning) { tickCount = 0; runTick() }
     }
-    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0 })
+    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() })
     return
   }
 
