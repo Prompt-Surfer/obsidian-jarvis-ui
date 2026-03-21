@@ -942,21 +942,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
           rms.push(composerMs)
           if (rms.length > 60) rms.shift()
 
-          // Bloom-specific cost: measure direct render vs composer render
-          // Only sample every 30 frames to avoid adding overhead
-          if (renderCount % 30 === 0) {
-            const localRenderer = rendererRef.current
-            const localScene = sceneRef.current
-            const localCamera = cameraRef.current
-            if (localRenderer && localScene && localCamera) {
-              const dt0 = performance.now()
-              localRenderer.render(localScene, localCamera)
-              const directMs = performance.now() - dt0
-              const bloomDelta = composerMs - directMs
-              const bcs = bloomCostSamplesRef.current
-              bcs.push(bloomDelta)
-              if (bcs.length > 20) bcs.shift()
-            }
+          // Bloom cost delta: estimate from composer time vs baseline (no extra render pass
+          // which was causing visible flash). Just track composer time as bloom cost when enabled.
+          if (bloomPassRef.current?.enabled) {
+            const bcs = bloomCostSamplesRef.current
+            bcs.push(composerMs)
+            if (bcs.length > 20) bcs.shift()
           }
 
           // Update perf HUD every 15 frames
