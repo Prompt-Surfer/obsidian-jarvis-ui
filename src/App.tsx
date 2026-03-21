@@ -119,7 +119,7 @@ function App() {
   })
   const [tagBoxTopN, setTagBoxTopN] = useState(2)
   const [tagBoxSizeScale, setTagBoxSizeScale] = useState(2.0)
-  const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
+  const { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
   const { presets, save: savePreset, remove: removePreset, load: loadPreset } = usePresets()
@@ -858,6 +858,7 @@ function App() {
           graphShape={graphShape}
           tagBoxes={tagBoxes}
           timeFilterActive={timeFilterIds !== null}
+          perfRef={perfRef}
         />
       </ErrorBoundary>
 

@@ -22,6 +22,13 @@ export interface TagBox {
   isVirtual?: boolean; parentTags?: [string, string]
 }
 
+// Perf metrics exposed to Graph3D's performance HUD
+export interface PerfMetrics {
+  simFps: number        // simulation tick batches received per second
+  workerLatencyMs: number // rolling avg worker→main thread latency
+  avgMovement: number   // average node movement per tick (convergence indicator)
+}
+
 export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural', topNTags?: number, tagBoxSizeScale?: number) {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
@@ -38,6 +45,12 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   const rafHandleRef = useRef<number | null>(null)
   // Track previous graphData ref to detect shape-only vs data changes
   const prevGraphDataRef = useRef<GraphData | null>(null)
+
+  // Perf tracking: sim FPS, worker latency, node movement
+  const perfRef = useRef<PerfMetrics>({ simFps: 0, workerLatencyMs: 0, avgMovement: 0 })
+  const simTickTimestampsRef = useRef<number[]>([])
+  const workerLatencySamplesRef = useRef<number[]>([])
+  const prevPositionsRef = useRef<Map<string, { x: number; y: number; z: number }>>(new Map())
 
   useEffect(() => {
     if (!graphData) return
@@ -67,7 +80,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     workerRef.current = worker
 
     worker.onmessage = (e: MessageEvent) => {
-      const { type, nodes, firstTick, tagBoxes: boxes } = e.data
+      const { type, nodes, firstTick, tagBoxes: boxes, timestamp } = e.data
 
       if (type === 'tagBoxes') {
         setTagBoxes(e.data.tagBoxes ?? [])
@@ -85,6 +98,45 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
           performance.measure('t2→t3 first-tick-to-done', 't2-first-tick-received', 't3-sim-done')
           console.debug(`[perf] sim done at tick=${e.data.tickCount} alpha=${e.data.alpha?.toFixed(5)}`,
             performance.getEntriesByName('t2→t3 first-tick-to-done').at(-1)?.duration?.toFixed(1), 'ms')
+        }
+
+        // --- Perf: sim FPS tracking ---
+        const now = performance.now()
+        const simTs = simTickTimestampsRef.current
+        simTs.push(now)
+        // Keep only last 1 second of timestamps
+        while (simTs.length > 0 && now - simTs[0] > 1000) simTs.shift()
+        perfRef.current.simFps = simTs.length
+
+        // --- Perf: worker→main latency (Note: performance.now() bases differ between
+        // worker and main thread in some browsers, so this is an approximation) ---
+        if (typeof timestamp === 'number') {
+          const latency = now - timestamp
+          const samples = workerLatencySamplesRef.current
+          samples.push(latency)
+          if (samples.length > 30) samples.shift()
+          perfRef.current.workerLatencyMs = samples.reduce((a, b) => a + b, 0) / samples.length
+        }
+
+        // --- Perf: movement tracking (convergence indicator) ---
+        if (nodes && nodes.length > 0) {
+          const prev = prevPositionsRef.current
+          let totalMovement = 0
+          let count = 0
+          for (const n of nodes) {
+            const old = prev.get(n.id)
+            if (old) {
+              const dx = n.x - old.x, dy = n.y - old.y, dz = n.z - old.z
+              totalMovement += Math.sqrt(dx * dx + dy * dy + dz * dz)
+              count++
+            }
+          }
+          perfRef.current.avgMovement = count > 0 ? totalMovement / count : 0
+
+          // Update prev positions
+          const newPrev = new Map<string, { x: number; y: number; z: number }>()
+          for (const n of nodes) newPrev.set(n.id, { x: n.x, y: n.y, z: n.z })
+          prevPositionsRef.current = newPrev
         }
 
         // RAF buffer: store latest positions, apply at frame boundary (at most one setState per rAF)
@@ -175,5 +227,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins }
+  return { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, perfRef }
 }
