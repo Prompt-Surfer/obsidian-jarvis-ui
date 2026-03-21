@@ -100,6 +100,11 @@ interface NoteInput {
   mtime: string
 }
 
+// Yield to event loop so Express can serve status polls during long embedding builds
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
+}
+
 export async function buildEmbeddingIndex(notes: NoteInput[]): Promise<void> {
   loadCache()
   totalCount = notes.length
@@ -114,6 +119,8 @@ export async function buildEmbeddingIndex(notes: NoteInput[]): Promise<void> {
     // Skip if cache hit and mtime unchanged
     const cached = cache.entries[note.id]
     if (cached && cached.mtime === note.mtime) {
+      // Yield every 200 cache hits so status polls can be served
+      if (indexedCount % 200 === 0) await yieldToEventLoop()
       continue
     }
 
@@ -128,10 +135,11 @@ export async function buildEmbeddingIndex(notes: NoteInput[]): Promise<void> {
       console.error(`[embeddings] Failed to embed "${note.id}":`, err)
     }
 
-    // Periodic save every 50 notes
+    // Periodic save + yield to event loop every 50 notes
     if (indexedCount % 50 === 0) {
       saveCache()
       console.log(`[embeddings] Progress: ${indexedCount}/${totalCount}`)
+      await yieldToEventLoop()
     }
   }
 
