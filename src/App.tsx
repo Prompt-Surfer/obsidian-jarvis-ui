@@ -151,7 +151,7 @@ function App() {
   const [bloomStrength, setBloomStrength] = useState(1.5)
   const [nodeOpacity, setNodeOpacity] = useState(1.0)
   const [starsEnabled, setStarsEnabled] = useState(false)
-  const [labelsEnabled, setLabelsEnabled] = useState(true)
+  const [labelsEnabled, setLabelsEnabled] = useState(false)
   const [linksEnabled, setLinksEnabled] = useState(true)
   const [spread, setSpreadState] = useState(2.0)
   const [textSize, setTextSizeState] = useState(() => {
