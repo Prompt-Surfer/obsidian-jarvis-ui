@@ -283,15 +283,17 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     controlsRef.current = controls
 
-    // Bloom post-processing
+    // Bloom post-processing — half-res bloom for 4× cheaper blur passes
     const composer = new EffectComposer(renderer)
     const renderPass = new RenderPass(scene, camera)
     composer.addPass(renderPass)
 
     const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(canvas.clientWidth, canvas.clientHeight),
+      new THREE.Vector2(Math.ceil(canvas.clientWidth / 2), Math.ceil(canvas.clientHeight / 2)),
       1.5, 0.4, 0.2
     )
+    // Reduce mip levels from 5 (default) to 3 — fewer blur iterations, still visually smooth
+    bloomPass.nMips = 3
     composer.addPass(bloomPass)
     composerRef.current = composer
     bloomPassRef.current = bloomPass
@@ -370,7 +372,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     scene.add(selectedBracket)
     selectedBracketRef.current = selectedBracket
 
-    // Resize handler
+    // Resize handler — bloom stays at half resolution for performance
     const onResize = () => {
       const w = window.innerWidth
       const h = window.innerHeight
@@ -378,6 +380,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       camera.updateProjectionMatrix()
       renderer.setSize(w, h)
       composer.setSize(w, h)
+      // Re-apply half-res to bloom pass (composer.setSize resets it to full-res)
+      bloomPass.setSize(Math.ceil(w / 2), Math.ceil(h / 2))
       isDirtyRef.current = true
     }
     window.addEventListener('resize', onResize)
@@ -396,9 +400,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     isDirtyRef.current = true
   }, [starsEnabled])
 
-  // Update bloom
+  // Update bloom — disable the pass entirely when off (avoids running expensive blur shaders)
   useEffect(() => {
     if (bloomPassRef.current) {
+      bloomPassRef.current.enabled = bloomStrength > 0
       bloomPassRef.current.strength = bloomStrength
     }
     isDirtyRef.current = true
