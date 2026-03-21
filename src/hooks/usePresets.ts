@@ -4,7 +4,7 @@
 import { useState, useCallback } from 'react'
 
 export interface PresetSettings {
-  bloomEnabled: boolean
+  bloomStrength: number
   nodeOpacity: number
   starsEnabled: boolean
   labelsEnabled: boolean

@@ -23,7 +23,7 @@ interface Graph3DProps {
   collapsedNodes: Set<string>
   visibleNodes: Set<string>
   nodeOpacity: number
-  bloomEnabled: boolean
+  bloomStrength: number
   starsEnabled: boolean
   labelsEnabled: boolean
   nodeDegrees: Map<string, number>
@@ -139,7 +139,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   focusModeNodeIds,
   visibleNodes,
   nodeOpacity,
-  bloomEnabled,
+  bloomStrength,
   starsEnabled,
   labelsEnabled,
   nodeDegrees,
@@ -369,10 +369,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   // Update bloom
   useEffect(() => {
     if (bloomPassRef.current) {
-      bloomPassRef.current.strength = bloomEnabled ? 1.5 : 0
+      bloomPassRef.current.strength = bloomStrength
     }
     isDirtyRef.current = true
-  }, [bloomEnabled])
+  }, [bloomStrength])
 
   // Toggle link line visibility
   useEffect(() => {
