@@ -43,6 +43,7 @@ export interface WorkerProgressMsg {
   type: 'progress'
   totalFiles: number
   processedFiles: number
+  linkingProgress?: { linked: number; total: number }
 }
 
 export interface WorkerDoneMsg {
@@ -254,11 +255,25 @@ async function buildGraphAsync(vaultPath: string): Promise<void> {
   }))
 
   // Build canonical link graph
+  // Pre-build basename→id index for O(1) fuzzy lookups (replaces O(N) linear scan per link)
   const allIds = new Set(nodeMap.keys())
+  const basenameIndex = new Map<string, string>()
+  const suffixIndex = new Map<string, string>()
+  for (const id of allIds) {
+    const base = path.basename(id)
+    // First match wins (same as original linear scan behavior)
+    if (!basenameIndex.has(base)) basenameIndex.set(base, id)
+    // Also index with folder prefix for '/' suffix matching
+    if (!suffixIndex.has(base)) suffixIndex.set(base, id)
+  }
+
   const links: VaultLink[] = []
   const linkSet = new Set<string>()
+  const nodeArr = Array.from(nodeMap.values())
+  const totalNodes = nodeArr.length
+  let linkedNodes = 0
 
-  for (const node of nodeMap.values()) {
+  for (const node of nodeArr) {
     for (const rawLink of node.links) {
       let targetId: string | undefined
 
@@ -266,12 +281,7 @@ async function buildGraphAsync(vaultPath: string): Promise<void> {
         targetId = rawLink
       } else {
         const linkBase = path.basename(rawLink)
-        for (const id of allIds) {
-          if (path.basename(id) === linkBase || id.endsWith('/' + linkBase)) {
-            targetId = id
-            break
-          }
-        }
+        targetId = basenameIndex.get(linkBase)
       }
 
       if (targetId && targetId !== node.id) {
@@ -281,6 +291,13 @@ async function buildGraphAsync(vaultPath: string): Promise<void> {
           links.push({ source: node.id, target: targetId })
         }
       }
+    }
+    linkedNodes++
+    if (linkedNodes % 500 === 0 || linkedNodes === totalNodes) {
+      parentPort!.postMessage({
+        type: 'progress', totalFiles, processedFiles: totalFiles,
+        linkingProgress: { linked: linkedNodes, total: totalNodes },
+      } as WorkerMsg)
     }
   }
 

@@ -279,7 +279,19 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const canvas = canvasRef.current
     if (!canvas) return
 
+    // Reset sceneReady on re-mount (HMR, strict mode) so RAF loop re-triggers
+    setSceneReady(false)
+
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    // Detect WebGL context loss — primary cause of unexplained black screens
+    canvas.addEventListener('webglcontextlost', (e) => {
+      console.error('[Graph3D] WebGL context LOST', e)
+      e.preventDefault() // allow context restore
+    })
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.warn('[Graph3D] WebGL context restored — forcing re-render')
+      isDirtyRef.current = true
+    })
     // Cap at 2× — 3× pixel ratio on high-DPI triples GPU load and caps effective FPS.
     // RAF loop — uncapped, targets display refresh rate (60Hz/120Hz/144Hz).
     // No manual throttling. setPixelRatio cap only affects resolution, not frame rate.
@@ -417,7 +429,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     window.addEventListener('resize', onResize)
 
+    console.debug('[Graph3D] Scene setup complete — sceneReady=true')
+
     return () => {
+      console.debug('[Graph3D] Scene cleanup — disposing renderer')
       window.removeEventListener('resize', onResize)
       cancelAnimationFrame(frameRef.current)
       renderer.dispose()
@@ -885,7 +900,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   useEffect(() => {
     const composer = composerRef.current
     const controls = controlsRef.current
-    if (!composer || !controls) return
+    if (!composer || !controls) {
+      console.warn('[Graph3D] RAF loop skipped — composer:', !!composer, 'controls:', !!controls, 'sceneReady:', sceneReady)
+      return
+    }
+    console.debug('[Graph3D] RAF loop started — sceneReady:', sceneReady)
 
     // PERF: dirty-flag render gate — saves ~60 renderer.render() calls/sec when sim stable and
     // camera is at rest. OrbitControls fires 'change' on every camera move (user input + damping
@@ -957,17 +976,23 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
           mesh.instanceMatrix.needsUpdate = true
 
-          // Update link geometry to match lerped positions
+          // Update link geometry to match lerped positions (respecting visibility filters)
           if (lines) {
             const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+            const visSet = liveVisibleSetRef.current
             gData.links.forEach((link, li) => {
               const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
               const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
               const src = displayed.get(srcId)
               const dst = displayed.get(dstId)
-              if (src && dst) {
+              // Only show link if BOTH endpoints are visible (respects focus mode, time filter, tag isolation)
+              if (src && dst && visSet.has(srcId) && visSet.has(dstId)) {
                 posArray[li * 6] = src.x; posArray[li * 6 + 1] = src.y; posArray[li * 6 + 2] = src.z
                 posArray[li * 6 + 3] = dst.x; posArray[li * 6 + 4] = dst.y; posArray[li * 6 + 5] = dst.z
+              } else {
+                // Zero out hidden links so they don't render
+                posArray[li * 6] = 0; posArray[li * 6 + 1] = 0; posArray[li * 6 + 2] = 0
+                posArray[li * 6 + 3] = 0; posArray[li * 6 + 4] = 0; posArray[li * 6 + 5] = 0
               }
             })
             ;(lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true

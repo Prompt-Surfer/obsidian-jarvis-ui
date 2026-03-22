@@ -36,6 +36,7 @@ export interface GraphData {
 export interface BuildProgress {
   totalFiles: number
   processedFiles: number
+  linkingProgress?: { linked: number; total: number }
 }
 
 export interface EmbeddingProgress {
@@ -90,8 +91,22 @@ export function useVaultGraph(enabled = true) {
         const res = await fetch('/api/graph')
         if (!active) return
 
+        // Check 202 BEFORE res.ok — 202 is "ok" (200-299) but means "still building"
+        if (res.status === 202) {
+          const body = await res.json() as BuildingResponse
+          console.debug('[useVaultGraph] 202 building — progress:', body.progress, 'polling again in 500ms')
+          if (active) {
+            setBuildProgress(body.progress)
+            // Keep loading=true — don't clear it during graph build phase
+            // Poll again after 500ms
+            pollTimer = setTimeout(fetchGraph, 500)
+          }
+          return
+        }
+
         if (res.ok) {
           const graph = await res.json() as GraphData
+          console.debug('[useVaultGraph] 200 OK — nodes:', graph.nodes?.length, 'links:', graph.links?.length)
           if (active) {
             // Graph is ready — show the 3D view immediately
             setBuildProgress(null)
@@ -100,17 +115,6 @@ export function useVaultGraph(enabled = true) {
             setLoading(false)
             // Poll embeddings in background (only needed for semantic search)
             pollEmbeddings()
-          }
-          return
-        }
-
-        if (res.status === 202) {
-          const body = await res.json() as BuildingResponse
-          if (active) {
-            setBuildProgress(body.progress)
-            // Keep loading=true — don't clear it during graph build phase
-            // Poll again after 500ms
-            pollTimer = setTimeout(fetchGraph, 500)
           }
           return
         }

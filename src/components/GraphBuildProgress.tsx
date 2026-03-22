@@ -35,11 +35,19 @@ export function GraphBuildProgress({ progress, embeddingProgress }: Props) {
     phaseLabel = 'Connecting to server...'
   } else if (progress.totalFiles === 0) {
     phaseLabel = 'Scanning vault...'
+  } else if (progress.processedFiles >= progress.totalFiles && progress.linkingProgress) {
+    phaseLabel = `Linking ${progress.linkingProgress.linked.toLocaleString()} / ${progress.linkingProgress.total.toLocaleString()} notes`
+  } else if (progress.processedFiles >= progress.totalFiles) {
+    phaseLabel = 'Building links...'
   } else {
     phaseLabel = `${progress.processedFiles.toLocaleString()} / ${progress.totalFiles.toLocaleString()} notes`
   }
 
-  const statusLabel = isEmbeddingPhase ? '◌ INDEXING NOTES...' : '◌ BUILDING GRAPH...'
+  // When files are 100% processed but still building, show linking phase
+  const filesComplete = graphHasTotal && progress!.processedFiles >= progress!.totalFiles
+  const linkProg = !isEmbeddingPhase && filesComplete && progress?.linkingProgress
+  const linkPct = linkProg ? Math.min(100, Math.round((linkProg.linked / linkProg.total) * 100)) : 0
+  const statusLabel = isEmbeddingPhase ? '◌ INDEXING NOTES...' : filesComplete ? '◌ LINKING NOTES...' : '◌ READING NOTES...'
 
   return (
     <div style={{
@@ -98,8 +106,8 @@ export function GraphBuildProgress({ progress, embeddingProgress }: Props) {
         marginBottom: 14,
         boxShadow: '0 0 6px #00d4ff11',
       }}>
-        {hasTotal ? (
-          // Determinate bar
+        {hasTotal && !filesComplete ? (
+          // Determinate bar — file reading phase
           <div style={{
             position: 'absolute',
             left: 0,
@@ -111,8 +119,21 @@ export function GraphBuildProgress({ progress, embeddingProgress }: Props) {
             transition: 'width 0.3s ease-out',
             boxShadow: '0 0 8px #00d4ff88',
           }} />
+        ) : linkProg ? (
+          // Determinate bar — linking phase
+          <div style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            height: '100%',
+            width: `${linkPct}%`,
+            background: 'linear-gradient(90deg, #005566, #00ccaa)',
+            borderRadius: 2,
+            transition: 'width 0.3s ease-out',
+            boxShadow: '0 0 8px #00ccaa88',
+          }} />
         ) : (
-          // Indeterminate scanning animation
+          // Indeterminate scanning animation — initial scan or transition
           <div style={{
             position: 'absolute',
             top: 0,
@@ -136,16 +157,16 @@ export function GraphBuildProgress({ progress, embeddingProgress }: Props) {
       </div>
 
       {/* Percentage (only when we have counts) */}
-      {hasTotal && (
+      {(hasTotal && !filesComplete) || linkProg ? (
         <div style={{
           marginTop: 8,
           fontSize: 10,
           color: '#1a4a5a',
           letterSpacing: '0.05em',
         }}>
-          {pct}%
+          {linkProg ? `${linkPct}%` : `${pct}%`}
         </div>
-      )}
+      ) : null}
 
       {/* CSS keyframes via style tag */}
       <style>{`

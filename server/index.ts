@@ -115,7 +115,7 @@ interface GraphData {
 
 interface BuildState {
   status: 'idle' | 'building' | 'ready' | 'error'
-  progress: { totalFiles: number; processedFiles: number }
+  progress: { totalFiles: number; processedFiles: number; linkingProgress?: { linked: number; total: number } }
   retries: number
   errorMessage?: string
 }
@@ -197,7 +197,7 @@ function startGraphBuild(vaultPath: string): void {
   worker.on('message', (msg: WorkerMsg) => {
     if (msg.type === 'progress') {
       const p = msg as WorkerProgressMsg
-      buildState.progress = { totalFiles: p.totalFiles, processedFiles: p.processedFiles }
+      buildState.progress = { totalFiles: p.totalFiles, processedFiles: p.processedFiles, linkingProgress: p.linkingProgress }
     } else if (msg.type === 'done') {
       cachedGraph = msg.graph
       cacheTime = Date.now()

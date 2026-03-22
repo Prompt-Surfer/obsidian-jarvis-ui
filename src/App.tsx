@@ -789,6 +789,7 @@ function App() {
   }
 
   if (loading || (buildProgress !== null && !graphData)) {
+    console.debug('[App] Still loading — loading:', loading, 'buildProgress:', buildProgress, 'graphData:', !!graphData)
     return <GraphBuildProgress progress={buildProgress} embeddingProgress={embeddingProgress} />
   }
 
@@ -815,7 +816,14 @@ function App() {
     )
   }
 
-  if (!graphData?.nodes) return null
+  if (!graphData?.nodes) {
+    console.warn('[App] graphData has no nodes — rendering null. graphData:', graphData, 'loading:', loading, 'error:', error)
+    return (
+      <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#585b70', fontFamily: 'monospace', fontSize: 12 }}>
+        Waiting for graph data...
+      </div>
+    )
+  }
 
   const visibleCount = graphData.nodes.filter(n =>
     visibleNodes.has(n.id) && (!timeFilterIds || timeFilterIds.has(n.id))
