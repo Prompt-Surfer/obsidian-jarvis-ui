@@ -196,7 +196,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const lastMaxDistUpdateRef = useRef(0)
   const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
   const selectedTitleSpriteRef = useRef<THREE.Sprite | null>(null)
-  const [, forceUpdate] = useState(0)
+  const [sceneReady, setSceneReady] = useState(false)
 
   // Performance HUD state (only active with ?perf flag)
   const perfHudRef = useRef<HTMLDivElement | null>(null)
@@ -325,6 +325,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     composer.addPass(bloomPass)
     composerRef.current = composer
     bloomPassRef.current = bloomPass
+
+    // Signal that scene infrastructure is ready — triggers RAF loop effect
+    setSceneReady(true)
 
     // Stars — spherical distribution surrounding the scene from all directions.
     // Three brightness tiers for natural variation (dim 30%, medium 60%, bright 10%).
@@ -516,7 +519,6 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     scene.add(hlLines)
     selectedEdgeLinesRef.current = hlLines
 
-    forceUpdate(x => x + 1)
   }, [graphData])
 
   // PERF: lazy label sprites — dispose on graphData change; new sprites created on-demand in the
@@ -643,18 +645,21 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     isDirtyRef.current = true
   }, [tagBoxes, graphShape])
 
-  // Update positions each frame from simulation
+  // PERF: Split into two effects — heavy structural work (matrix/links/labels) only runs on
+  // position/filter/size changes; lightweight color/interaction work runs on hover/selection.
+  // This avoids iterating 9600 labels on every mouse-move hover event.
+
+  // Effect 1: Structural updates — matrix, visibility tracking, link geometry, labels, bounding sphere
   useEffect(() => {
     const mesh = instancedMeshRef.current
     const lines = lineSegmentsRef.current
     if (!mesh || !lines || positions.size === 0 || !graphData) return
 
     const dummy = new THREE.Object3D()
-    const color = new THREE.Color()
     const nodes = graphData.nodes
 
     // Detect which changes occurred — skip expensive matrix+link updates when only
-    // colors/interaction state changed (hover, selection, search highlight, opacity)
+    // position data changed (handled by RAF lerp loop at 60fps)
     const positionsChanged = positions !== lastPositionsRef.current
     const visibleNodesChanged = visibleNodes !== lastVisibleNodesRef.current
     const sizeChanged =
@@ -666,7 +671,6 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       tagIsolationIds !== lastFiltersRef.current.tagIsolationIds ||
       focusModeNodeIds !== lastFiltersRef.current.focusModeNodeIds
     // Matrix update needed for visibility/size/filter changes, or initial application.
-    // Position-only changes are handled by the RAF lerp loop (smooth 60fps interpolation).
     const needsMatrixUpdate = (!hasAppliedMatricesRef.current && displayedPositionsRef.current.size > 0) || visibleNodesChanged || sizeChanged || filtersChanged
 
     if (needsMatrixUpdate) {
@@ -682,13 +686,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const newVisibleSet = new Set<string>()
 
     nodes.forEach((node, i) => {
-      // Use displayed (lerped) positions for coordinates; sim positions for tier info
       const dPos = displayedPositionsRef.current.get(node.id)
       if (!dPos) return
 
-      // Visibility: respect time filter, collapse state, tag isolation, and focus mode
       const inTimeFilter = !timeFilterIds || timeFilterIds.has(node.id)
-      const inSearch = !searchResults || searchResults.includes(node.id)
       const isVisible = visibleNodes.has(node.id)
       const inTagIsolation = !tagIsolationIds || tagIsolationIds.has(node.id)
       const inFocusMode = !focusModeNodeIds || focusModeNodeIds.has(node.id)
@@ -696,8 +697,6 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
       if (visible) newVisibleSet.add(node.id)
 
-      // PERF: InstancedMesh matrix skip — only re-upload when visibility/size/filters change;
-      // position-only changes are handled by RAF lerp loop at 60fps
       if (needsMatrixUpdate) {
         const tier = simPositionsRef.current.get(node.id)?.tier ?? 'regular'
         const sizeMultiplier = tier === 'ultranode' ? ultraNodeSize : tier === 'supernode' ? maxNodeSize : minNodeSize
@@ -705,42 +704,22 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         // Entrance animation: detect nodes newly revealed by time filter
         const wasVisible = visibleForAnimRef.current.has(node.id)
         if (timeFilterActive && visible && !wasVisible) {
-          // Register animation — start scale at 0, RAF loop will animate it up
           entranceAnimsRef.current.set(node.id, performance.now())
         }
 
         const isAnimating = entranceAnimsRef.current.has(node.id)
         if (!isAnimating) {
-          // Normal matrix update
           const scale = visible ? sizeMultiplier : 0
           dummy.position.set(dPos.x, dPos.y, dPos.z)
           dummy.scale.set(scale, scale, scale)
           dummy.updateMatrix()
           mesh.setMatrixAt(i, dummy.matrix)
         } else {
-          // Animating: set position but scale=0 so RAF loop can animate from 0→target
           dummy.position.set(dPos.x, dPos.y, dPos.z)
           dummy.scale.set(0, 0, 0)
           dummy.updateMatrix()
           mesh.setMatrixAt(i, dummy.matrix)
         }
-      }
-
-      // Color: always update (cheap — responds to hover/selection/search/opacity changes)
-      // Skip color for animating nodes — RAF loop handles their brightness
-      const isAnimating = entranceAnimsRef.current.has(node.id)
-      if (!isAnimating) {
-        const baseColor = node.id === flashNodeId
-          ? 0xffffff
-          : getNodeColor(node.type, node.folder)
-
-        const opacity = !inSearch && searchResults !== null
-          ? 0.1
-          : (visible ? nodeOpacity : 0)
-
-        color.set(baseColor).multiplyScalar(opacity > 0 ? 1 : 0)
-        if (node.id === hoveredNodeId) color.set(baseColor).multiplyScalar(1.5)
-        mesh.setColorAt(i, color)
       }
     })
 
@@ -749,10 +728,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     liveVisibleSetRef.current = newVisibleSet
 
     if (needsMatrixUpdate) mesh.instanceMatrix.needsUpdate = true
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 
-    // PERF: link geometry — in-place BufferAttribute update; no new Float32Array/BufferGeometry
-    // allocated per tick → zero GC pressure. Position-only updates handled by RAF lerp loop.
+    // Link geometry — in-place BufferAttribute update; zero GC pressure
     if (needsMatrixUpdate) {
       const displayed = displayedPositionsRef.current
       const posArray = (lines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
@@ -776,44 +753,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       ;(lines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
     }
 
-    // Fade links in milkyway/saturn to let shape structure show through
-    const linkFade = graphShape === 'milkyway' ? 0.15 : graphShape === 'saturn' ? 0.3 : 0.6
-    ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * linkFade
-
-    // Update node material opacity in-place (avoids full mesh rebuild on slider change)
-    const nodeMesh = instancedMeshRef.current
-    if (nodeMesh) {
-      ;(nodeMesh.material as THREE.MeshBasicMaterial).opacity = nodeOpacity
-    }
-
-    // Update highlight overlay: only connected edges when a node is selected
-    const hlLines = selectedEdgeLinesRef.current
-    if (hlLines) {
-      if (selectedNodeId) {
-        const displayed = displayedPositionsRef.current
-        const hlPos = (hlLines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
-        let hlCount = 0
-        graphData.links.forEach((link) => {
-          const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
-          const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
-          if (srcId !== selectedNodeId && dstId !== selectedNodeId) return
-          const src = displayed.get(srcId); const dst = displayed.get(dstId)
-          if (!src || !dst) return
-          const base = hlCount * 6
-          hlPos[base]=src.x; hlPos[base+1]=src.y; hlPos[base+2]=src.z
-          hlPos[base+3]=dst.x; hlPos[base+4]=dst.y; hlPos[base+5]=dst.z
-          hlCount++
-        })
-        ;(hlLines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
-        hlLines.geometry.setDrawRange(0, hlCount * 2)
-      } else {
-        hlLines.geometry.setDrawRange(0, 0)
-      }
-    }
-
-    // PERF: lazy label sprites — allocate CanvasTexture only when node first becomes visible
-    // with labelsEnabled on; avoids 927 upfront allocations when labels are off at startup.
-    // Label positions are updated by the RAF lerp loop for smooth motion.
+    // Lazy label sprites — allocate CanvasTexture only when node first becomes visible
+    // with labelsEnabled on. Label positions updated by RAF lerp loop for smooth motion.
     const labelScene = sceneRef.current
     for (const node of nodes) {
       const nodeId = node.id
@@ -826,7 +767,6 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       let sprite = labelsMapRef.current.get(nodeId)
       if (!sprite && shouldShow && labelScene) {
         sprite = createLabelSprite(node.label)
-        // Apply current text size scale (default is 40×7.5 world units at 1×)
         sprite.scale.set(40 * textSizeRef.current, 7.5 * textSizeRef.current, 1)
         sprite.visible = false
         labelScene.add(sprite)
@@ -854,6 +794,77 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
+    isDirtyRef.current = true
+  }, [positions, graphData, visibleNodes, minNodeSize, maxNodeSize, ultraNodeSize, timeFilterIds, tagIsolationIds, focusModeNodeIds, labelsEnabled, timeFilterActive])
+
+  // Effect 2: Color/interaction updates — lightweight, runs on hover/selection/search/opacity changes.
+  // Avoids triggering heavy matrix/link/label work on every mouse-move hover event.
+  useEffect(() => {
+    const mesh = instancedMeshRef.current
+    const lines = lineSegmentsRef.current
+    if (!mesh || !lines || !graphData) return
+
+    const color = new THREE.Color()
+    const nodes = graphData.nodes
+
+    nodes.forEach((node, i) => {
+      const inTimeFilter = !timeFilterIds || timeFilterIds.has(node.id)
+      const inSearch = !searchResults || searchResults.includes(node.id)
+      const isVisible = visibleNodes.has(node.id)
+      const inTagIsolation = !tagIsolationIds || tagIsolationIds.has(node.id)
+      const inFocusMode = !focusModeNodeIds || focusModeNodeIds.has(node.id)
+      const visible = inTimeFilter && isVisible && inTagIsolation && inFocusMode
+
+      // Skip animating nodes — RAF loop handles their brightness
+      if (entranceAnimsRef.current.has(node.id)) return
+
+      const baseColor = node.id === flashNodeId
+        ? 0xffffff
+        : getNodeColor(node.type, node.folder)
+
+      const opacity = !inSearch && searchResults !== null
+        ? 0.1
+        : (visible ? nodeOpacity : 0)
+
+      color.set(baseColor).multiplyScalar(opacity > 0 ? 1 : 0)
+      if (node.id === hoveredNodeId) color.set(baseColor).multiplyScalar(1.5)
+      mesh.setColorAt(i, color)
+    })
+
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+
+    // Link fade opacity
+    const linkFade = graphShape === 'milkyway' ? 0.15 : graphShape === 'saturn' ? 0.3 : 0.6
+    ;(lines.material as THREE.LineBasicMaterial).opacity = nodeOpacity * linkFade
+
+    // Node material opacity
+    ;(mesh.material as THREE.MeshBasicMaterial).opacity = nodeOpacity
+
+    // Highlight overlay: connected edges when a node is selected
+    const hlLines = selectedEdgeLinesRef.current
+    if (hlLines) {
+      if (selectedNodeId) {
+        const displayed = displayedPositionsRef.current
+        const hlPos = (hlLines.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+        let hlCount = 0
+        graphData.links.forEach((link) => {
+          const srcId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id
+          const dstId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id
+          if (srcId !== selectedNodeId && dstId !== selectedNodeId) return
+          const src = displayed.get(srcId); const dst = displayed.get(dstId)
+          if (!src || !dst) return
+          const base = hlCount * 6
+          hlPos[base]=src.x; hlPos[base+1]=src.y; hlPos[base+2]=src.z
+          hlPos[base+3]=dst.x; hlPos[base+4]=dst.y; hlPos[base+5]=dst.z
+          hlCount++
+        })
+        ;(hlLines.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+        hlLines.geometry.setDrawRange(0, hlCount * 2)
+      } else {
+        hlLines.geometry.setDrawRange(0, 0)
+      }
+    }
+
     // Update selected node bracket and title sprite positions
     if (selectedNodeId) {
       const selPos = displayedPositionsRef.current.get(selectedNodeId)
@@ -867,10 +878,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       }
     }
 
-    // PERF: dirty-flag render gate — Three.js scene objects updated; signal one render needed
     isDirtyRef.current = true
-
-  }, [positions, graphData, selectedNodeId, hoveredNodeId, searchResults, timeFilterIds, tagIsolationIds, focusModeNodeIds, visibleNodes, nodeOpacity, flashNodeId, nodeDegrees, minNodeSize, maxNodeSize, ultraNodeSize, labelsEnabled, timeFilterActive])
+  }, [graphData, hoveredNodeId, selectedNodeId, searchResults, nodeOpacity, flashNodeId, visibleNodes, timeFilterIds, tagIsolationIds, focusModeNodeIds, graphShape])
 
   // Animate loop
   useEffect(() => {
@@ -1114,7 +1123,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       cancelAnimationFrame(animId)
       controls.removeEventListener('change', onControlsChange)
     }
-  }, [composerRef.current, controlsRef.current])
+  }, [sceneReady])
 
   // Mouse interaction
   const raycasterRef = useRef(new THREE.Raycaster())
