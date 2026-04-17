@@ -1175,13 +1175,8 @@ self.onmessage = (e: MessageEvent) => {
       .force('isolated', isolatedForce as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('shape', shapeForce as any)
-      // Optimized convergence parameters (settling_tick target: ≤20)
-      // alphaDecay: 0.0775→0.27 (3.48× increase)
-      // velocityDecay: 0.4→0.64 (1.60× increase)
-      // Expected: 21 ticks (87.1% improvement from baseline 163)
-      // Synergy: high decay + high damping = smooth, fast convergence
-      .alphaDecay(0.27)
-      .velocityDecay(0.64)
+      .alphaDecay(0.02)
+      .velocityDecay(0.4)
       .stop()
 
     runTick()
