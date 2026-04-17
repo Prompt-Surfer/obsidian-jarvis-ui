@@ -79,17 +79,35 @@
       "verdict": "FAIL"
     }
   ],
+  "round2": {
+    "note": "Round 2 (5 parallel evo experiments: exp_0006–exp_0010). All tied at 0.6705 — alphaDecay [0.06/0.07/0.08] and ALPHA_MIN [0.001/0.0015/0.002] are saturated on this metric.",
+    "iterations": [
+      {
+        "n": 6,
+        "params": { "alphaDecay_natural": 0.055, "alphaDecay_shapes": 0.07, "velocityDecay": 0.45, "ALPHA_MIN": 0.001 },
+        "settling": {
+          "natural":  { "settleMs": 35387 },
+          "milkyway": { "settleMs": 18429 },
+          "saturn":   { "settleMs": 10839 },
+          "sun":      { "settleMs": 10026 },
+          "brain":    { "settleMs":  9853 }
+        },
+        "gates": { "natural_shape": "PASS — multi-cluster layout, 2+ distinct groups visible" },
+        "verdict": "PASS — new winner (all modes faster than v2.16.2)"
+      }
+    ]
+  },
   "winner": {
-    "iteration": 4,
-    "params": { "alphaDecay": 0.055, "velocityDecay": 0.4, "ALPHA_MIN": 0.001 },
-    "improvement": {
-      "natural": "37s settle (baseline: never converged in MAX_TICKS=200)",
-      "milkyway": "20s (was 22.5s)",
-      "saturn": "12s (was 13.7s)",
-      "sun": "11.5s (was 13.4s)",
-      "brain": "10.7s (was 12.5s)"
+    "iteration": 6,
+    "params": { "alphaDecay_natural": 0.055, "alphaDecay_shapes": 0.07, "velocityDecay": 0.45, "ALPHA_MIN": 0.001 },
+    "improvement_vs_v2_16_2": {
+      "natural":  "35.4s (was 37s, -4%)",
+      "milkyway": "18.4s (was 20s, -8%)",
+      "saturn":   "10.8s (was 12s, -10%)",
+      "sun":      "10.0s (was 11.5s, -13%)",
+      "brain":     "9.9s (was 10.7s, -7%)"
     },
-    "final_screenshots": "screenshots/final/",
-    "natural_shape_gate": "PASS — multi-cluster tree-like branching confirmed"
+    "final_screenshots": "screenshots/iteration-6/",
+    "natural_shape_gate": "PASS — multi-cluster structure, distinct folder-based groups visible"
   }
 }

@@ -1175,8 +1175,8 @@ self.onmessage = (e: MessageEvent) => {
       .force('isolated', isolatedForce as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('shape', shapeForce as any)
-      .alphaDecay(0.055)
-      .velocityDecay(0.4)
+      .alphaDecay(graphShape === 'natural' ? 0.055 : 0.07)
+      .velocityDecay(0.45)
       .stop()
 
     runTick()
