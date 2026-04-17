@@ -1175,7 +1175,7 @@ self.onmessage = (e: MessageEvent) => {
       .force('isolated', isolatedForce as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('shape', shapeForce as any)
-      .alphaDecay(0.02)
+      .alphaDecay(0.055)
       .velocityDecay(0.4)
       .stop()
 

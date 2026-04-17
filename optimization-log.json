@@ -1,0 +1,95 @@
+{
+  "baseline": {
+    "commit": "d950ee5",
+    "params": { "alphaDecay": 0.02, "velocityDecay": 0.4, "MAX_TICKS": 200, "ALPHA_MIN": 0.001 },
+    "settling": {
+      "natural":  { "settleMs": "never — hits MAX_TICKS", "status": "hits_MAX_TICKS" },
+      "milkyway": { "settleMs": 22487, "status": "stable" },
+      "saturn":   { "settleMs": 13671, "status": "stable" },
+      "sun":      { "settleMs": 13425, "status": "stable" },
+      "brain":    { "settleMs": 12504, "status": "stable" }
+    },
+    "note": "alphaDecay=0.02 requires ~342 ticks to converge; MAX_TICKS=200 so natural never reaches ALPHA_MIN.",
+    "screenshots": "screenshots/baseline/"
+  },
+  "iterations": [
+    {
+      "n": 1,
+      "params": { "alphaDecay": 0.05, "velocityDecay": 0.4, "ALPHA_MIN": 0.001 },
+      "settling": {
+        "natural":  { "settleMs": 39393 },
+        "milkyway": { "settleMs": 19786 },
+        "saturn":   { "settleMs": 11841 },
+        "sun":      { "settleMs": 11801 },
+        "brain":    { "settleMs": 11378 }
+      },
+      "gates": { "natural_shape": "PASS", "all_others": "PASS" },
+      "verdict": "PASS"
+    },
+    {
+      "n": 2,
+      "params": { "alphaDecay": 0.08, "velocityDecay": 0.4, "ALPHA_MIN": 0.001 },
+      "settling": {
+        "natural":  { "settleMs": 26262 },
+        "milkyway": { "settleMs": 18992 },
+        "saturn":   { "settleMs": 10868 },
+        "sun":      { "settleMs": 11229 },
+        "brain":    { "settleMs": 10352 }
+      },
+      "gates": { "natural_shape": "FAIL — large central blob, tree branching lost" },
+      "verdict": "FAIL"
+    },
+    {
+      "n": 3,
+      "params": { "alphaDecay": 0.06, "velocityDecay": 0.4, "ALPHA_MIN": 0.001 },
+      "settling": {
+        "natural":  { "settleMs": 30383 },
+        "milkyway": { "settleMs": 19644 },
+        "saturn":   { "settleMs": 11310 },
+        "sun":      { "settleMs": 11067 },
+        "brain":    { "settleMs": 39895, "note": "anomalous, likely HMR interference" }
+      },
+      "gates": { "natural_shape": "FAIL — same blob pattern as iter2" },
+      "verdict": "FAIL"
+    },
+    {
+      "n": 4,
+      "params": { "alphaDecay": 0.055, "velocityDecay": 0.4, "ALPHA_MIN": 0.001 },
+      "settling": {
+        "natural":  { "settleMs": 37034 },
+        "milkyway": { "settleMs": 19994 },
+        "saturn":   { "settleMs": 12056 },
+        "sun":      { "settleMs": 11532 },
+        "brain":    { "settleMs": 10715 }
+      },
+      "gates": { "natural_shape": "PASS — multi-cluster branching visible", "all_others": "PASS" },
+      "verdict": "PASS"
+    },
+    {
+      "n": 5,
+      "params": { "alphaDecay": 0.055, "velocityDecay": 0.4, "ALPHA_MIN": 0.003 },
+      "settling": {
+        "natural":  { "settleMs": 27582 },
+        "milkyway": { "settleMs": 19554 },
+        "saturn":   { "settleMs": 11116 },
+        "sun":      { "settleMs": 11161 },
+        "brain":    { "settleMs": 11269 }
+      },
+      "gates": { "natural_shape": "FAIL — blob shape; ALPHA_MIN=0.003 stops sim too early for tree to form" },
+      "verdict": "FAIL"
+    }
+  ],
+  "winner": {
+    "iteration": 4,
+    "params": { "alphaDecay": 0.055, "velocityDecay": 0.4, "ALPHA_MIN": 0.001 },
+    "improvement": {
+      "natural": "37s settle (baseline: never converged in MAX_TICKS=200)",
+      "milkyway": "20s (was 22.5s)",
+      "saturn": "12s (was 13.7s)",
+      "sun": "11.5s (was 13.4s)",
+      "brain": "10.7s (was 12.5s)"
+    },
+    "final_screenshots": "screenshots/final/",
+    "natural_shape_gate": "PASS — multi-cluster tree-like branching confirmed"
+  }
+}
