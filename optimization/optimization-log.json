@@ -1,0 +1,110 @@
+{
+  "metadata": {
+    "session": "2026-04-17",
+    "starting_params": {
+      "alphaDecay": 0.055,
+      "velocityDecay": 0.4,
+      "ALPHA_MIN": 0.001,
+      "commit": "436a7c4",
+      "tag": "v2.16.2"
+    },
+    "baseline_evo": {
+      "exp_id": "exp_0000",
+      "score": 0.187,
+      "settling_ticks_avg": 163,
+      "note": "original baseline before alphaDecay optimization"
+    }
+  },
+  "iterations": [
+    {
+      "iter": 1,
+      "label": "velocityDecay 0.4→0.45",
+      "exp_id": "exp_0001",
+      "params": {
+        "alphaDecay": 0.055,
+        "velocityDecay": 0.45,
+        "ALPHA_MIN": 0.001
+      },
+      "benchmark": {
+        "score": 0.6705,
+        "settling_ticks_avg": 65.9,
+        "gate": "pass",
+        "improvement_vs_baseline_pct": 258
+      },
+      "visual_gate": "pending"
+    },
+    {
+      "iter": 2,
+      "label": "ALPHA_MIN 0.001→0.002",
+      "exp_id": "exp_0002",
+      "params": {
+        "alphaDecay": 0.055,
+        "velocityDecay": 0.4,
+        "ALPHA_MIN": 0.002
+      },
+      "benchmark": {
+        "score": 0.661,
+        "settling_ticks_avg": 67.8,
+        "gate": "pass",
+        "improvement_vs_baseline_pct": 253
+      },
+      "visual_gate": "not_run"
+    },
+    {
+      "iter": 3,
+      "label": "velocityDecay=0.45 + ALPHA_MIN=0.002 combined",
+      "exp_id": "exp_0003",
+      "params": {
+        "alphaDecay": 0.055,
+        "velocityDecay": 0.45,
+        "ALPHA_MIN": 0.002
+      },
+      "benchmark": {
+        "score": 0.67,
+        "settling_ticks_avg": 66.0,
+        "gate": "pass",
+        "improvement_vs_baseline_pct": 258,
+        "note": "combined is slightly worse than velocityDecay alone"
+      },
+      "visual_gate": "not_run"
+    },
+    {
+      "iter": 4,
+      "label": "per-preset alphaDecay: natural=0.055, shapes=0.07",
+      "exp_id": "exp_0004",
+      "params": {
+        "alphaDecay_natural": 0.055,
+        "alphaDecay_shapes": 0.07,
+        "velocityDecay": 0.45,
+        "ALPHA_MIN": 0.001
+      },
+      "benchmark": {
+        "score": 0.6705,
+        "settling_ticks_avg": 65.9,
+        "gate": "pass",
+        "note": "identical to iter1 — benchmark only tests natural mode"
+      },
+      "visual_gate": "pending"
+    },
+    {
+      "iter": 5,
+      "label": "combined: velocityDecay=0.45 + per-preset alphaDecay",
+      "exp_id": "exp_0005",
+      "params": {
+        "alphaDecay_natural": 0.055,
+        "alphaDecay_shapes": 0.07,
+        "velocityDecay": 0.45,
+        "ALPHA_MIN": 0.001
+      },
+      "benchmark": {
+        "score": 0.6705,
+        "settling_ticks_avg": 65.9,
+        "gate": "pass",
+        "note": "same benchmark as iter4, natural params unchanged"
+      },
+      "visual_gate": "pending"
+    }
+  ],
+  "winner": null,
+  "winner_notes": "To be determined after visual gate tests"
+}

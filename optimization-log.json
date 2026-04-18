@@ -97,6 +97,19 @@
       }
     ]
   },
+  "round3": {
+    "objective": "Initial position seeding for Natural layout — BFS radial, depth-layered, component-clustered",
+    "finding": "SEEDING IS NOT A VIABLE LEVER. velocityDecay=0.45 dominates convergence; initial geometry is irrelevant. Hard ceiling at 0.6705 confirmed across all 6 experiments.",
+    "experiments": [
+      { "id": "exp_0011", "strategy": "depth-layered BASE_RADIUS=70", "score": 0.6705, "result": "tie" },
+      { "id": "exp_0012", "strategy": "BFS radial LAYER_RADIUS=80", "score": 0.6705, "result": "tie" },
+      { "id": "exp_0014", "strategy": "BFS radial LAYER_RADIUS=60", "score": 0.6705, "result": "tie" },
+      { "id": "exp_0015", "strategy": "depth-layered BASE_RADIUS=50", "score": 0.6705, "result": "tie" },
+      { "id": "exp_0017", "strategy": "component-clustered SPREAD=200 INTRA=60", "score": 0.67, "result": "regression — discarded" },
+      { "id": "exp_0018", "strategy": "component-clustered SPREAD=100 INTRA=40", "score": 0.67, "result": "regression — discarded" }
+    ],
+    "root_cause": "Score 0.6705 is a hard ceiling under alphaDecay=0.055, velocityDecay=0.45, ALPHA_MIN=0.001. The simulation exits at a fixed tick count (ALPHA_MIN early-exit) regardless of starting positions. Next lever: force dynamics (link distance, charge strength) or two-phase decay scheduling."
+  },
   "winner": {
     "iteration": 6,
     "params": { "alphaDecay_natural": 0.055, "alphaDecay_shapes": 0.07, "velocityDecay": 0.45, "ALPHA_MIN": 0.001 },

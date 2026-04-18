@@ -36,6 +36,8 @@ PATCH=$(echo "$VERSION" | cut -d. -f3)
 
 # Determine bump type from commits since last tag
 BUMP="none"
+COMMITS_FILE=$(mktemp)
+git log "${LAST_TAG}..HEAD" --pretty=tformat:"%s" > "$COMMITS_FILE"
 while IFS= read -r line; do
   if echo "$line" | grep -qiE "BREAKING CHANGE|feat!:"; then
     BUMP="major"; break
@@ -44,7 +46,8 @@ while IFS= read -r line; do
   elif echo "$line" | grep -qiE "^(fix|chore|docs|refactor|style|test|perf)(\(|:)"; then
     [[ "$BUMP" == "none" ]] && BUMP="patch"
   fi
-done < <(git log "${LAST_TAG}..HEAD" --pretty=format:"%s")
+done < "$COMMITS_FILE"
+rm -f "$COMMITS_FILE"
 
 if [[ "$BUMP" == "none" ]]; then
   echo "No conventional commits found — no version bump needed."

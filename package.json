@@ -6,6 +6,7 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"vite\"",
+    "shape-gate": "node scripts/check-natural-shape.mjs",
     "server": "tsx watch server/index.ts",
     "build": "tsc -p tsconfig.app.json && vite build",
     "lint": "eslint src server --ext .ts,.tsx --max-warnings 0",

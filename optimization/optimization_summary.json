@@ -1,0 +1,562 @@
+{
+  "baseline_settling_tick": 163,
+  "best_settling_tick": 87,
+  "improvement_pct": 46.62576687116564,
+  "target_achieved": false,
+  "target_settling_tick": 10,
+  "best_config": {
+    "alphaDecay": 0.08020000000000001,
+    "velocityDecay": 0.66,
+    "chargeStrength": -120,
+    "linkDistance": 60,
+    "linkStrength": 0.5,
+    "centerForce": 0.05,
+    "collideRadius": 12
+  },
+  "agents": {
+    "0": {
+      "best_score": 87,
+      "best_config": {
+        "alphaDecay": 0.08020000000000001,
+        "velocityDecay": 0.66,
+        "chargeStrength": -120,
+        "linkDistance": 60,
+        "linkStrength": 0.5,
+        "centerForce": 0.05,
+        "collideRadius": 12
+      },
+      "stall_count": 0,
+      "iterations_run": 5,
+      "results": [
+        {
+          "iteration": 0,
+          "settling_tick": 128,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 1,
+          "settling_tick": 134,
+          "params": {
+            "alphaDecay": 0.020800000000000003,
+            "velocityDecay": 0.24000000000000002,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 2,
+          "settling_tick": 117,
+          "params": {
+            "alphaDecay": 0.040600000000000004,
+            "velocityDecay": 0.38,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 3,
+          "settling_tick": 103,
+          "params": {
+            "alphaDecay": 0.0604,
+            "velocityDecay": 0.52,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 4,
+          "settling_tick": 87,
+          "params": {
+            "alphaDecay": 0.08020000000000001,
+            "velocityDecay": 0.66,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        }
+      ]
+    },
+    "1": {
+      "best_score": 128,
+      "best_config": {
+        "alphaDecay": 0.02,
+        "velocityDecay": 0.4,
+        "chargeStrength": -120,
+        "linkDistance": 60,
+        "linkStrength": 0.5,
+        "centerForce": 0.05,
+        "collideRadius": 12
+      },
+      "stall_count": 3,
+      "iterations_run": 4,
+      "results": [
+        {
+          "iteration": 0,
+          "settling_tick": 128,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 1,
+          "settling_tick": 142,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -84.0,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 2,
+          "settling_tick": 136,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -50,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 3,
+          "settling_tick": 136,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -50,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        }
+      ]
+    },
+    "2": {
+      "best_score": 128,
+      "best_config": {
+        "alphaDecay": 0.02,
+        "velocityDecay": 0.4,
+        "chargeStrength": -120,
+        "linkDistance": 60,
+        "linkStrength": 0.5,
+        "centerForce": 0.05,
+        "collideRadius": 12
+      },
+      "stall_count": 3,
+      "iterations_run": 4,
+      "results": [
+        {
+          "iteration": 0,
+          "settling_tick": 128,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 1,
+          "settling_tick": 129,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 69.0,
+            "linkStrength": 0.55,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 2,
+          "settling_tick": 139,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 78.0,
+            "linkStrength": 0.6,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 3,
+          "settling_tick": 130,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 87.0,
+            "linkStrength": 0.65,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        }
+      ]
+    },
+    "3": {
+      "best_score": 122,
+      "best_config": {
+        "alphaDecay": 0.026000000000000002,
+        "velocityDecay": 0.52,
+        "chargeStrength": -156.0,
+        "linkDistance": 60,
+        "linkStrength": 0.65,
+        "centerForce": 0.05,
+        "collideRadius": 12
+      },
+      "stall_count": 0,
+      "iterations_run": 5,
+      "results": [
+        {
+          "iteration": 0,
+          "settling_tick": 128,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 1,
+          "settling_tick": 125,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120.0,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 2,
+          "settling_tick": 126,
+          "params": {
+            "alphaDecay": 0.022000000000000002,
+            "velocityDecay": 0.44000000000000006,
+            "chargeStrength": -132.0,
+            "linkDistance": 60,
+            "linkStrength": 0.55,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 3,
+          "settling_tick": 133,
+          "params": {
+            "alphaDecay": 0.024,
+            "velocityDecay": 0.48,
+            "chargeStrength": -144.0,
+            "linkDistance": 60,
+            "linkStrength": 0.6,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 4,
+          "settling_tick": 122,
+          "params": {
+            "alphaDecay": 0.026000000000000002,
+            "velocityDecay": 0.52,
+            "chargeStrength": -156.0,
+            "linkDistance": 60,
+            "linkStrength": 0.65,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        }
+      ]
+    },
+    "4": {
+      "best_score": 92,
+      "best_config": {
+        "alphaDecay": 0.08236877996084263,
+        "velocityDecay": 0.6753348078039377,
+        "chargeStrength": -94.5232829271651,
+        "linkDistance": 128.62882419496077,
+        "linkStrength": 0.8397161814622056,
+        "centerForce": 0.16616230497535453,
+        "collideRadius": 21.438137365826794
+      },
+      "stall_count": 2,
+      "iterations_run": 5,
+      "results": [
+        {
+          "iteration": 0,
+          "settling_tick": 128,
+          "params": {
+            "alphaDecay": 0.02,
+            "velocityDecay": 0.4,
+            "chargeStrength": -120,
+            "linkDistance": 60,
+            "linkStrength": 0.5,
+            "centerForce": 0.05,
+            "collideRadius": 12
+          }
+        },
+        {
+          "iteration": 1,
+          "settling_tick": 106,
+          "params": {
+            "alphaDecay": 0.05027095451229469,
+            "velocityDecay": 0.4483804864505686,
+            "chargeStrength": -175.57839769622552,
+            "linkDistance": 89.72236910581174,
+            "linkStrength": 0.5479177682935881,
+            "centerForce": 0.10456041775086859,
+            "collideRadius": 14.953728184301958
+          }
+        },
+        {
+          "iteration": 2,
+          "settling_tick": 92,
+          "params": {
+            "alphaDecay": 0.08236877996084263,
+            "velocityDecay": 0.6753348078039377,
+            "chargeStrength": -94.5232829271651,
+            "linkDistance": 128.62882419496077,
+            "linkStrength": 0.8397161814622056,
+            "centerForce": 0.16616230497535453,
+            "collideRadius": 21.438137365826794
+          }
+        },
+        {
+          "iteration": 3,
+          "settling_tick": 135,
+          "params": {
+            "alphaDecay": 0.0257145694850824,
+            "velocityDecay": 0.27474948120765336,
+            "chargeStrength": -237.58947099726666,
+            "linkDistance": 59.957053921311996,
+            "linkStrength": 0.32467790440984,
+            "centerForce": 0.05743200204207734,
+            "collideRadius": 9.992842320218667
+          }
+        },
+        {
+          "iteration": 4,
+          "settling_tick": 146,
+          "params": {
+            "alphaDecay": 0.009657191978492585,
+            "velocityDecay": 0.16121246853479607,
+            "chargeStrength": -278.1384040947157,
+            "linkDistance": 40.493566034536464,
+            "linkStrength": 0.1787017452590235,
+            "centerForce": 0.026614812888016072,
+            "collideRadius": 6.748927672422744
+          }
+        }
+      ]
+    }
+  },
+  "iteration_history": [
+    {
+      "iteration": 0,
+      "agents": [
+        {
+          "agent_id": 0,
+          "settling_tick": 128,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 1,
+          "settling_tick": 128,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 2,
+          "settling_tick": 128,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 3,
+          "settling_tick": 128,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 4,
+          "settling_tick": 128,
+          "is_best": false,
+          "stall_count": 0
+        }
+      ]
+    },
+    {
+      "iteration": 1,
+      "agents": [
+        {
+          "agent_id": 0,
+          "settling_tick": 134,
+          "is_best": false,
+          "stall_count": 1
+        },
+        {
+          "agent_id": 1,
+          "settling_tick": 142,
+          "is_best": false,
+          "stall_count": 1
+        },
+        {
+          "agent_id": 2,
+          "settling_tick": 129,
+          "is_best": false,
+          "stall_count": 1
+        },
+        {
+          "agent_id": 3,
+          "settling_tick": 125,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 4,
+          "settling_tick": 106,
+          "is_best": false,
+          "stall_count": 0
+        }
+      ]
+    },
+    {
+      "iteration": 2,
+      "agents": [
+        {
+          "agent_id": 0,
+          "settling_tick": 117,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 1,
+          "settling_tick": 136,
+          "is_best": false,
+          "stall_count": 2
+        },
+        {
+          "agent_id": 2,
+          "settling_tick": 139,
+          "is_best": false,
+          "stall_count": 2
+        },
+        {
+          "agent_id": 3,
+          "settling_tick": 126,
+          "is_best": false,
+          "stall_count": 1
+        },
+        {
+          "agent_id": 4,
+          "settling_tick": 92,
+          "is_best": false,
+          "stall_count": 0
+        }
+      ]
+    },
+    {
+      "iteration": 3,
+      "agents": [
+        {
+          "agent_id": 0,
+          "settling_tick": 103,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 1,
+          "settling_tick": 136,
+          "is_best": false,
+          "stall_count": 3
+        },
+        {
+          "agent_id": 2,
+          "settling_tick": 130,
+          "is_best": false,
+          "stall_count": 3
+        },
+        {
+          "agent_id": 3,
+          "settling_tick": 133,
+          "is_best": false,
+          "stall_count": 2
+        },
+        {
+          "agent_id": 4,
+          "settling_tick": 135,
+          "is_best": false,
+          "stall_count": 1
+        }
+      ]
+    },
+    {
+      "iteration": 4,
+      "agents": [
+        {
+          "agent_id": 0,
+          "settling_tick": 87,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 3,
+          "settling_tick": 122,
+          "is_best": false,
+          "stall_count": 0
+        },
+        {
+          "agent_id": 4,
+          "settling_tick": 146,
+          "is_best": false,
+          "stall_count": 2
+        }
+      ]
+    }
+  ]
+}

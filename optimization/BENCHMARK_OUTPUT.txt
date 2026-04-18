@@ -1,0 +1,75 @@
+Generating synthetic Jarvis vault graph...
+  Nodes: 150
+  Links: 199
+
+================================================================================
+D3-FORCE-3D ALPHADECAY OPTIMIZATION
+================================================================================
+Target: settling_tick < 100 (baseline: 163)
+Range: alphaDecay ∈ [0.01, 0.1]
+Max iterations: 5
+
+
+[Iteration 1/5]
+Testing alphaDecay = 0.055000
+Current range: [0.010000, 0.100000]
+  ✓ Settling tick: 123
+  ✓ Layout valid: ✓ YES
+  ✓ Convergence time: 691.67ms
+
+  ↑ IMPROVEMENT: settling_tick reduced by 40 ticks
+
+[Iteration 2/5]
+Testing alphaDecay = 0.077500
+Current range: [0.055000, 0.100000]
+  ✓ Settling tick: 86
+  ✓ Layout valid: ✓ YES
+  ✓ Convergence time: 154.26ms
+
+  ↑ IMPROVEMENT: settling_tick reduced by 37 ticks
+  ✅ TARGET ACHIEVED! Exploring for even faster convergence...
+
+[Iteration 3/5]
+Testing alphaDecay = 0.075563
+Current range: [0.073625, 0.077500]
+  ✓ Settling tick: 88
+  ✓ Layout valid: ✓ YES
+  ✓ Convergence time: 130.21ms
+
+  → No improvement (stall count: 1)
+  ✅ TARGET ACHIEVED! Exploring for even faster convergence...
+
+[Iteration 4/5]
+Testing alphaDecay = 0.073673
+Current range: [0.071784, 0.075563]
+  ✓ Settling tick: 91
+  ✓ Layout valid: ✓ YES
+  ✓ Convergence time: 174.04ms
+
+  → No improvement (stall count: 2)
+  ✅ TARGET ACHIEVED! Exploring for even faster convergence...
+
+⊘ STALL DETECTED: No improvement for 2 consecutive iterations. Stopping search.
+================================================================================
+FINAL RESULTS
+================================================================================
+Baseline:              settling_tick = 163
+Best configuration:    alphaDecay = 0.077500
+Best settling_tick:    86
+Improvement:           77 ticks (47.2%)
+Target achieved:       ✓ YES
+
+
+ITERATION LOG:
+--------------------------------------------------------------------------------
+┌─────────┬───────────┬────────────┬───────────────┬──────────────┬────────────────┐
+│ (index) │ Iteration │ alphaDecay │ settling_tick │ layout_valid │ convergence_ms │
+├─────────┼───────────┼────────────┼───────────────┼──────────────┼────────────────┤
+│ 0       │ 1         │ '0.055000' │ 123           │ 'YES'        │ '691.67'       │
+│ 1       │ 2         │ '0.077500' │ 86            │ 'YES'        │ '154.26'       │
+│ 2       │ 3         │ '0.075563' │ 88            │ 'YES'        │ '130.21'       │
+│ 3       │ 4         │ '0.073673' │ 91            │ 'YES'        │ '174.04'       │
+└─────────┴───────────┴────────────┴───────────────┴──────────────┴────────────────┘
+--------------------------------------------------------------------------------
+
+✅ SUCCESS: Achieved target settling_tick < 100 with alphaDecay = 0.077500
