@@ -38,6 +38,7 @@ let simNodes: WorkerNode[] = []
 let tierMap = new Map<string, 'regular' | 'supernode' | 'ultranode'>()
 let tickCount = 0
 let tickRunning = false
+let stableFrameCount = 0  // consecutive frames with mean delta < 0.5 (natural layout early-exit)
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural'
@@ -407,6 +408,26 @@ function runTick() {
     if (performance.now() - frameStart > FRAME_BUDGET_MS) break
   }
 
+  // Early-exit for natural layout: if nodes are visually stable, no need to wait for alpha decay
+  if (graphShape === 'natural' && simNodes.length > 0) {
+    let totalDelta = 0
+    for (const n of simNodes) {
+      const vx = n.vx ?? 0, vy = n.vy ?? 0, vz = (n as WorkerNode & { vz?: number }).vz ?? 0
+      totalDelta += Math.sqrt(vx * vx + vy * vy + vz * vz)
+    }
+    const meanDelta = totalDelta / simNodes.length
+    if (meanDelta < 0.5) {
+      stableFrameCount++
+      if (stableFrameCount >= 3) {
+        self.postMessage({ type: 'end', nodes: getNodePositions(simNodes), tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() })
+        tickRunning = false
+        return
+      }
+    } else {
+      stableFrameCount = 0
+    }
+  }
+
   // Post one message per frame batch
   const currentAlpha = simulation.alpha()
   const done = tickCount >= MAX_TICKS || currentAlpha < ALPHA_MIN
@@ -490,7 +511,7 @@ self.onmessage = (e: MessageEvent) => {
       if (node) { node.fx = p.x; node.fy = p.y; node.fz = p.z; node.x = p.x; node.y = p.y; node.z = p.z }
     }
     if (simulation) {
-      tickCount = 0; simulation.alpha(0.4)
+      tickCount = 0; stableFrameCount = 0; simulation.alpha(0.4)
       if (!tickRunning) runTick()
     }
     self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() })
@@ -507,7 +528,7 @@ self.onmessage = (e: MessageEvent) => {
     // Reheat each move so connected nodes keep following (alpha never decays to 0 during drag)
     if (simulation) {
       if (simulation.alpha() < 0.25) simulation.alpha(0.35)
-      if (!tickRunning) { tickCount = 0; runTick() }
+      if (!tickRunning) { tickCount = 0; stableFrameCount = 0; runTick() }
     }
     self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() })
     return
@@ -520,7 +541,7 @@ self.onmessage = (e: MessageEvent) => {
       node.vx = 0; node.vy = 0; node.vz = 0
     }
     if (simulation) {
-      tickCount = 0; simulation.alpha(0.6)
+      tickCount = 0; stableFrameCount = 0; simulation.alpha(0.6)
       if (!tickRunning) runTick()
     }
     return
@@ -536,7 +557,7 @@ self.onmessage = (e: MessageEvent) => {
     }
     if (simulation) {
       simulation.alpha(0.12)
-      if (!tickRunning) { tickCount = 0; runTick() }
+      if (!tickRunning) { tickCount = 0; stableFrameCount = 0; runTick() }
     }
     return
   }
@@ -544,6 +565,7 @@ self.onmessage = (e: MessageEvent) => {
   if (type === 'init') {
     tickRunning = false
     tickCount = 0
+    stableFrameCount = 0
     if (e.data.graphShape) graphShape = e.data.graphShape
     if (e.data.spread != null) currentSpread = e.data.spread
     if (e.data.topN != null) tagBoxTopN = e.data.topN as number
@@ -1204,13 +1226,13 @@ self.onmessage = (e: MessageEvent) => {
           cf.strength(baseCharge * spread)
         }
       }
-      tickCount = 0
+      tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()
     }
   } else if (type === 'reheat') {
     if (simulation) {
-      tickCount = 0
+      tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()
     }
@@ -1225,7 +1247,7 @@ self.onmessage = (e: MessageEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('center') as any
       if (cf?.x) { cf.x(cx); cf.y(cy); cf.z(cz) }
-      tickCount = 0
+      tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()
     }
