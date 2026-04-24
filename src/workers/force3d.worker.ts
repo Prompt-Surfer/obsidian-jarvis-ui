@@ -396,17 +396,15 @@ function runTick() {
   }
   tickRunning = true
 
-  // PERF: frame-budgeted batching — run as many ticks as fit in ~16ms (60fps budget),
-  // then post one message per batch. This avoids oversaturating the message channel
-  // while still converging fast. Worker yields between batches via setTimeout(,1).
-  const frameStart = performance.now()
-  const FRAME_BUDGET_MS = 16
-
-  while (tickCount < MAX_TICKS && simulation.alpha() >= ALPHA_MIN) {
-    simulation.tick()
-    tickCount++
-    if (performance.now() - frameStart > FRAME_BUDGET_MS) break
-  }
+  // SOLUTION #1: More Frequent Worker Batches
+  // Post positions EVERY 1-2 ticks (~16-32ms) instead of every 5-10 ticks (50-300ms)
+  // This eliminates pause-resume stutter by keeping the main thread's RAF loop
+  // in continuous motion with fresh target positions.
+  const POSTING_RATE = 1  // Post every 1 tick (was: implicit 5-10 via frame budget)
+  
+  // Run just ONE tick per callback (don't batch within frame budget)
+  simulation.tick()
+  tickCount++
 
   // Early-exit for natural layout: if nodes are visually stable, no need to wait for alpha decay
   if (graphShape === 'natural' && simNodes.length > 0) {
@@ -428,25 +426,27 @@ function runTick() {
     }
   }
 
-  // Post one message per frame batch
-  const currentAlpha = simulation.alpha()
-  const done = tickCount >= MAX_TICKS || currentAlpha < ALPHA_MIN
-  self.postMessage({
-    type: done ? 'end' : 'tick',
-    nodes: getNodePositions(simNodes),
-    tickCount,
-    alpha: currentAlpha,
-    firstTick: tickCount <= 5,
-    tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
-    timestamp: performance.now(),
-  })
+  // Post every tick or every N ticks (POSTING_RATE = 1 means every tick)
+  if (tickCount % POSTING_RATE === 0) {
+    const currentAlpha = simulation.alpha()
+    const done = tickCount >= MAX_TICKS || currentAlpha < ALPHA_MIN
+    self.postMessage({
+      type: done ? 'end' : 'tick',
+      nodes: getNodePositions(simNodes),
+      tickCount,
+      alpha: currentAlpha,
+      firstTick: tickCount <= 5,
+      tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
+      timestamp: performance.now(),
+    })
 
-  if (done) {
-    tickRunning = false
-    return
+    if (done) {
+      tickRunning = false
+      return
+    }
   }
 
-  // Yield to main thread between batches (1ms gap avoids busy-spinning)
+  // Yield to main thread to allow RAF and other tasks (1ms is safe, 0 would be more aggressive)
   setTimeout(runTick, 1)
 }
 
