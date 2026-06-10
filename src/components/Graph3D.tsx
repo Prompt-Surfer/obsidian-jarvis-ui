@@ -203,6 +203,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const renderFpsTimesRef = useRef<number[]>([])
   const renderMsSamplesRef = useRef<number[]>([])
   const bloomCostSamplesRef = useRef<number[]>([])
+  // Stutter tracking: rAF-to-rAF intervals (catches main-thread jank even when render is gated)
+  const rafIntervalsRef = useRef<number[]>([])
+  const lastRafTsRef = useRef(0)
 
   // PERF: dirty-flag render gate — only call renderer.render() when scene has changed
   const isDirtyRef = useRef(true)
@@ -929,6 +932,19 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     // No manual throttling. Dirty-flag gate skips render when scene is unchanged.
     function loop() {
       animId = requestAnimationFrame(loop)
+
+      if (DEBUG) {
+        // Stutter tracking: rAF interval measured unconditionally (before the dirty gate),
+        // so main-thread stalls show up even on frames where rendering is skipped
+        const rafNow = performance.now()
+        if (lastRafTsRef.current > 0) {
+          const buf = rafIntervalsRef.current
+          buf.push(rafNow - lastRafTsRef.current)
+          if (buf.length > 300) buf.shift()
+        }
+        lastRafTsRef.current = rafNow
+      }
+
       // PERF: controls.update() runs every frame to advance damping; the 'change' event fires
       // automatically during damping decay, keeping isDirtyRef true until camera fully settles
       localControls.update()
@@ -1121,6 +1137,15 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
                 ? bloomCostSamplesRef.current.reduce((a, b) => a + b, 0) / bloomCostSamplesRef.current.length
                 : 0
               const simMetrics = simPerfRef?.current
+              // Stutter stats from rAF intervals (last ~300 frames)
+              const ints = rafIntervalsRef.current
+              const sortedInts = [...ints].sort((a, b) => a - b)
+              const p95Int = sortedInts.length > 0
+                ? sortedInts[Math.min(sortedInts.length - 1, Math.ceil(0.95 * sortedInts.length) - 1)]
+                : 0
+              const maxInt = sortedInts.length > 0 ? sortedInts[sortedInts.length - 1] : 0
+              let longFrames = 0
+              for (const d of ints) if (d > 25) longFrames++
               hud.textContent = [
                 `Render FPS: ${rfps.length}`,
                 `Sim FPS: ${simMetrics?.simFps ?? 0}`,
@@ -1128,6 +1153,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
                 `Bloom Δ: ${avgBloomCost.toFixed(1)}ms`,
                 `W→M latency: ${(simMetrics?.workerLatencyMs ?? 0).toFixed(1)}ms`,
                 `Movement: ${(simMetrics?.avgMovement ?? 0).toFixed(2)}`,
+                `rAF p95: ${p95Int.toFixed(1)}ms  max: ${maxInt.toFixed(1)}ms`,
+                `Long frames >25ms: ${longFrames}/${ints.length}`,
               ].join('\n')
             }
           }
