@@ -382,15 +382,30 @@ let sunOuterRadius = 300  // set during init, used by shape force
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let sunInnerRadius = 54   // set during init
 
-function getNodePositions(nodes: WorkerNode[]) {
-  return nodes.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0, tier: tierMap.get(n.id) ?? 'regular' }))
+// P1: binary position protocol — pack xyz triplets into a Float32Array and post it
+// with a transfer list (zero-copy handoff). Node order + tiers are announced once per
+// init via the 'nodeOrder' message; every position update is aligned to that order.
+// This replaces per-tick structured cloning of N {id,x,y,z,tier} objects, which
+// caused GC hitches on both threads while the natural-pattern sim streamed.
+const post = self.postMessage.bind(self) as unknown as (message: unknown, transfer?: Transferable[]) => void
+
+function packPositions(): Float32Array {
+  const arr = new Float32Array(simNodes.length * 3)
+  for (let i = 0; i < simNodes.length; i++) {
+    const n = simNodes[i]
+    arr[i * 3] = n.x ?? 0
+    arr[i * 3 + 1] = n.y ?? 0
+    arr[i * 3 + 2] = n.z ?? 0
+  }
+  return arr
 }
 
 function runTick() {
   // Stop when max ticks reached OR simulation has converged (alpha below threshold)
   if (!simulation || tickCount >= MAX_TICKS || simulation.alpha() < ALPHA_MIN) {
     tickRunning = false
-    self.postMessage({ type: 'end', nodes: getNodePositions(simNodes), tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() })
+    const positions = packPositions()
+    post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
     return
   }
   tickRunning = true
@@ -410,15 +425,16 @@ function runTick() {
   // Post one message per frame batch
   const currentAlpha = simulation.alpha()
   const done = tickCount >= MAX_TICKS || currentAlpha < ALPHA_MIN
-  self.postMessage({
+  const positions = packPositions()
+  post({
     type: done ? 'end' : 'tick',
-    nodes: getNodePositions(simNodes),
+    positions,
     tickCount,
     alpha: currentAlpha,
     firstTick: tickCount <= 5,
     tagBoxes: graphShape === 'tagboxes' ? tagBoxesList : undefined,
     timestamp: performance.now(),
-  })
+  }, [positions.buffer])
 
   if (done) {
     tickRunning = false
@@ -493,7 +509,8 @@ self.onmessage = (e: MessageEvent) => {
       tickCount = 0; simulation.alpha(0.4)
       if (!tickRunning) runTick()
     }
-    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() })
+    const positions = packPositions()
+    post({ type: 'tick', positions, tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() }, [positions.buffer])
     return
   }
 
@@ -505,11 +522,12 @@ self.onmessage = (e: MessageEvent) => {
       if (node) { node.fx = p.x; node.fy = p.y; node.fz = p.z; node.x = p.x; node.y = p.y; node.z = p.z }
     }
     // Reheat each move so connected nodes keep following (alpha never decays to 0 during drag)
+    // P3: no snapshot reply here — the runTick() stream already carries positions every
+    // frame batch; an extra full snapshot per moveNodes flooded the channel during drag
     if (simulation) {
       if (simulation.alpha() < 0.25) simulation.alpha(0.35)
       if (!tickRunning) { tickCount = 0; runTick() }
     }
-    self.postMessage({ type: 'tick', nodes: getNodePositions(simNodes), tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() })
     return
   }
 
@@ -1178,6 +1196,14 @@ self.onmessage = (e: MessageEvent) => {
       .alphaDecay(0.02)
       .velocityDecay(0.4)
       .stop()
+
+    // P1: announce node order + tiers once — all subsequent position updates are
+    // bare Float32Array(3N) transfers aligned to this order
+    post({
+      type: 'nodeOrder',
+      ids: simNodes.map(n => n.id),
+      tiers: simNodes.map(n => tierMap.get(n.id) ?? 'regular'),
+    })
 
     runTick()
   } else if (type === 'setSpread') {

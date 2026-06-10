@@ -110,6 +110,12 @@ Definition of done for "smooth at 60fps+": during Natural forming **and** drag,
 
 ## Fix plan (prioritised)
 
+> Status: **P1–P3 implemented** on `private/natural-pattern-stutter-fixes` —
+> transferable `Float32Array` position protocol (`nodeOrder` + binary ticks),
+> React-free hot path (`livePositions` ref consumed by Graph3D's RAF loop; React
+> state mirror throttled to 250 ms), and drag throttling (one coalesced `moveNodes`
+> per frame, no per-move snapshot reply, per-node link-index updates). P4–P7 remain.
+
 | # | Fix | Effort | Expected win |
 |---|---|---|---|
 | P1 | **Binary position protocol**: send node-id order once at init; each tick posts a `Float32Array(3N)` via transferable. Main keeps two Float32Arrays (target/displayed) and lerps by index — no Maps, no clones, no GC. | M | Removes the biggest hitch source (clone+GC) |
