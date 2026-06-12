@@ -29,6 +29,24 @@ export interface PerfMetrics {
   avgMovement: number   // average node movement per tick (convergence indicator)
 }
 
+// P1/P2: live position channel — the worker streams positions as transferable
+// Float32Array(3N) buffers aligned to `ids` order (announced once per init via the
+// 'nodeOrder' message). Graph3D's RAF loop consumes this ref directly by comparing
+// `version`, so position updates never go through React state on the hot path.
+export interface LiveSimPositions {
+  /** node ids in sim order — same order as graphData.nodes passed to init */
+  ids: string[]
+  tiers: Array<'regular' | 'supernode' | 'ultranode'>
+  /** xyz triplets; replaced (not mutated) on every tick batch */
+  arr: Float32Array | null
+  /** bumped on every tick batch — consumers compare against their last-seen value */
+  version: number
+}
+
+// React-state mirror of positions (minimap, flyTo, camera fit) updates at most this
+// often while the sim streams; the final 'end' message always flushes immediately
+const STATE_MIRROR_MS = 250
+
 export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural', topNTags?: number, tagBoxSizeScale?: number) {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
@@ -38,11 +56,9 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   // Track current spread so worker init can use it (not stale default)
   const spreadRef = useRef(2.0)
 
-  // Latest positions ref — used to pass warm-restart positions to the next worker init
-  const latestPositionsRef = useRef<Map<string, NodePosition>>(new Map())
-  // RAF buffer — accumulate positions updates, apply at frame boundary (one setState per frame)
-  const pendingNodesRef = useRef<Array<{ id: string; x: number; y: number; z: number }> | null>(null)
-  const rafHandleRef = useRef<number | null>(null)
+  // Live binary position channel consumed by Graph3D's RAF loop (P1/P2)
+  const livePositionsRef = useRef<LiveSimPositions>({ ids: [], tiers: [], arr: null, version: 0 })
+  const lastStateUpdateRef = useRef(0)
   // Track previous graphData ref to detect shape-only vs data changes
   const prevGraphDataRef = useRef<GraphData | null>(null)
 
@@ -50,7 +66,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   const perfRef = useRef<PerfMetrics>({ simFps: 0, workerLatencyMs: 0, avgMovement: 0 })
   const simTickTimestampsRef = useRef<number[]>([])
   const workerLatencySamplesRef = useRef<number[]>([])
-  const prevPositionsRef = useRef<Map<string, { x: number; y: number; z: number }>>(new Map())
+  const prevArrRef = useRef<Float32Array | null>(null)
 
   useEffect(() => {
     if (!graphData?.nodes || !graphData?.links) return
@@ -59,13 +75,9 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     const isShapeOnlyChange = prevGraphDataRef.current === graphData && workerRef.current !== null
     prevGraphDataRef.current = graphData
 
-    // Terminate previous worker; cancel any pending RAF flush
+    // Terminate previous worker
     workerRef.current?.terminate()
-    if (rafHandleRef.current !== null) {
-      cancelAnimationFrame(rafHandleRef.current)
-      rafHandleRef.current = null
-    }
-    pendingNodesRef.current = null
+    lastStateUpdateRef.current = 0 // first message of the new worker mirrors to state immediately
     setSimDone(false)
 
     if (DEBUG) {
@@ -80,7 +92,16 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     workerRef.current = worker
 
     worker.onmessage = (e: MessageEvent) => {
-      const { type, nodes, firstTick, tagBoxes: boxes, timestamp } = e.data
+      const { type, positions: posArr, firstTick, tagBoxes: boxes, timestamp } = e.data
+
+      if (type === 'nodeOrder') {
+        // P1: node order + tiers announced once per init — all subsequent position
+        // updates are bare Float32Array(3N) transfers aligned to this order
+        const live = livePositionsRef.current
+        live.ids = e.data.ids ?? []
+        live.tiers = e.data.tiers ?? []
+        return
+      }
 
       if (type === 'tagBoxes') {
         setTagBoxes(e.data.tagBoxes ?? [])
@@ -118,46 +139,48 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
           perfRef.current.workerLatencyMs = samples.reduce((a, b) => a + b, 0) / samples.length
         }
 
-        // --- Perf: movement tracking (convergence indicator) ---
-        if (nodes && nodes.length > 0) {
-          const prev = prevPositionsRef.current
-          let totalMovement = 0
-          let count = 0
-          for (const n of nodes) {
-            const old = prev.get(n.id)
-            if (old) {
-              const dx = n.x - old.x, dy = n.y - old.y, dz = n.z - old.z
+        const live = livePositionsRef.current
+        const arr: Float32Array | null = posArr instanceof Float32Array ? posArr : null
+        if (arr && arr.length === live.ids.length * 3) {
+          // --- Perf: movement tracking (convergence indicator) — pure math, no allocs ---
+          const prev = prevArrRef.current
+          if (prev && prev.length === arr.length && arr.length > 0) {
+            let totalMovement = 0
+            for (let i = 0; i < arr.length; i += 3) {
+              const dx = arr[i] - prev[i], dy = arr[i + 1] - prev[i + 1], dz = arr[i + 2] - prev[i + 2]
               totalMovement += Math.sqrt(dx * dx + dy * dy + dz * dz)
-              count++
             }
+            perfRef.current.avgMovement = totalMovement / (arr.length / 3)
           }
-          perfRef.current.avgMovement = count > 0 ? totalMovement / count : 0
+          prevArrRef.current = arr
 
-          // Update prev positions
-          const newPrev = new Map<string, { x: number; y: number; z: number }>()
-          for (const n of nodes) newPrev.set(n.id, { x: n.x, y: n.y, z: n.z })
-          prevPositionsRef.current = newPrev
-        }
+          // P2: publish to the live channel — Graph3D's RAF loop picks this up next
+          // frame via the version counter; no setState, no Map rebuild, no clone
+          live.arr = arr
+          live.version++
 
-        // RAF buffer: store latest positions, apply at frame boundary (at most one setState per rAF)
-        pendingNodesRef.current = nodes
-        if (rafHandleRef.current === null) {
-          rafHandleRef.current = requestAnimationFrame(() => {
-            rafHandleRef.current = null
-            const pending = pendingNodesRef.current
-            if (!pending) return
+          // Throttled React mirror for non-hot-path consumers (minimap, flyTo, camera
+          // fit). 'end' always flushes so final positions are exact.
+          if (type === 'end' || lastStateUpdateRef.current === 0 || now - lastStateUpdateRef.current >= STATE_MIRROR_MS) {
+            lastStateUpdateRef.current = now
             const posMap = new Map<string, NodePosition>()
-            for (const n of pending) posMap.set(n.id, n)
-            latestPositionsRef.current = posMap
+            for (let i = 0; i < live.ids.length; i++) {
+              posMap.set(live.ids[i], {
+                id: live.ids[i],
+                x: arr[i * 3],
+                y: arr[i * 3 + 1],
+                z: arr[i * 3 + 2],
+                tier: live.tiers[i] ?? 'regular',
+              })
+            }
             setPositions(posMap)
-            pendingNodesRef.current = null
-          })
+          }
         }
 
         // Forward tag boxes when provided
         if (boxes) setTagBoxes(boxes)
 
-        // simDone fires immediately — don't delay behind RAF (clears patternLoading promptly)
+        // simDone fires immediately (clears patternLoading promptly)
         if (type === 'end') {
           setSimDone(true)
         }
@@ -166,8 +189,9 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
 
     // Warm restart: pass existing positions for shape-only changes so nodes start near
     // their current locations rather than random scatter → visual convergence much faster
-    const existingPositions = isShapeOnlyChange
-      ? Array.from(latestPositionsRef.current.values())
+    const live0 = livePositionsRef.current
+    const existingPositions = isShapeOnlyChange && live0.arr && live0.arr.length === live0.ids.length * 3
+      ? live0.ids.map((id, i) => ({ id, x: live0.arr![i * 3], y: live0.arr![i * 3 + 1], z: live0.arr![i * 3 + 2] }))
       : undefined
 
     if (DEBUG) performance.mark('t1-worker-init-send')
@@ -188,11 +212,6 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
 
     return () => {
       worker.terminate()
-      pendingNodesRef.current = null
-      if (rafHandleRef.current !== null) {
-        cancelAnimationFrame(rafHandleRef.current)
-        rafHandleRef.current = null
-      }
     }
   }, [graphData, graphShape, topNTags, tagBoxSizeScale])
 
@@ -227,5 +246,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, perfRef }
+  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, perfRef }
 }

@@ -17,7 +17,8 @@ test('right-drag: nodes move and stay at dropped position', async ({ page }) => 
   console.log('✅ Simulation stable')
   await page.waitForTimeout(500)
 
-  const canvas = page.locator('canvas')
+  // Two canvases exist (main three.js scene + minimap) — target the WebGL one
+  const canvas = page.locator('canvas[data-engine^="three.js"]')
   const box = await canvas.boundingBox()
   expect(box).not.toBeNull()
 
