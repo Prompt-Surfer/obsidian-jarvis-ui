@@ -79,6 +79,11 @@ const MAX_TICKS = 200   // 300→200: practical convergence happens well before 
 const ALPHA_MIN = 0.001 // early-exit threshold
 let graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural'
 let currentSpread = 2.0
+// Spread the current natural-layout positions represent. Spread-adjust scales all
+// coordinates by (newSpread / naturalDisplaySpread) around the centre of gravity —
+// pure geometric zoom of the precalc'd layout, no re-simulation. Set when a fresh
+// natural layout is computed; preserved across data updates and drags.
+let naturalDisplaySpread = 1.0
 interface TagBoxEntry {
   tag: string; cx: number; cy: number; cz: number; count: number; halfSize: number
   halfSizeX?: number; halfSizeY?: number; halfSizeZ?: number
@@ -425,6 +430,14 @@ let sunInnerRadius = 54   // set during init
 // This replaces per-tick structured cloning of N {id,x,y,z,tier} objects, which
 // caused GC hitches on both threads while the natural-pattern sim streamed.
 const post = self.postMessage.bind(self) as unknown as (message: unknown, transfer?: Transferable[]) => void
+
+// Module-scope tier→base-charge (mirrors the init-local naturalChargeStrength);
+// used by setSpread to keep the interactive sim's charge consistent after a zoom.
+function naturalChargeStrengthBase(d: unknown): number {
+  const node = d as WorkerNode
+  const tier = tierMap.get(node.id) ?? 'regular'
+  return tier === 'ultranode' ? -350 : tier === 'supernode' ? -200 : -120
+}
 
 function packPositions(): Float32Array {
   const arr = new Float32Array(simNodes.length * 3)
@@ -1495,7 +1508,10 @@ self.onmessage = (e: MessageEvent) => {
     const warmCoverage = simNodes.length > 0 ? warmCount / simNodes.length : 0
 
     if (graphShape === 'natural' && (initReason === 'shape' || warmCoverage < 0.9)) {
-      // Cold start or shape switch into natural → silent precalc + one-shot final frame
+      // Cold start or shape switch into natural → silent precalc + one-shot final frame.
+      // The precalc geometry defines the baseline for this spread value; spread-adjust
+      // scales relative to it.
+      naturalDisplaySpread = currentSpread
       startNaturalPrecalc()
     } else {
       if (graphShape === 'natural' && warmCoverage >= 0.9) {
@@ -1518,6 +1534,46 @@ self.onmessage = (e: MessageEvent) => {
     }
   } else if (type === 'setSpread') {
     const spread = (e.data as { spread?: number }).spread ?? 1.0
+
+    // Natural: spread is a pure geometric zoom of the precalc'd layout. Scale every
+    // coordinate by (spread / naturalDisplaySpread) around the centre of gravity and
+    // hand the renderer one frame — Graph3D's LERP glide animates it like pinch-zoom.
+    // No simulation runs, so this is O(n) (microseconds), not a multi-second resettle.
+    if (graphShape === 'natural') {
+      const ratio = naturalDisplaySpread > 0 ? spread / naturalDisplaySpread : 1
+      currentSpread = spread
+      naturalDisplaySpread = spread
+      if (Number.isFinite(ratio) && Math.abs(ratio - 1) > 1e-4 && simNodes.length > 0) {
+        // centre of gravity
+        let cx = 0, cy = 0, cz = 0
+        for (const n of simNodes) { cx += n.x; cy += n.y; cz += (n as WorkerNode & { z?: number }).z ?? 0 }
+        cx /= simNodes.length; cy /= simNodes.length; cz /= simNodes.length
+        for (const n of simNodes) {
+          n.x = cx + (n.x - cx) * ratio
+          n.y = cy + (n.y - cy) * ratio
+          const nz = (n as WorkerNode & { z?: number }).z ?? 0
+          ;(n as WorkerNode & { z?: number }).z = cz + (nz - cz) * ratio
+          n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0
+        }
+        // Keep the interactive sim's rest lengths/charge consistent with the new scale
+        // so a later drag/reheat doesn't pull the graph back toward the base scale.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lf = simulation?.force('link') as any
+        if (lf?.distance) lf.distance(60 * spread)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cf = simulation?.force('charge') as any
+        if (cf?.strength) {
+          cf.strength((d: unknown) => naturalChargeStrengthBase(d) * Math.sqrt(spread))
+        }
+      }
+      tickCount = 0; stableFrameCount = 0
+      const t0 = performance.now()
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+      console.log(`[spread-scale] zoom ratio=${ratio.toFixed(3)} compute=${(performance.now() - t0).toFixed(2)}ms n=${simNodes.length}`)
+      return
+    }
+
     currentSpread = spread  // shape targets scale with spread
     if (simulation) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1527,18 +1583,7 @@ self.onmessage = (e: MessageEvent) => {
       const cf = simulation.force('charge') as any
       const baseCharge = (graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain') ? 0 : -120
       if (cf?.strength) {
-        if (graphShape === 'natural') {
-          // sqrt scaling: prevents runaway repulsion at high spread values while
-          // still allowing meaningful spread. Linear was too aggressive at spread > 3.
-          cf.strength((d: unknown) => {
-            const node = d as WorkerNode
-            const tier = tierMap.get(node.id) ?? 'regular'
-            const base = tier === 'ultranode' ? -350 : tier === 'supernode' ? -200 : -120
-            return base * Math.sqrt(spread)
-          })
-        } else {
-          cf.strength(baseCharge * spread)
-        }
+        cf.strength(baseCharge * spread)
       }
       tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
