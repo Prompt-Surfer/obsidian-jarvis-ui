@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -169,7 +169,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
-  const controlsRef = useRef<OrbitControls | null>(null)
+  const controlsRef = useRef<TrackballControls | null>(null)
   const composerRef = useRef<EffectComposer | null>(null)
   const bloomPassRef = useRef<UnrealBloomPass | null>(null)
   const instancedMeshRef = useRef<THREE.InstancedMesh | null>(null)
@@ -323,17 +323,21 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     camera.position.set(0, 0, 600)
     cameraRef.current = camera
 
-    const controls = new OrbitControls(camera, canvas)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.08
+    // TrackballControls (not OrbitControls): free 360° tumbling around the target
+    // (centre of gravity) with no fixed up-vector, so vertical rotation never stops
+    // at the poles. Damped, left-drag rotates, middle dollies, right is disabled
+    // (reserved for node dragging via mouse events).
+    const controls = new TrackballControls(camera, canvas)
+    controls.rotateSpeed = 3.0
     controls.zoomSpeed = 1.2
-    controls.zoomToCursor = true
+    controls.noPan = true              // panning off (matches prior behaviour)
+    controls.staticMoving = false      // damped (inertial) rotation
+    controls.dynamicDampingFactor = 0.15
     controls.minDistance = NODE_RADIUS
-    // Disable right-click pan — right-click is used for node dragging
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: null as unknown as THREE.MOUSE, // null disables right-click in OrbitControls
+      RIGHT: -1 as unknown as THREE.MOUSE, // unmapped → ignored, frees right-click for node drag
     }
     controlsRef.current = controls
 
@@ -442,6 +446,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       composer.setSize(w, h)
       // Re-apply half-res to bloom pass (composer.setSize resets it to full-res)
       bloomPass.setSize(Math.ceil(w / 2), Math.ceil(h / 2))
+      controlsRef.current?.handleResize() // TrackballControls caches screen size for trackball projection
       isDirtyRef.current = true
     }
     window.addEventListener('resize', onResize)
