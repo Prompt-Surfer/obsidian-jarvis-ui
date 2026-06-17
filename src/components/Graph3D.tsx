@@ -372,16 +372,19 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         pos[i * 3 + 2] = radius * Math.cos(phi)
       }
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      // Screen-space sizing (no distance attenuation) so stars stay visible as a
+      // crisp backdrop however far the shell is scaled out (it tracks the graph
+      // radius, which grows up to ~10× at max spread).
       const mat = new THREE.PointsMaterial({
-        color: 0xffffff, size, sizeAttenuation: true,
+        color: 0xffffff, size, sizeAttenuation: false,
         transparent: true, opacity, depthWrite: false,
       })
       return new THREE.Points(geo, mat)
     }
 
-    starGroup.add(makeStarSphere(600, 0.6, 0.2))   // dim stars (30%)
-    starGroup.add(makeStarSphere(1200, 1.2, 0.45))  // medium stars (60%)
-    starGroup.add(makeStarSphere(200, 2.5, 0.9))    // bright stars (10%)
+    starGroup.add(makeStarSphere(2400, 1.2, 0.35))  // dim stars (screen px)
+    starGroup.add(makeStarSphere(4800, 1.8, 0.6))   // medium stars
+    starGroup.add(makeStarSphere(800, 3.0, 0.95))   // bright stars
 
     starGroup.visible = false
     scene.add(starGroup)
@@ -847,6 +850,16 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         bsBox.getBoundingSphere(bsSphere)
         const fovRad = cameraRef.current.fov * Math.PI / 180
         controlsRef.current.maxDistance = (bsSphere.radius * 1.1) / Math.tan(fovRad / 2)
+        // Keep the starfield far outside the shape at any spread: shell radius ≈ 8×
+        // the graph's bounding radius (base star shell is ~6500 units). Without this,
+        // spreading the graph to 10× pushes nodes out to the stars → "stars too close".
+        {
+          const STAR_BASE_RADIUS = 6500
+          const target = Math.max(STAR_BASE_RADIUS, bsSphere.radius * 8)
+          const s = target / STAR_BASE_RADIUS
+          starsRef.current?.scale.setScalar(s)
+          for (const g of galaxySpritesRef.current) (g as unknown as THREE.Object3D).scale.setScalar(s)
+        }
       }
     }
 

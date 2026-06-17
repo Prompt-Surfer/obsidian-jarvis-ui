@@ -571,13 +571,18 @@ self.onmessage = (e: MessageEvent) => {
   }
 
   // Pin nodes at specific positions (drag start)
+  // Natural drag is ANALYTIC: move only the grabbed node and stream that one frame.
+  // Running the full d3 sim here would pull all 10k nodes toward the sim's own
+  // equilibrium (a blob) — the precalc layout is not that equilibrium — so a
+  // sustained drag would collapse the shape. Other shapes keep the sim reheat
+  // (their shape force re-forms the layout, so no collapse).
   if (type === 'pinNodes') {
     const pinned = (e.data as { pinned?: Array<{ id: string; x: number; y: number; z: number }> }).pinned ?? []
     for (const p of pinned) {
       const node = simNodes.find(n => n.id === p.id)
       if (node) { node.fx = p.x; node.fy = p.y; node.fz = p.z; node.x = p.x; node.y = p.y; node.z = p.z }
     }
-    if (simulation) {
+    if (graphShape !== 'natural' && simulation) {
       tickCount = 0; stableFrameCount = 0; simulation.alpha(0.4)
       if (!tickRunning) runTick()
     }
@@ -586,47 +591,55 @@ self.onmessage = (e: MessageEvent) => {
     return
   }
 
-  // Move pinned node during drag — keep sim hot so connected nodes actively follow
   if (type === 'moveNodes') {
     const pinned = (e.data as { pinned?: Array<{ id: string; x: number; y: number; z: number }> }).pinned ?? []
     for (const p of pinned) {
       const node = simNodes.find(n => n.id === p.id)
       if (node) { node.fx = p.x; node.fy = p.y; node.fz = p.z; node.x = p.x; node.y = p.y; node.z = p.z }
     }
-    // Reheat each move so connected nodes keep following (alpha never decays to 0 during drag)
-    // P3: no snapshot reply here — the runTick() stream already carries positions every
-    // frame batch; an extra full snapshot per moveNodes flooded the channel during drag
-    if (simulation) {
-      if (simulation.alpha() < 0.25) simulation.alpha(0.35)
-      if (!tickRunning) { tickCount = 0; stableFrameCount = 0; runTick() }
+    if (graphShape !== 'natural') {
+      // Reheat each move so connected nodes keep following
+      if (simulation) {
+        if (simulation.alpha() < 0.25) simulation.alpha(0.35)
+        if (!tickRunning) { tickCount = 0; stableFrameCount = 0; runTick() }
+      }
+    } else {
+      // Natural: stream the single moved frame so the live channel tracks the drag
+      // (the rest stay exactly where the precalc/cache put them — no collapse)
+      const positions = packPositions()
+      post({ type: 'tick', positions, tickCount, alpha: 0, timestamp: performance.now() }, [positions.buffer])
     }
     return
   }
 
-  // Clear ALL pinned nodes (Reset All) — let sim find new natural equilibrium
+  // Clear ALL pinned nodes. Non-natural reheats to re-form the shape; natural just
+  // clears pins (Reset All restores the cached layout via applyPositions).
   if (type === 'resetPins') {
     for (const node of simNodes) {
       delete node.fx; delete node.fy; delete node.fz
       node.vx = 0; node.vy = 0; node.vz = 0
     }
-    if (simulation) {
+    if (graphShape !== 'natural' && simulation) {
       tickCount = 0; stableFrameCount = 0; simulation.alpha(0.6)
       if (!tickRunning) runTick()
     }
     return
   }
 
-  // Finalise drag — keep fx/fy/fz pinned at dropped position; reheat lightly so surrounding nodes settle
+  // Finalise drag — keep fx/fy/fz at the dropped position.
   if (type === 'unpinNodes') {
     const ids = (e.data as { ids?: string[] }).ids ?? []
     for (const id of ids) {
       const node = simNodes.find(n => n.id === id)
-      // Keep fx/fy/fz — node stays at dropped position; only zero velocity
       if (node) { node.vx = 0; node.vy = 0; node.vz = 0 }
     }
-    if (simulation) {
+    if (graphShape !== 'natural' && simulation) {
       simulation.alpha(0.12)
       if (!tickRunning) { tickCount = 0; stableFrameCount = 0; runTick() }
+    } else {
+      // Natural: emit the settled frame at the dropped position (no sim)
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
     }
     return
   }
@@ -1525,26 +1538,32 @@ self.onmessage = (e: MessageEvent) => {
       // scales relative to it.
       naturalDisplaySpread = currentSpread
       startNaturalPrecalc()
-    } else {
-      if (graphShape === 'natural' && warmCoverage >= 0.9) {
-        // Incremental data change (note add/remove): anchor new nodes beside an
-        // already-placed linked neighbour, then relax gently — streamed per tick
-        // so the pattern reflows in real time. Only the new nodes start off-target,
-        // so the existing shape stays nearly identical.
-        for (const n of simNodes) {
-          if (warmPositions.has(n.id)) continue
-          const anchorId = (adjacencyMap.get(n.id) ?? []).find(id => warmPositions.has(id))
-          const a = anchorId ? warmPositions.get(anchorId) : undefined
-          if (a) {
-            n.x = a.x + (Math.random() - 0.5) * 80
-            n.y = a.y + (Math.random() - 0.5) * 80
-            n.z = a.z + (Math.random() - 0.5) * 80
-          }
+    } else if (graphShape === 'natural') {
+      // Change-only (coverage ≥ 0.9): a few notes added/removed. Reuse every cached
+      // position exactly and place each NEW node beside an already-placed linked
+      // neighbour — analytically, with NO global sim. Running the full sim here would
+      // pull the whole layout toward the sim equilibrium (collapse); analytic
+      // placement keeps the existing shape identical and is instant.
+      let newCount = 0
+      for (const n of simNodes) {
+        if (warmPositions.has(n.id)) continue
+        newCount++
+        const anchorId = (adjacencyMap.get(n.id) ?? []).find(id => warmPositions.has(id))
+        const a = anchorId ? warmPositions.get(anchorId) : undefined
+        if (a) {
+          n.x = a.x + (Math.random() - 0.5) * 80
+          n.y = a.y + (Math.random() - 0.5) * 80
+          n.z = a.z + (Math.random() - 0.5) * 80
         }
-        const newCount = simNodes.length - warmCount
-        console.log(`[natural-layout] change-only relax: ${newCount} new node(s), ${warmCount} reused`)
-        simulation.alpha(0.25)
+        // unlinked new node (no placed neighbour): keep its init scatter near centre
       }
+      console.log(`[natural-layout] change-only: ${newCount} new node(s) placed, ${warmCount} reused (no recompute)`)
+      naturalDisplaySpread = currentSpread
+      for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
+      tickCount = 0; stableFrameCount = 0; tickRunning = false
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+    } else {
       runTick()
     }
   } else if (type === 'setSpread') {
@@ -1632,12 +1651,20 @@ self.onmessage = (e: MessageEvent) => {
       post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
     }
   } else if (type === 'reheat') {
-    if (simulation) {
+    // Natural: a full-sim reheat would collapse the precalc layout. Keep the layout
+    // and just re-emit it (resolves simDone). Other shapes reheat as before.
+    if (graphShape === 'natural') {
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+    } else if (simulation) {
       tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()
     }
   } else if (type === 'setFilter') {
+    // Natural keeps its fixed precalc/cached layout — a recenter-reheat would
+    // collapse it. Visibility is applied by the renderer, not the layout.
+    if (graphShape === 'natural') return
     const visibleIds = new Set((e.data as { visibleIds?: string[] }).visibleIds ?? [])
     if (simulation && visibleIds.size > 0) {
       let cx = 0, cy = 0, cz = 0, cnt = 0
