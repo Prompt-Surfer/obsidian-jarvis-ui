@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { GraphNode, GraphLink, GraphData } from './useVaultGraph'
+import { loadLayout, saveLayout } from '../lib/layoutCache'
 
 export interface NodePosition {
   id: string
@@ -70,6 +71,10 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   const simTickTimestampsRef = useRef<number[]>([])
   const workerLatencySamplesRef = useRef<number[]>([])
   const prevArrRef = useRef<Float32Array | null>(null)
+  // Only persist the layout to cache on a layout-defining 'end' (precalc or
+  // add/remove relax) — not on transient drag/reheat/spread/filter emits, so the
+  // cache stays the canonical layout that reload + Reset All restore.
+  const cacheNextEndRef = useRef(false)
 
   useEffect(() => {
     if (!graphData?.nodes || !graphData?.links) return
@@ -192,20 +197,48 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
         if (type === 'end') {
           setSimDone(true)
           setLayoutProgress(null)
+          // Persist the settled natural layout so the next load/reset reuses it
+          // instead of recomputing. Only on a layout-defining settle.
+          if (cacheNextEndRef.current && graphShape === 'natural' && live.arr && live.ids.length > 0 && live.arr.length === live.ids.length * 3) {
+            saveLayout(live.ids, live.arr)
+            cacheNextEndRef.current = false
+          }
         }
       }
     }
 
-    // Warm restart: pass existing positions whenever we have them. On shape-only
-    // changes nodes start near their current locations; on data changes (note
-    // add/remove) the worker uses coverage to warm-relax in real time instead of
-    // recomputing the whole layout from scratch.
+    // Decide the warm-start positions handed to the worker:
+    //  - natural, fresh load OR switching in from another shape → use the persistent
+    //    cache (the in-memory channel is empty on reload, or holds the *other* shape's
+    //    positions on a switch, so we must not reuse it). With cache, the worker
+    //    applies it instantly / change-only relaxes; without, it precalcs.
+    //  - natural, same-graph re-init (data add/remove) → use current live positions.
+    //  - non-natural → use current live positions when present.
     const live0 = livePositionsRef.current
-    const existingPositions = live0.arr && live0.ids.length > 0 && live0.arr.length === live0.ids.length * 3
-      ? live0.ids.map((id, i) => ({ id, x: live0.arr![i * 3], y: live0.arr![i * 3 + 1], z: live0.arr![i * 3 + 2] }))
-      : undefined
+    const liveValid = !!(live0.arr && live0.ids.length > 0 && live0.arr.length === live0.ids.length * 3)
+    let existingPositions: Array<{ id: string; x: number; y: number; z: number }> | undefined
+    const fromLive = () => live0.ids.map((id, i) => ({ id, x: live0.arr![i * 3], y: live0.arr![i * 3 + 1], z: live0.arr![i * 3 + 2] }))
+
+    if (graphShape === 'natural' && (isShapeOnlyChange || !liveValid)) {
+      const cached = loadLayout()
+      if (cached) {
+        live0.ids = cached.ids
+        live0.arr = cached.arr
+        live0.tiers = cached.ids.map(() => 'regular') // tiers re-announced by the worker's nodeOrder
+        live0.version = 0
+        existingPositions = cached.ids.map((id, i) => ({ id, x: cached.arr[i * 3], y: cached.arr[i * 3 + 1], z: cached.arr[i * 3 + 2] }))
+      } else {
+        existingPositions = undefined // no cache → full precalc (don't reuse stale/other-shape positions)
+      }
+    } else {
+      existingPositions = liveValid ? fromLive() : undefined
+    }
 
     if (DEBUG) performance.mark('t1-worker-init-send')
+
+    // An init defines/updates the layout (precalc or add/remove relax) → its
+    // settle should refresh the cache.
+    cacheNextEndRef.current = graphShape === 'natural'
 
     setLayoutProgress(null)
     worker.postMessage({
@@ -229,18 +262,34 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   }, [graphData, graphShape, topNTags, tagBoxSizeScale])
 
   const reheat = useCallback(() => {
+    cacheNextEndRef.current = true // a reheat produces a fresh canonical layout worth caching
     workerRef.current?.postMessage({ type: 'reheat' })
     setSimDone(false)
   }, [])
 
   const setSpread = useCallback((value: number) => {
     spreadRef.current = value
+    cacheNextEndRef.current = false // spread is a transient zoom, not a layout change
     workerRef.current?.postMessage({ type: 'setSpread', spread: value })
     setSimDone(false)
   }, [])
 
   const setFilter = useCallback((visibleIds: string[]) => {
+    // Note: setFilter(all-active) runs on every load — must NOT suppress caching.
     workerRef.current?.postMessage({ type: 'setFilter', visibleIds })
+  }, [])
+
+  // Reset All: restore the cached canonical layout instead of recomputing.
+  // Reapplies positions in the worker (no simulation) and rebases spread.
+  const resetLayout = useCallback((spread: number) => {
+    const cached = loadLayout()
+    cacheNextEndRef.current = false
+    spreadRef.current = spread
+    const w = workerRef.current
+    if (!w || !cached) return false
+    w.postMessage({ type: 'applyPositions', ids: cached.ids, positions: cached.arr, spread })
+    setSimDone(true)
+    return true
   }, [])
 
   const pinNodes = useCallback((pinned: Array<{ id: string; x: number; y: number; z: number }>) => {
@@ -248,6 +297,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   }, [])
 
   const moveNodes = useCallback((pinned: Array<{ id: string; x: number; y: number; z: number }>) => {
+    cacheNextEndRef.current = false // dragging is transient — keep the cached canonical layout
     workerRef.current?.postMessage({ type: 'moveNodes', pinned })
   }, [])
 
@@ -259,5 +309,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, perfRef }
+  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
 }

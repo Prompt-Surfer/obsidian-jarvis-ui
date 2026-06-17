@@ -1507,7 +1507,19 @@ self.onmessage = (e: MessageEvent) => {
       : 0
     const warmCoverage = simNodes.length > 0 ? warmCount / simNodes.length : 0
 
-    if (graphShape === 'natural' && (initReason === 'shape' || warmCoverage < 0.9)) {
+    const allWarm = warmCount === simNodes.length && simNodes.length > 0
+    if (graphShape === 'natural' && allWarm) {
+      // Cache hit, no new nodes (reload / shape-switch back to natural / a few notes
+      // removed): every node already sits at its cached position (simNodes were
+      // initialised from warmPositions, which the hook guarantees is the natural
+      // layout). Emit one final frame instantly — no precalc, no relax.
+      console.log('[natural-layout] cache-hit: instant apply (no recompute)')
+      naturalDisplaySpread = currentSpread
+      for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
+      tickCount = 0; stableFrameCount = 0; tickRunning = false
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+    } else if (graphShape === 'natural' && (initReason === 'shape' || warmCoverage < 0.9)) {
       // Cold start or shape switch into natural → silent precalc + one-shot final frame.
       // The precalc geometry defines the baseline for this spread value; spread-adjust
       // scales relative to it.
@@ -1517,7 +1529,8 @@ self.onmessage = (e: MessageEvent) => {
       if (graphShape === 'natural' && warmCoverage >= 0.9) {
         // Incremental data change (note add/remove): anchor new nodes beside an
         // already-placed linked neighbour, then relax gently — streamed per tick
-        // so the pattern reflows in real time
+        // so the pattern reflows in real time. Only the new nodes start off-target,
+        // so the existing shape stays nearly identical.
         for (const n of simNodes) {
           if (warmPositions.has(n.id)) continue
           const anchorId = (adjacencyMap.get(n.id) ?? []).find(id => warmPositions.has(id))
@@ -1528,6 +1541,8 @@ self.onmessage = (e: MessageEvent) => {
             n.z = a.z + (Math.random() - 0.5) * 80
           }
         }
+        const newCount = simNodes.length - warmCount
+        console.log(`[natural-layout] change-only relax: ${newCount} new node(s), ${warmCount} reused`)
         simulation.alpha(0.25)
       }
       runTick()
@@ -1588,6 +1603,33 @@ self.onmessage = (e: MessageEvent) => {
       tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()
+    }
+  } else if (type === 'applyPositions') {
+    // Reset All / cache restore: snap nodes to the given cached positions and emit
+    // one frame — no simulation, no recompute. Positions are matched by id, so a
+    // stale cache (missing/extra ids) degrades gracefully (unmatched nodes keep
+    // their current spot).
+    const data = e.data as { ids?: string[]; positions?: Float32Array; spread?: number }
+    if (data.ids && data.positions && simulation) {
+      const posByIndex = new Map<string, number>()
+      data.ids.forEach((id, i) => posByIndex.set(id, i))
+      const arr = data.positions
+      for (const n of simNodes) {
+        const i = posByIndex.get(n.id)
+        if (i !== undefined && i * 3 + 2 < arr.length) {
+          n.x = arr[i * 3]; n.y = arr[i * 3 + 1]
+          ;(n as WorkerNode & { z?: number }).z = arr[i * 3 + 2]
+        }
+        n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0
+      }
+      // The applied positions become the spread baseline (subsequent spread-adjust
+      // scales relative to this), keeping the spread slider and geometry in sync.
+      if (typeof data.spread === 'number') { naturalDisplaySpread = data.spread; currentSpread = data.spread }
+      console.log('[natural-layout] applyPositions: restored cached layout (no recompute)')
+      simulation.alpha(0)
+      tickCount = 0; stableFrameCount = 0; tickRunning = false
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
     }
   } else if (type === 'reheat') {
     if (simulation) {

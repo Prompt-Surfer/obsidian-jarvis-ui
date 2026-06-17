@@ -119,7 +119,7 @@ function App() {
   })
   const [tagBoxTopN, setTagBoxTopN] = useState(2)
   const [tagBoxSizeScale, setTagBoxSizeScale] = useState(2.0)
-  const { positions, livePositions, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
+  const { positions, livePositions, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
   const { presets, save: savePreset, remove: removePreset, load: loadPreset } = usePresets()
@@ -616,7 +616,6 @@ function App() {
   const handleResetAll = useCallback(() => {
     graphRef.current?.resetCamera()
     setSpreadState(2.0)
-    setSpread(2.0)
     setNodeOpacity(1.0)
     setMinNodeSize(1.0)
     setMaxNodeSize(1.5)
@@ -624,11 +623,19 @@ function App() {
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
+    const wasNatural = graphShape === 'natural'
     setGraphShape('natural')
     try { localStorage.setItem('jarvis-graph-shape', 'natural') } catch { /* storage unavailable */ }
-    resetPins() // clear all dragged node pins so layout reflows naturally
-    reheat()
-  }, [setSpread, reheat, resetPins])
+    resetPins() // clear all dragged node pins
+    // Natural + already on natural: restore the cached layout (no recompute). Falls
+    // back to a reheat only if there's no cache. A shape switch into natural is
+    // handled by the init path (which itself reuses the cache).
+    if (wasNatural) {
+      if (!resetLayout(2.0)) { setSpread(2.0); reheat() }
+    } else {
+      setSpread(2.0)
+    }
+  }, [graphShape, setSpread, reheat, resetPins, resetLayout])
 
   const handlePresetSave = useCallback((name: string) => {
     const settings: PresetSettings = {
