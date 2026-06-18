@@ -71,6 +71,14 @@ type WorkerSimulation = ReturnType<typeof forceSimulation>
 let simulation: WorkerSimulation | null = null
 let simNodes: WorkerNode[] = []
 let tierMap = new Map<string, 'regular' | 'supernode' | 'ultranode'>()
+// Module-scope adjacency + id→node lookup (populated per init), used by the
+// localized drag relax in the pin/move handlers.
+let workerAdjacency = new Map<string, string[]>()
+let nodeByIdMap = new Map<string, WorkerNode>()
+// Localized drag state: the neighbourhood that springs along with the grabbed
+// node, plus the link constraints (PBD) solved during the drag. Empty when idle.
+let dragMovableSet = new Set<string>()
+let dragLinks: Array<{ a: WorkerNode; b: WorkerNode; rest: number; aMove: boolean; bMove: boolean }> = []
 let tickCount = 0
 let tickRunning = false
 let initGeneration = 0 // bumped per init; stale precalc chunk loops abort when it moves
@@ -450,6 +458,81 @@ function packPositions(): Float32Array {
   return arr
 }
 
+// ── Localized drag relax (PBD) ───────────────────────────────────────────────
+// When a natural node is dragged, only its 1–2 hop neighbourhood springs along;
+// every other node is a fixed anchor, so the global shape never collapses. The
+// grabbed node is pinned to the cursor; its neighbours satisfy link-length
+// constraints (rest = length at grab time) via a few position-based-dynamics
+// iterations — cheap (bounded set) and stable.
+const DRAG_MAX_MOVABLE = 250
+const DRAG_HOPS = 2
+const DRAG_STIFFNESS = 0.5
+const DRAG_ITERS = 6
+
+function buildDragNeighborhood(draggedIds: string[]): void {
+  const dragged = new Set(draggedIds)
+  dragMovableSet = new Set()
+  let frontier = [...dragged]
+  for (let h = 0; h < DRAG_HOPS && dragMovableSet.size < DRAG_MAX_MOVABLE; h++) {
+    const next: string[] = []
+    for (const id of frontier) {
+      const neigh = workerAdjacency.get(id)
+      if (!neigh) continue
+      for (const m of neigh) {
+        if (dragged.has(m) || dragMovableSet.has(m)) continue
+        dragMovableSet.add(m); next.push(m)
+        if (dragMovableSet.size >= DRAG_MAX_MOVABLE) break
+      }
+      if (dragMovableSet.size >= DRAG_MAX_MOVABLE) break
+    }
+    frontier = next
+  }
+  // Link constraints touching the movable set (links between two fixed anchors are
+  // irrelevant). rest = current length so the neighbourhood keeps its shape.
+  dragLinks = []
+  const relevant = [...dragMovableSet, ...dragged]
+  const seen = new Set<string>()
+  for (const id of relevant) {
+    for (const mId of workerAdjacency.get(id) ?? []) {
+      const key = id < mId ? `${id} ${mId}` : `${mId} ${id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const aMove = dragMovableSet.has(id)
+      const bMove = dragMovableSet.has(mId)
+      if (!aMove && !bMove) continue
+      const a = nodeByIdMap.get(id), b = nodeByIdMap.get(mId)
+      if (!a || !b) continue
+      const dx = a.x - b.x, dy = a.y - b.y
+      const dz = ((a as WorkerNode & { z?: number }).z ?? 0) - ((b as WorkerNode & { z?: number }).z ?? 0)
+      const rest = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1
+      dragLinks.push({ a, b, rest, aMove, bMove })
+    }
+  }
+}
+
+function solveDragRelax(iterations: number): void {
+  for (let it = 0; it < iterations; it++) {
+    for (const c of dragLinks) {
+      const a = c.a, b = c.b
+      const az = (a as WorkerNode & { z?: number }).z ?? 0
+      const bz = (b as WorkerNode & { z?: number }).z ?? 0
+      let dx = b.x - a.x, dy = b.y - a.y, dz = bz - az
+      let L = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      if (L < 1e-6) { dx = 1e-3; dy = 0; dz = 0; L = 1e-3 }
+      const diff = ((L - c.rest) / L) * DRAG_STIFFNESS
+      const wa = c.aMove ? (c.bMove ? 0.5 : 1) : 0
+      const wb = c.bMove ? (c.aMove ? 0.5 : 1) : 0
+      if (wa) { a.x += dx * diff * wa; a.y += dy * diff * wa; (a as WorkerNode & { z?: number }).z = az + dz * diff * wa }
+      if (wb) { b.x -= dx * diff * wb; b.y -= dy * diff * wb; (b as WorkerNode & { z?: number }).z = bz - dz * diff * wb }
+    }
+  }
+}
+
+function clearDragState(): void {
+  dragMovableSet = new Set()
+  dragLinks = []
+}
+
 function runTick() {
   // Stop when max ticks reached OR simulation has converged (alpha below threshold)
   if (!simulation || tickCount >= MAX_TICKS || simulation.alpha() < ALPHA_MIN) {
@@ -571,11 +654,10 @@ self.onmessage = (e: MessageEvent) => {
   }
 
   // Pin nodes at specific positions (drag start)
-  // Natural drag is ANALYTIC: move only the grabbed node and stream that one frame.
-  // Running the full d3 sim here would pull all 10k nodes toward the sim's own
-  // equilibrium (a blob) — the precalc layout is not that equilibrium — so a
-  // sustained drag would collapse the shape. Other shapes keep the sim reheat
-  // (their shape force re-forms the layout, so no collapse).
+  // Natural drag is LOCALIZED: the grabbed node is pinned to the cursor and only its
+  // 1–2 hop neighbourhood springs along (PBD); every other node is a fixed anchor,
+  // so the global shape can't collapse (running the full d3 sim here would pull all
+  // 10k nodes toward the sim's blob equilibrium). Other shapes keep the sim reheat.
   if (type === 'pinNodes') {
     const pinned = (e.data as { pinned?: Array<{ id: string; x: number; y: number; z: number }> }).pinned ?? []
     for (const p of pinned) {
@@ -585,6 +667,9 @@ self.onmessage = (e: MessageEvent) => {
     if (graphShape !== 'natural' && simulation) {
       tickCount = 0; stableFrameCount = 0; simulation.alpha(0.4)
       if (!tickRunning) runTick()
+    } else {
+      // Capture the local neighbourhood + link rest-lengths for the drag.
+      buildDragNeighborhood(pinned.map(p => p.id))
     }
     const positions = packPositions()
     post({ type: 'tick', positions, tickCount, alpha: simulation?.alpha() ?? 0, timestamp: performance.now() }, [positions.buffer])
@@ -604,8 +689,9 @@ self.onmessage = (e: MessageEvent) => {
         if (!tickRunning) { tickCount = 0; stableFrameCount = 0; runTick() }
       }
     } else {
-      // Natural: stream the single moved frame so the live channel tracks the drag
-      // (the rest stay exactly where the precalc/cache put them — no collapse)
+      // Natural: spring the local neighbourhood toward the moved node (PBD), then
+      // stream the frame. The rest of the graph is untouched — no collapse.
+      solveDragRelax(DRAG_ITERS)
       const positions = packPositions()
       post({ type: 'tick', positions, tickCount, alpha: 0, timestamp: performance.now() }, [positions.buffer])
     }
@@ -619,6 +705,7 @@ self.onmessage = (e: MessageEvent) => {
       delete node.fx; delete node.fy; delete node.fz
       node.vx = 0; node.vy = 0; node.vz = 0
     }
+    clearDragState()
     if (graphShape !== 'natural' && simulation) {
       tickCount = 0; stableFrameCount = 0; simulation.alpha(0.6)
       if (!tickRunning) runTick()
@@ -637,7 +724,10 @@ self.onmessage = (e: MessageEvent) => {
       simulation.alpha(0.12)
       if (!tickRunning) { tickCount = 0; stableFrameCount = 0; runTick() }
     } else {
-      // Natural: emit the settled frame at the dropped position (no sim)
+      // Natural: a few more relax iterations to settle the neighbourhood, then emit
+      // the final frame and clear drag state (no global sim).
+      solveDragRelax(DRAG_ITERS * 2)
+      clearDragState()
       const positions = packPositions()
       post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
     }
@@ -682,6 +772,9 @@ self.onmessage = (e: MessageEvent) => {
       source: l.source,
       target: l.target,
     }))
+
+    nodeByIdMap = new Map(simNodes.map(n => [n.id, n]))
+    dragMovableSet = new Set(); dragLinks = [] // any in-flight drag is invalidated by re-init
 
     // Compute connected components via union-find to identify isolated sub-clusters
     const allNodeIds = simNodes.map(n => n.id)
@@ -745,6 +838,7 @@ self.onmessage = (e: MessageEvent) => {
       adjacencyMap.get(l.source)?.push(l.target)
       adjacencyMap.get(l.target)?.push(l.source)
     }
+    workerAdjacency = adjacencyMap // expose for the localized drag relax
 
     // Supernodes: top 15% by degree
     const sortedDegreeValues = Array.from(degreeMap.values()).sort((a, b) => a - b)

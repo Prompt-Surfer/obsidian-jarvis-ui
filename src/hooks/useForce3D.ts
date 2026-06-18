@@ -293,6 +293,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   }, [])
 
   const pinNodes = useCallback((pinned: Array<{ id: string; x: number; y: number; z: number }>) => {
+    cacheNextEndRef.current = false // dragging is transient — keep the cached canonical layout
     workerRef.current?.postMessage({ type: 'pinNodes', pinned })
   }, [])
 
