@@ -6,6 +6,7 @@ import fs from 'fs'
 import MiniSearch from 'minisearch'
 import os from 'os'
 import path from 'path'
+import yaml from 'js-yaml'
 import { Worker } from 'worker_threads'
 import { fileURLToPath } from 'url'
 import { buildEmbeddingIndex, semanticSearch, getSemanticStatus, resetEmbeddingIndex } from './embeddings.js'
@@ -15,35 +16,43 @@ const __filename = fileURLToPath(import.meta.url)
 void __filename // ESM compat shim
 
 const app = express()
-const PORT = 3001
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-const CONFIG_PATH = path.join(os.homedir(), '.jarvis-config.json')
+const YAML_CONFIG_PATH = path.join(os.homedir(), '.jarvis-config.yaml')
 const FALLBACK_VAULT_PATH = process.env.JARVIS_VAULT_PATH || process.env.VAULT_PATH || path.join(os.homedir(), 'obsidian', 'otacon-vault')
+const DEFAULT_API_PORT = 3002
+const DEFAULT_VITE_PORT = 5173
 
-interface JarvisConfig {
-  vaultPath: string
+interface JarvisYamlConfig {
+  server: { port: number }
+  vite: { port: number }
+  vault: { path: string }
 }
 
-function loadConfig(): JarvisConfig {
+const DEFAULT_CONFIG: JarvisYamlConfig = {
+  server: { port: DEFAULT_API_PORT },
+  vite: { port: DEFAULT_VITE_PORT },
+  vault: { path: FALLBACK_VAULT_PATH },
+}
+
+function loadConfig(): JarvisYamlConfig {
   try {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf-8')
-    const cfg = JSON.parse(raw) as Partial<JarvisConfig>
-    if (cfg.vaultPath && typeof cfg.vaultPath === 'string' && cfg.vaultPath.trim()) {
-      return { vaultPath: cfg.vaultPath.trim() }
+    const raw = fs.readFileSync(YAML_CONFIG_PATH, 'utf-8')
+    const cfg = yaml.load(raw) as Partial<JarvisYamlConfig>
+    return {
+      server: { port: cfg.server?.port ?? DEFAULT_API_PORT },
+      vite: { port: cfg.vite?.port ?? DEFAULT_VITE_PORT },
+      vault: { path: cfg.vault?.path ?? FALLBACK_VAULT_PATH },
     }
   } catch {
-    // config missing or malformed — fall through
+    return DEFAULT_CONFIG
   }
-  return { vaultPath: FALLBACK_VAULT_PATH }
 }
 
 function isConfigured(): boolean {
   try {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf-8')
-    const cfg = JSON.parse(raw) as Partial<JarvisConfig>
-    return !!(cfg.vaultPath && typeof cfg.vaultPath === 'string' && cfg.vaultPath.trim())
+    const raw = fs.readFileSync(YAML_CONFIG_PATH, 'utf-8')
+    const cfg = yaml.load(raw) as Partial<JarvisYamlConfig>
+    return !!(cfg.vault?.path && typeof cfg.vault.path === 'string' && cfg.vault.path.trim())
   } catch {
     return false
   }
@@ -304,11 +313,10 @@ function makeSnippet(body: string, query: string): string {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 app.get('/api/config', (_req, res) => {
-  const configured = isConfigured()
+  const config = loadConfig()
   res.json({
-    configured,
-    vaultPath: configured ? loadConfig().vaultPath : null,
-    platform: process.platform,
+    vaultPath: config.vault.path,
+    configured: isConfigured(),
     suggestedPaths: getSuggestedPaths(),
   })
 })
@@ -331,7 +339,7 @@ app.post('/api/config', (req, res) => {
     return
   }
   try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ vaultPath: trimmed }, null, 2), 'utf-8')
+    fs.writeFileSync(YAML_CONFIG_PATH, yaml.dump({ server: { port: DEFAULT_API_PORT }, vite: { port: DEFAULT_VITE_PORT }, vault: { path: trimmed } }), 'utf-8')
     // Reset all state so next /api/graph triggers a fresh build
     cachedGraph = null
     cachedVaultPath = null
@@ -393,7 +401,7 @@ app.get('/api/config/validate', (req, res) => {
 // ─── Graph endpoint (async) ───────────────────────────────────────────────────
 
 app.get('/api/graph', (_req, res) => {
-  const vaultPath = loadConfig().vaultPath
+  const vaultPath = loadConfig().vault.path
 
   if (isCacheValid(vaultPath)) {
     res.json(cachedGraph)
@@ -435,7 +443,7 @@ app.get('/api/note', (req, res) => {
     return
   }
 
-  const vaultPath = loadConfig().vaultPath
+  const vaultPath = loadConfig().vault.path
   const fullPath = path.join(vaultPath, notePath)
   const resolved = path.resolve(fullPath)
   const vaultResolved = path.resolve(vaultPath)
@@ -528,7 +536,7 @@ app.post('/api/note', (req, res) => {
     return
   }
 
-  const vaultPath = loadConfig().vaultPath
+  const vaultPath = loadConfig().vault.path
   const fullPath = path.join(vaultPath, notePath)
   const resolved = path.resolve(fullPath)
   const vaultResolved = path.resolve(vaultPath)
@@ -600,14 +608,13 @@ app.get('/api/semantic-status', (_req, res) => {
   res.json(getSemanticStatus())
 })
 
-app.listen(PORT, () => {
-  console.log(`Jarvis API server running on http://localhost:${PORT}`)
-  const cfg = loadConfig()
-  console.log(`Vault: ${cfg.vaultPath}`)
-  console.log(`Config: ${isConfigured() ? CONFIG_PATH : '(none — using fallback)'}`)
+const config = loadConfig()
+app.listen(config.server.port, () => {
+  console.log(`Jarvis API server running on http://localhost:${config.server.port}`)
+  console.log(`Vault: ${config.vault.path}`)
+  console.log(`Config: ${isConfigured() ? YAML_CONFIG_PATH : '(none — using fallback)'}`)
 
-  startGraphBuild(cfg.vaultPath)
-  watchVault(cfg.vaultPath)
+  startGraphBuild(config.vault.path)
+  watchVault(config.vault.path)
 })
 
-export default app
