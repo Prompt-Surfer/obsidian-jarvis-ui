@@ -44,12 +44,29 @@ let indexReady = false
 let indexedCount = 0
 let totalCount = 0
 
+// If the transformers/sharp pipeline can't load (e.g. missing native binary for
+// this arch), remember it so we fail fast ONCE instead of re-throwing per note.
+// Without this, a broken `sharp` install made buildEmbeddingIndex log a full
+// stack trace for every note in the vault (~58/sec, 400k+ log lines) and cache
+// zero embeddings — flooding logs and threatening the disk.
+let pipelineFailed = false
+
+// Cap noisy per-note embed-failure logging within a single build.
+const MAX_EMBED_ERROR_LOGS = 10
+let embedFailures = 0
+
 // ─── Pipeline ──────────────────────────────────────────────────────────────────
 
 async function ensurePipeline(): Promise<void> {
   if (pipeline) return
-  const { pipeline: createPipeline } = await import('@xenova/transformers')
-  pipeline = await createPipeline('feature-extraction', MODEL_NAME)
+  if (pipelineFailed) throw new Error('embedding pipeline unavailable (load failed earlier)')
+  try {
+    const { pipeline: createPipeline } = await import('@xenova/transformers')
+    pipeline = await createPipeline('feature-extraction', MODEL_NAME)
+  } catch (err) {
+    pipelineFailed = true
+    throw err
+  }
 }
 
 async function getEmbedding(text: string): Promise<number[]> {
@@ -110,8 +127,21 @@ export async function buildEmbeddingIndex(notes: NoteInput[]): Promise<void> {
   totalCount = notes.length
   indexedCount = 0
   indexReady = false
+  pipelineFailed = false // retry the model each build (e.g. after a deps fix)
+  embedFailures = 0
 
   console.log(`[embeddings] Building index for ${notes.length} notes...`)
+
+  // Load the model ONCE up front. If it can't load (e.g. missing native
+  // dependency), warn a single time and skip embeddings entirely rather than
+  // failing — and logging a stack trace — once per note across the whole vault.
+  try {
+    await ensurePipeline()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+    console.warn(`[embeddings] Model unavailable — semantic search disabled for this build: ${msg}`)
+    return
+  }
 
   for (const note of notes) {
     indexedCount++
@@ -132,7 +162,15 @@ export async function buildEmbeddingIndex(notes: NoteInput[]): Promise<void> {
       const embedding = await getEmbedding(text)
       cache.entries[note.id] = { mtime: note.mtime, embedding }
     } catch (err) {
-      console.error(`[embeddings] Failed to embed "${note.id}":`, err)
+      // Guard against runaway per-note spam: log the first few, then a summary.
+      embedFailures++
+      if (embedFailures <= MAX_EMBED_ERROR_LOGS) {
+        const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+        console.error(`[embeddings] Failed to embed "${note.id}": ${msg}`)
+        if (embedFailures === MAX_EMBED_ERROR_LOGS) {
+          console.error('[embeddings] Further per-note embed failures suppressed for this build.')
+        }
+      }
     }
 
     // Periodic save + yield to event loop every 50 notes
