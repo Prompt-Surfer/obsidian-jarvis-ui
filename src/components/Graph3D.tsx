@@ -200,6 +200,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   const pendingMoveRef = useRef<Array<{ id: string; x: number; y: number; z: number }> | null>(null)
   const moveRafRef = useRef<number | null>(null)
   const lastMaxDistUpdateRef = useRef(0)
+  const lastMaxDistRafRef = useRef(0) // RAF-loop throttle for spread-aware maxDistance
   const selectedBracketRef = useRef<THREE.LineSegments | null>(null)
   const selectedTitleSpriteRef = useRef<THREE.Sprite | null>(null)
   const [sceneReady, setSceneReady] = useState(false)
@@ -331,6 +332,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     controls.rotateSpeed = 3.0
     controls.zoomSpeed = 1.2
     controls.noPan = true              // panning off (matches prior behaviour)
+    controls.noZoom = true             // built-in wheel zoom off — replaced by zoom-to-cursor below
     controls.staticMoving = false      // damped (inertial) rotation
     controls.dynamicDampingFactor = 0.15
     controls.minDistance = NODE_RADIUS
@@ -451,11 +453,59 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     window.addEventListener('resize', onResize)
 
+    // Zoom-to-cursor: TrackballControls' built-in wheel zoom (noZoom above) dollies
+    // toward the target, losing zoom-to-cursor. Reimplement it here — dolly the camera
+    // AND target toward the world point under the cursor so that point stays fixed.
+    const camDir = new THREE.Vector3()
+    const zoomPlane = new THREE.Plane()
+    const pivot = new THREE.Vector3()
+    const zoomRaycaster = new THREE.Raycaster()
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const cam = cameraRef.current
+      const ctrls = controlsRef.current
+      if (!cam || !ctrls) return
+
+      // Cursor → normalized device coords
+      const rect = canvas.getBoundingClientRect()
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+
+      // World point under the cursor: intersect the ray with a plane through the
+      // target facing the camera. Fall back to the ray point at target distance.
+      zoomRaycaster.setFromCamera(ndc, cam)
+      cam.getWorldDirection(camDir)
+      zoomPlane.setFromNormalAndCoplanarPoint(camDir, ctrls.target)
+      if (!zoomRaycaster.ray.intersectPlane(zoomPlane, pivot)) {
+        zoomRaycaster.ray.at(cam.position.distanceTo(ctrls.target), pivot)
+      }
+
+      // Zoom factor from wheel delta (deltaY<0 = wheel up = zoom in → factor<1)
+      const factor = Math.pow(0.95, -e.deltaY * 0.01)
+
+      // Dolly camera + target toward the pivot — keeps the cursor point fixed
+      cam.position.sub(pivot).multiplyScalar(factor).add(pivot)
+      ctrls.target.sub(pivot).multiplyScalar(factor).add(pivot)
+
+      // Clamp camera→target distance to the controls' min/max range
+      const dist = cam.position.distanceTo(ctrls.target)
+      const clamped = Math.min(Math.max(dist, ctrls.minDistance), ctrls.maxDistance)
+      if (clamped !== dist && dist > 0) {
+        cam.position.sub(ctrls.target).multiplyScalar(clamped / dist).add(ctrls.target)
+      }
+
+      isDirtyRef.current = true
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+
     console.debug('[Graph3D] Scene setup complete — sceneReady=true')
 
     return () => {
       console.debug('[Graph3D] Scene cleanup — disposing renderer')
       window.removeEventListener('resize', onResize)
+      canvas.removeEventListener('wheel', onWheel)
       cancelAnimationFrame(frameRef.current)
       renderer.dispose()
     }
@@ -854,17 +904,19 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         const bsSphere = new THREE.Sphere()
         bsBox.getBoundingSphere(bsSphere)
         const fovRad = cameraRef.current.fov * Math.PI / 180
-        controlsRef.current.maxDistance = (bsSphere.radius * 1.1) / Math.tan(fovRad / 2)
-        // Keep the starfield far outside the shape at any spread: shell radius ≈ 8×
-        // the graph's bounding radius (base star shell is ~6500 units). Without this,
-        // spreading the graph to 10× pushes nodes out to the stars → "stars too close".
+        // Keep the starfield far outside the shape at any spread: shell radius ≈ 12×
+        // the graph's bounding radius (base ~6500 units), so even at max spread the
+        // camera stays INSIDE the star sphere (never viewing the whole sphere from outside).
         {
           const STAR_BASE_RADIUS = 6500
-          const target = Math.max(STAR_BASE_RADIUS, bsSphere.radius * 8)
-          const s = target / STAR_BASE_RADIUS
+          const starRadius = Math.max(STAR_BASE_RADIUS, bsSphere.radius * 12)
+          const s = starRadius / STAR_BASE_RADIUS
           starsRef.current?.scale.setScalar(s)
           for (const g of galaxySpritesRef.current) (g as unknown as THREE.Object3D).scale.setScalar(s)
         }
+        // Fit maxDistance to the NODE extent (NOT the star shell) so zoom-out stops at the
+        // graph and the view stays immersed inside the surrounding star sphere.
+        controlsRef.current.maxDistance = (bsSphere.radius * 1.1) / Math.tan(fovRad / 2)
       }
     }
 
@@ -1004,6 +1056,27 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       // PERF: controls.update() runs every frame to advance damping; the 'change' event fires
       // automatically during damping decay, keeping isDirtyRef true until camera fully settles
       localControls.update()
+
+      // Spread-aware zoom-out: Spread animates via this RAF loop (not React state), so the
+      // effect-based maxDistance clamp goes stale and you couldn't zoom out after raising
+      // Spread (had to Reset View). Re-fit maxDistance to the live NODE extent here (so you
+      // can zoom out to fit the spread-scaled graph), throttled ~500ms; expand-only so it
+      // never fights a zoom-in. Fit is the node extent (NOT the star shell) so the view stays
+      // INSIDE the surrounding star sphere; the 2s effect resets it on spread-down.
+      {
+        const nowMd = performance.now()
+        if (nowMd - lastMaxDistRafRef.current > 500) {
+          lastMaxDistRafRef.current = nowMd
+          const cam = cameraRef.current
+          const dm = displayedPositionsRef.current
+          if (cam && dm.size > 0) {
+            let maxR2 = 0
+            for (const [, p] of dm) { const r2 = p.x * p.x + p.y * p.y + p.z * p.z; if (r2 > maxR2) maxR2 = r2 }
+            const fit = (Math.sqrt(maxR2) * 1.15) / Math.tan((cam.fov * Math.PI / 180) / 2)
+            if (fit > localControls.maxDistance) localControls.maxDistance = fit
+          }
+        }
+      }
 
       // P1/P2: pull latest sim positions from the live binary channel. React is not
       // involved — the worker message handler bumps live.version and this loop picks
