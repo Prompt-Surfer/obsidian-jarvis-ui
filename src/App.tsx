@@ -119,7 +119,17 @@ function App() {
   })
   const [tagBoxTopN, setTagBoxTopN] = useState(2)
   const [tagBoxSizeScale, setTagBoxSizeScale] = useState(2.0)
-  const { positions, livePositions, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale)
+  // Declared before useForce3D so the persisted min-distance can be baked into the precalc.
+  const [minDistRegular, setMinDistRegular] = useState(() => {
+    try { const v = localStorage.getItem('jarvis-min-dist-regular'); return v ? parseFloat(v) : 12 } catch { return 12 }
+  })
+  const [minDistSuper, setMinDistSuper] = useState(() => {
+    try { const v = localStorage.getItem('jarvis-min-dist-super'); return v ? parseFloat(v) : 35 } catch { return 35 }
+  })
+  const [minDistUltra, setMinDistUltra] = useState(() => {
+    try { const v = localStorage.getItem('jarvis-min-dist-ultra'); return v ? parseFloat(v) : 70 } catch { return 70 }
+  })
+  const { positions, livePositions, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale, { regular: minDistRegular, super: minDistSuper, ultra: minDistUltra })
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
   const { presets, save: savePreset, remove: removePreset, load: loadPreset } = usePresets()
@@ -306,6 +316,14 @@ function App() {
       .map(n => n.id)
     setFilter(active)
   }, [graphData, timeFilterIds, tagIsolationIds, setFilter, timelapsePlaying])
+
+  // Push per-tier minimum node distance to the worker when the sliders change — DEBOUNCED
+  // so dragging a slider doesn't fire a collide-relax on every input event (which stutters).
+  // The relax runs ~120ms after the user stops moving; Graph3D then glides to it.
+  useEffect(() => {
+    const t = setTimeout(() => setMinDist(minDistRegular, minDistSuper, minDistUltra), 120)
+    return () => clearTimeout(t)
+  }, [minDistRegular, minDistSuper, minDistUltra, setMinDist])
 
   // Compute node degrees from links
   const nodeDegrees = useMemo(() => {
@@ -620,6 +638,12 @@ function App() {
     setMinNodeSize(1.0)
     setMaxNodeSize(1.5)
     setUltraNodeSize(2.5)
+    setMinDistRegular(12); setMinDistSuper(35); setMinDistUltra(70)
+    try {
+      localStorage.setItem('jarvis-min-dist-regular', '12')
+      localStorage.setItem('jarvis-min-dist-super', '35')
+      localStorage.setItem('jarvis-min-dist-ultra', '70')
+    } catch { /* storage unavailable */ }
     setTagIsolationIds(null)
     setTagIsolationTags([])
     setCollapsedNodes(new Set())
@@ -914,6 +938,21 @@ function App() {
         onMinSizeChange={setMinNodeSize}
         onMaxSizeChange={setMaxNodeSize}
         onUltraNodeSizeChange={setUltraNodeSize}
+        minDistRegular={minDistRegular}
+        minDistSuper={minDistSuper}
+        minDistUltra={minDistUltra}
+        onMinDistRegularChange={(v) => {
+          setMinDistRegular(v)
+          try { localStorage.setItem('jarvis-min-dist-regular', String(v)) } catch { /* storage unavailable */ }
+        }}
+        onMinDistSuperChange={(v) => {
+          setMinDistSuper(v)
+          try { localStorage.setItem('jarvis-min-dist-super', String(v)) } catch { /* storage unavailable */ }
+        }}
+        onMinDistUltraChange={(v) => {
+          setMinDistUltra(v)
+          try { localStorage.setItem('jarvis-min-dist-ultra', String(v)) } catch { /* storage unavailable */ }
+        }}
         onResetAll={handleResetAll}
         onResetPosition={() => graphRef.current?.resetCamera()}
         zoomToNode={zoomToNode}

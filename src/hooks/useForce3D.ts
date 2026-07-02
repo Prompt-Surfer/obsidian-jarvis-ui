@@ -48,7 +48,7 @@ export interface LiveSimPositions {
 // often while the sim streams; the final 'end' message always flushes immediately
 const STATE_MIRROR_MS = 250
 
-export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural', topNTags?: number, tagBoxSizeScale?: number) {
+export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural', topNTags?: number, tagBoxSizeScale?: number, minDist?: { regular: number; super: number; ultra: number }) {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
   const [tagBoxes, setTagBoxes] = useState<TagBox[]>([])
@@ -59,6 +59,11 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
 
   // Track current spread so worker init can use it (not stale default)
   const spreadRef = useRef(2.0)
+
+  // Latest per-tier min-distance, so worker init bakes the persisted settings into the
+  // precalc'd layout (not the default). Held as a ref so changing it doesn't re-init.
+  const minDistRef = useRef(minDist)
+  minDistRef.current = minDist
 
   // Live binary position channel consumed by Graph3D's RAF loop (P1/P2)
   const livePositionsRef = useRef<LiveSimPositions>({ ids: [], tiers: [], arr: null, version: 0 })
@@ -252,6 +257,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
       existingPositions,
       reason: isShapeOnlyChange ? 'shape' : 'data',
       spread: spreadRef.current,
+      minDist: minDistRef.current ?? { regular: 12, super: 35, ultra: 70 },
       topN: topNTags ?? 24,
       tagBoxSizeScale: tagBoxSizeScale ?? 1.0,
     })
@@ -277,6 +283,12 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
   const setFilter = useCallback((visibleIds: string[]) => {
     // Note: setFilter(all-active) runs on every load — must NOT suppress caching.
     workerRef.current?.postMessage({ type: 'setFilter', visibleIds })
+  }, [])
+
+  // Per-tier minimum node distance (collide radius) from the UI sliders.
+  const setMinDist = useCallback((regular: number, sup: number, ultra: number) => {
+    cacheNextEndRef.current = false // tuning min-distance nudges the layout — not a canonical resettle
+    workerRef.current?.postMessage({ type: 'setMinDist', regular, super: sup, ultra })
   }, [])
 
   // Reset All: restore the cached canonical layout instead of recomputing.
@@ -310,5 +322,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
+  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
 }

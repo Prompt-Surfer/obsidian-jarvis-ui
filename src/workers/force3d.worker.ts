@@ -26,6 +26,8 @@ interface ForceWasm {
     collideRadius: number, collideTicks: number,
   ): number
   run_polish(n: number, posPtr: number, radius: number, velocityDecay: number, iters: number): void
+  // Per-node-radius collide polish (radiiPtr → f32[n]): bakes per-tier min-distance in Rust.
+  run_polish_tiered(n: number, posPtr: number, radiiPtr: number, velocityDecay: number, iters: number): void
 }
 let wasmPromise: Promise<ForceWasm | null> | null = null
 function loadForceWasm(): Promise<ForceWasm | null> {
@@ -79,6 +81,7 @@ let nodeByIdMap = new Map<string, WorkerNode>()
 // node, plus the link constraints (PBD) solved during the drag. Empty when idle.
 let dragMovableSet = new Set<string>()
 let dragLinks: Array<{ a: WorkerNode; b: WorkerNode; rest: number; aMove: boolean; bMove: boolean }> = []
+let dragNodes: WorkerNode[] = [] // movable + dragged node objects, for the collision pass
 let tickCount = 0
 let tickRunning = false
 let initGeneration = 0 // bumped per init; stale precalc chunk loops abort when it moves
@@ -469,6 +472,38 @@ const DRAG_HOPS = 2
 const DRAG_STIFFNESS = 0.5
 const DRAG_ITERS = 6
 
+// Tier-aware minimum node separation (collide radius). Larger for hubs so
+// supernodes/ultranodes keep clearance. Used by forceCollide AND the drag PBD,
+// so min-distance holds during dragging too. Mutable — the UI adjusts these via
+// the 'setMinDist' message; tierRadius() and the drag PBD read them live.
+let MIN_DIST_REGULAR = 12
+let MIN_DIST_SUPER = 35
+let MIN_DIST_ULTRA = 70
+function tierRadius(id: string): number {
+  const t = tierMap.get(id)
+  return t === 'ultranode' ? MIN_DIST_ULTRA : t === 'supernode' ? MIN_DIST_SUPER : MIN_DIST_REGULAR
+}
+
+// Cheap collide-ONLY relax with the current per-tier radii (no charge/link, so the
+// natural layout is preserved — just re-spaced). Mirrors the Spread pattern: compute
+// once and post a single frame; Graph3D's LERP glide animates it smoothly. Used to
+// apply min-distance changes (slider) and to bake the defaults into the initial layout.
+function collideRelaxTier(ticks: number, emit: boolean): void {
+  if (simNodes.length === 0) return
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sim = forceSimulation(simNodes as any, 3)
+    .force('collide', forceCollide().radius((d: { id: string }) => tierRadius(d.id)))
+    .velocityDecay(0.6)
+    .alpha(0.5)
+    .stop()
+  for (let i = 0; i < ticks; i++) sim.tick()
+  for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
+  if (emit) {
+    const positions = packPositions()
+    post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+  }
+}
+
 function buildDragNeighborhood(draggedIds: string[]): void {
   const dragged = new Set(draggedIds)
   dragMovableSet = new Set()
@@ -494,7 +529,7 @@ function buildDragNeighborhood(draggedIds: string[]): void {
   const seen = new Set<string>()
   for (const id of relevant) {
     for (const mId of workerAdjacency.get(id) ?? []) {
-      const key = id < mId ? `${id} ${mId}` : `${mId} ${id}`
+      const key = id < mId ? `${id}${mId}` : `${mId}${id}`
       if (seen.has(key)) continue
       seen.add(key)
       const aMove = dragMovableSet.has(id)
@@ -508,6 +543,38 @@ function buildDragNeighborhood(draggedIds: string[]): void {
       dragLinks.push({ a, b, rest, aMove, bMove })
     }
   }
+  // Node objects in the drag set — used by the collision pass in solveDragRelax.
+  dragNodes = relevant.map(id => nodeByIdMap.get(id)).filter((n): n is WorkerNode => !!n)
+}
+
+// Tier-aware collision for the drag neighbourhood — pushes overlapping nodes apart to
+// their combined min-distance (hubs get more clearance). Pinned nodes (fx set) stay put.
+function separateDragNodes(passes: number): void {
+  const n = dragNodes.length
+  if (n < 2) return
+  for (let p = 0; p < passes; p++) {
+    for (let i = 0; i < n; i++) {
+      const a = dragNodes[i]
+      const ra = tierRadius(a.id)
+      const aFixed = a.fx != null
+      const az = (a as WorkerNode & { z?: number }).z ?? 0
+      for (let j = i + 1; j < n; j++) {
+        const b = dragNodes[j]
+        const minD = ra + tierRadius(b.id)
+        const bz = (b as WorkerNode & { z?: number }).z ?? 0
+        const dx = b.x - a.x, dy = b.y - a.y, dz = bz - az
+        const L2 = dx * dx + dy * dy + dz * dz
+        if (L2 >= minD * minD || L2 < 1e-9) continue
+        const L = Math.sqrt(L2)
+        const push = (minD - L) / L
+        const bFixed = b.fx != null
+        const wa = aFixed ? 0 : (bFixed ? 1 : 0.5)
+        const wb = bFixed ? 0 : (aFixed ? 1 : 0.5)
+        if (wa) { a.x -= dx * push * wa; a.y -= dy * push * wa; (a as WorkerNode & { z?: number }).z = az - dz * push * wa }
+        if (wb) { b.x += dx * push * wb; b.y += dy * push * wb; (b as WorkerNode & { z?: number }).z = bz + dz * push * wb }
+      }
+    }
+  }
 }
 
 function solveDragRelax(iterations: number): void {
@@ -519,12 +586,22 @@ function solveDragRelax(iterations: number): void {
       let dx = b.x - a.x, dy = b.y - a.y, dz = bz - az
       let L = Math.sqrt(dx * dx + dy * dy + dz * dz)
       if (L < 1e-6) { dx = 1e-3; dy = 0; dz = 0; L = 1e-3 }
-      const diff = ((L - c.rest) / L) * DRAG_STIFFNESS
+      // Don't let the link spring pull two nodes closer than their combined tier
+      // min-distance — otherwise a hub's link springs crush its neighbourhood into a
+      // thin cone. Clamp the effective rest length up to the min-distance so the pull
+      // only shortens links that are still longer than the nodes' clearance.
+      const minSep = tierRadius(a.id) + tierRadius(b.id)
+      const rest = Math.max(c.rest, minSep)
+      const diff = ((L - rest) / L) * DRAG_STIFFNESS
       const wa = c.aMove ? (c.bMove ? 0.5 : 1) : 0
       const wb = c.bMove ? (c.aMove ? 0.5 : 1) : 0
       if (wa) { a.x += dx * diff * wa; a.y += dy * diff * wa; (a as WorkerNode & { z?: number }).z = az + dz * diff * wa }
       if (wb) { b.x -= dx * diff * wb; b.y -= dy * diff * wb; (b as WorkerNode & { z?: number }).z = bz - dz * diff * wb }
     }
+    // Interleave tier collision after every link iteration (not just once at the end)
+    // so the springs never win a whole pass — the neighbourhood fans out and keeps
+    // readable spacing instead of collapsing toward the dragged node.
+    separateDragNodes(4) // enforce tier min-distance so drags don't overlap nodes/hubs
   }
 }
 
@@ -743,6 +820,16 @@ self.onmessage = (e: MessageEvent) => {
     if (e.data.spread != null) currentSpread = e.data.spread
     if (e.data.topN != null) tagBoxTopN = e.data.topN as number
     if (e.data.tagBoxSizeScale != null) tagBoxSizeScale = e.data.tagBoxSizeScale as number
+    // Bake the persisted per-tier min-distance into MIN_DIST_* BEFORE the precalc runs, so
+    // finishPrecalc's per-tier polish uses the user's settings (not the defaults) at load.
+    {
+      const md = e.data.minDist as { regular?: number; super?: number; ultra?: number } | undefined
+      if (md) {
+        if (typeof md.regular === 'number' && Number.isFinite(md.regular)) MIN_DIST_REGULAR = md.regular
+        if (typeof md.super === 'number' && Number.isFinite(md.super)) MIN_DIST_SUPER = md.super
+        if (typeof md.ultra === 'number' && Number.isFinite(md.ultra)) MIN_DIST_ULTRA = md.ultra
+      }
+    }
 
     // Warm restart: if existing positions are provided (shape-only change), reuse them
     // so nodes start near their previous locations instead of random scatter
@@ -840,30 +927,41 @@ self.onmessage = (e: MessageEvent) => {
     }
     workerAdjacency = adjacencyMap // expose for the localized drag relax
 
-    // Supernodes: top 15% by degree
-    const sortedDegreeValues = Array.from(degreeMap.values()).sort((a, b) => a - b)
-    const superThresholdDeg = sortedDegreeValues[Math.floor(sortedDegreeValues.length * 0.85)] ?? 0
+    // Supernodes: folder-index MOCs + high-degree hubs. A node is a supernode if it is
+    // tagged `moc` (with a few real links) OR is simply high-degree — so both the vault's
+    // MOC hubs AND big connector notes that aren't formally MOCs (Openclaw, Lessons:X…)
+    // count. Empty Dataview-only topic MOCs (deg < MOC_MIN_DEGREE) are excluded so they
+    // don't float as disconnected supernode-sized dots.
+    const SUPERNODE_MIN_DEGREE = 15        // high-degree hub, MOC or not
+    const MOC_MIN_DEGREE = 3               // an `moc`-tagged node needs at least this to count as a hub
+    const ULTRANODE_MIN_SUPER_LINKS = 4    // nexus: links to >3 distinct supernodes
+    const mocIds = new Set<string>()
+    for (const n of simNodes) if ((n.tags ?? []).includes('moc')) mocIds.add(n.id)
     const supernodeIds = new Set<string>()
-    if (superThresholdDeg > 0) {
-      for (const [id, deg] of degreeMap) {
-        if (deg >= superThresholdDeg) supernodeIds.add(id)
-      }
+    for (const [id, deg] of degreeMap) {
+      if (deg >= SUPERNODE_MIN_DEGREE || (mocIds.has(id) && deg >= MOC_MIN_DEGREE)) supernodeIds.add(id)
     }
 
-    // Ultranodes: must be supernodes AND >50% of their neighbours are also supernodes (hub-of-hubs)
+    // Ultranodes: a supernode that itself connects to >3 OTHER supernodes (hub-of-hubs / nexus).
+    // Absolute count of distinct supernode neighbours — NOT a ratio. The old ratio test was
+    // trivially satisfied by low-degree nodes (2 of 2 neighbours = ultra) and missed true hubs.
     tierMap = new Map<string, 'regular' | 'supernode' | 'ultranode'>()
     for (const id of allNodeIds) {
       if (!supernodeIds.has(id)) {
         tierMap.set(id, 'regular')
         continue
       }
-      const neighbours = adjacencyMap.get(id) ?? []
-      if (neighbours.length === 0) {
-        tierMap.set(id, 'supernode')
-        continue
+      const superNeighbours = new Set<string>()
+      for (const nid of adjacencyMap.get(id) ?? []) {
+        if (nid !== id && supernodeIds.has(nid)) superNeighbours.add(nid)
       }
-      const supernodeNeighbourCount = neighbours.filter(nid => supernodeIds.has(nid)).length
-      tierMap.set(id, supernodeNeighbourCount / neighbours.length > 0.5 ? 'ultranode' : 'supernode')
+      tierMap.set(id, superNeighbours.size >= ULTRANODE_MIN_SUPER_LINKS ? 'ultranode' : 'supernode')
+    }
+    // dev aid — verify tier counts in devtools console
+    {
+      let s = 0, u = 0
+      for (const t of tierMap.values()) { if (t === 'supernode') s++; else if (t === 'ultranode') u++ }
+      console.log(`[tier] supernodes=${s} ultranodes=${u} (super: moc-tag or deg>=${SUPERNODE_MIN_DEGREE}; ultra: >3 supernode links)`)
     }
     // ────────────────────────────────────────────────────────────────────────
 
@@ -1369,7 +1467,7 @@ self.onmessage = (e: MessageEvent) => {
         ? forceManyBody().strength(naturalChargeStrength as any)
         : forceManyBody().strength(chargeStrength))
       .force('center', forceCenter(0, 0, 0).strength(centerStrength))
-      .force('collide', isShapeDriven ? null : forceCollide(12))
+      .force('collide', isShapeDriven ? null : forceCollide().radius((d: { id: string }) => tierRadius(d.id)))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .force('isolated', isolatedForce as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1439,11 +1537,42 @@ self.onmessage = (e: MessageEvent) => {
         } else {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const polishSim = forceSimulation(simNodes as any, 3)
-            .force('collide', forceCollide(12))
+            .force('collide', forceCollide().radius((d: { id: string }) => tierRadius(d.id)))
             .velocityDecay(0.6)
             .alpha(0.5)
             .stop()
           for (let i = 0; i < 4; i++) polishSim.tick()
+        }
+      }
+
+      // Per-tier min-distance polish in Rust (run_polish_tiered) — each node gets its own
+      // collide radius (supernode/ultranode clearance), so the setting is baked into the
+      // precalc'd layout, fast. Falls back to the JS collide relax if the wasm/export is absent.
+      const polishTieredFullSet = (wasm: ForceWasm | null) => {
+        const n = simNodes.length
+        if (n === 0) return
+        if (wasm && typeof wasm.run_polish_tiered === 'function') {
+          const posPtr = wasm.alloc(n * 3 * 4)
+          const radiiPtr = wasm.alloc(n * 4)
+          const pv = new Float32Array(wasm.memory.buffer, posPtr, n * 3)
+          const rv = new Float32Array(wasm.memory.buffer, radiiPtr, n)
+          for (let i = 0; i < n; i++) {
+            pv[i * 3] = simNodes[i].x ?? 0
+            pv[i * 3 + 1] = simNodes[i].y ?? 0
+            pv[i * 3 + 2] = (simNodes[i] as WorkerNode & { z?: number }).z ?? 0
+            rv[i] = tierRadius(simNodes[i].id)
+          }
+          wasm.run_polish_tiered(n, posPtr, radiiPtr, 0.6, 4)
+          const out = new Float32Array(wasm.memory.buffer, posPtr, n * 3) // re-view: memory may have grown
+          for (let i = 0; i < n; i++) {
+            simNodes[i].x = out[i * 3]
+            simNodes[i].y = out[i * 3 + 1]
+            ;(simNodes[i] as WorkerNode & { z?: number }).z = out[i * 3 + 2]
+          }
+          wasm.dealloc(posPtr, n * 3 * 4)
+          wasm.dealloc(radiiPtr, n * 4)
+        } else {
+          collideRelaxTier(4, false)
         }
       }
 
@@ -1458,7 +1587,7 @@ self.onmessage = (e: MessageEvent) => {
             const a = anchorId ? nodeById.get(anchorId) : undefined
             const n = nodeById.get(id)
             if (!a || !n) { placed.add(id); continue }
-            const r = 45 + Math.random() * 35
+            const r = 45 + Math.random() * 35 // release baseline (v2.16.1) — flat leaf-attach radius
             const th = Math.random() * 2 * Math.PI
             const ph = Math.acos(2 * Math.random() - 1)
             n.x = (a.x ?? 0) + r * Math.sin(ph) * Math.cos(th)
@@ -1479,6 +1608,10 @@ self.onmessage = (e: MessageEvent) => {
         }
         post({ type: 'layoutProgress', pct: 97 })
         polishFullSet(wasm)
+        // Bake per-tier min-distance into the initial layout (the general polish above uses a
+        // scalar radius) so supernode/ultranode clearance is present at START — computed in
+        // Rust (run_polish_tiered). No re-post — the 'end' below carries it.
+        polishTieredFullSet(wasm)
         // Rest state; the full interactive simulation takes over from here
         for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
         simulation?.alpha(0)
@@ -1557,7 +1690,7 @@ self.onmessage = (e: MessageEvent) => {
             if (phase === 1) {
               if (pTicks >= MAX_TICKS || coreSim.alpha() < ALPHA_MIN) {
                 phase = 2
-                coreSim.force('collide', forceCollide(12))
+                coreSim.force('collide', forceCollide().radius((d: { id: string }) => tierRadius(d.id)))
                 continue
               }
               coreSim.tick()
@@ -1570,7 +1703,7 @@ self.onmessage = (e: MessageEvent) => {
               if (total / coreNodes.length < 0.5) {
                 if (++pStable >= 3) {
                   phase = 2
-                  coreSim.force('collide', forceCollide(12))
+                  coreSim.force('collide', forceCollide().radius((d: { id: string }) => tierRadius(d.id)))
                 }
               } else pStable = 0
             } else {
@@ -1754,6 +1887,31 @@ self.onmessage = (e: MessageEvent) => {
       tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
       if (!tickRunning) runTick()
+    }
+  } else if (type === 'setMinDist') {
+    // Per-tier minimum node distance (collide radius) from the UI sliders. tierRadius()
+    // and separateDragNodes read these lets live, so updating them re-tiers both the
+    // forceCollide radius and the drag PBD. Bump the interactive sim's alpha so
+    // forceCollide re-applies the new radii; guard against undefined/NaN.
+    const d = e.data as { regular?: number; super?: number; ultra?: number }
+    if (typeof d.regular === 'number' && Number.isFinite(d.regular)) MIN_DIST_REGULAR = d.regular
+    if (typeof d.super === 'number' && Number.isFinite(d.super)) MIN_DIST_SUPER = d.super
+    if (typeof d.ultra === 'number' && Number.isFinite(d.ultra)) MIN_DIST_ULTRA = d.ultra
+    if (graphShape === 'natural' && simulation) {
+      // Apply via a BOUNDED relax of the full natural forces (charge+link+centre+collide,
+      // collide reads the new tierRadius live). Unlike a collide-only relax — which can only
+      // PUSH APART — the full forces let the layout CONTRACT when min-dist is lowered and
+      // expand when raised. Bounded ticks + a single posted frame (Graph3D glides it) +
+      // App-side debounce = smooth like Spread, with none of the streaming-resettle stutter.
+      simulation.alpha(0.35).stop()
+      for (let i = 0; i < 10; i++) simulation.tick()
+      for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
+      simulation.alpha(0)
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+    } else if (simulation) {
+      simulation.alpha(0.3)
+      if (!tickRunning) { tickCount = 0; runTick() }
     }
   } else if (type === 'setFilter') {
     // Natural keeps its fixed precalc/cached layout — a recenter-reheat would

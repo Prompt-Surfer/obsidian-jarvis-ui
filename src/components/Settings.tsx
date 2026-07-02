@@ -15,6 +15,9 @@ interface SettingsProps {
   minNodeSize: number
   maxNodeSize: number
   ultraNodeSize: number
+  minDistRegular: number
+  minDistSuper: number
+  minDistUltra: number
   onBloomStrengthChange: (value: number) => void
   onOpacityChange: (value: number) => void
   onStarsToggle: (enabled: boolean) => void
@@ -24,6 +27,9 @@ interface SettingsProps {
   onMinSizeChange: (value: number) => void
   onMaxSizeChange: (value: number) => void
   onUltraNodeSizeChange: (value: number) => void
+  onMinDistRegularChange: (value: number) => void
+  onMinDistSuperChange: (value: number) => void
+  onMinDistUltraChange: (value: number) => void
   onResetAll: () => void
   onResetPosition: () => void
   onChangeVault: () => void
@@ -53,6 +59,9 @@ export function Settings({
   minNodeSize,
   maxNodeSize,
   ultraNodeSize,
+  minDistRegular,
+  minDistSuper,
+  minDistUltra,
   onBloomStrengthChange,
   onOpacityChange,
   onStarsToggle,
@@ -62,6 +71,9 @@ export function Settings({
   onMinSizeChange,
   onMaxSizeChange,
   onUltraNodeSizeChange,
+  onMinDistRegularChange,
+  onMinDistSuperChange,
+  onMinDistUltraChange,
   onResetAll,
   onResetPosition,
   onChangeVault,
@@ -243,6 +255,11 @@ export function Settings({
               style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }}
             />
           </div>
+
+          <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70', borderTop: '1px solid #1a3a4a', paddingTop: 14 }}>MIN DISTANCE</div>
+          {sliderRow(`MIN DIST · NODE: ${minDistRegular.toFixed(0)}`, minDistRegular, 4, 40, 1, onMinDistRegularChange)}
+          {sliderRow(`MIN DIST · SUPER: ${minDistSuper.toFixed(0)}`, minDistSuper, 10, 120, 1, onMinDistSuperChange)}
+          {sliderRow(`MIN DIST · ULTRA: ${minDistUltra.toFixed(0)}`, minDistUltra, 20, 240, 1, onMinDistUltraChange)}
 
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>SHAPE</div>
