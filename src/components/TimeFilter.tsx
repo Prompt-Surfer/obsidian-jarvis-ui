@@ -72,7 +72,12 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
       onChange(null)
     } else {
       const [s, e] = r
-      setRange([s.getTime(), e.getTime()])
+      // Clamp the STORED range to the data span [minTs, maxTs]. A preset like 1M can start
+      // before the earliest node (here every note is <1mo old), making range[0] < minTs →
+      // startPct went hugely negative and the range bar/handle overflowed the panel as a cyan
+      // streak across the whole screen. Filtering still uses the raw preset window below, so
+      // which nodes match is unchanged; only the handle/bar positions stay on-track.
+      setRange([Math.max(s.getTime(), minTs), Math.min(e.getTime(), maxTs)])
       const filtered = new Set(
         nodes
           .filter(n => {
@@ -167,8 +172,9 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
   }
 
   const span = maxTs - minTs || 1
-  const startPct = ((range[0] - minTs) / span) * 100
-  const endPct = ((range[1] - minTs) / span) * 100
+  // Clamp to [0,100] so a range reaching past the data span can never overflow the track.
+  const startPct = Math.max(0, Math.min(100, ((range[0] - minTs) / span) * 100))
+  const endPct = Math.max(0, Math.min(100, ((range[1] - minTs) / span) * 100))
 
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
   const fmtPlayDate = (ts: number) => new Date(ts).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
