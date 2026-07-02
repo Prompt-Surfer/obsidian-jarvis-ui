@@ -529,6 +529,108 @@ fn apply_collide(
     }
 }
 
+// Per-node-radius variant of apply_collide: each node i carries its own radius radii[i]
+// (supernodes/ultranodes get larger clearance). Two nodes collide when their gap is below
+// radii[i]+radii[j]; the push is split by radius² so the larger node moves less (matches
+// d3-force). max_r (the largest radius) bounds the octree search from each node.
+#[allow(clippy::too_many_arguments)]
+fn apply_collide_tiered(
+    tree: &mut Octree,
+    pos: &[f32],
+    vel: &mut [f32],
+    radii: &[f32],
+    max_r: f32,
+    n: usize,
+    cpos: &mut Vec<f32>,
+    pts: &mut Vec<u32>,
+    scratch: &mut Vec<u32>,
+    stack: &mut Vec<u32>,
+    lcg: &mut Lcg,
+) {
+    if n == 0 {
+        return;
+    }
+    cpos.resize(n * 3, 0.0);
+    for i in 0..n * 3 {
+        cpos[i] = pos[i] + vel[i];
+    }
+    if pts.len() != n {
+        pts.resize(n, 0);
+        for i in 0..n {
+            pts[i] = i as u32;
+        }
+    }
+    tree.build(cpos, pts, scratch);
+    for i in 0..n {
+        let p = i * 3;
+        let xi = cpos[p];
+        let yi = cpos[p + 1];
+        let zi = cpos[p + 2];
+        let ri = radii[i];
+        // reach = ri + max_r catches any j whose (ri+rj) could overlap i
+        let reach = ri + max_r;
+        stack.clear();
+        stack.push(0);
+        while let Some(cell) = stack.pop() {
+            let c = cell as usize;
+            let is_leaf = tree.leaf_start[c] != u32::MAX;
+            let hx = tree.half[c] + reach;
+            if (tree.cx[c] - xi).abs() > hx
+                || (tree.cy[c] - yi).abs() > hx
+                || (tree.cz[c] - zi).abs() > hx
+            {
+                continue;
+            }
+            if is_leaf {
+                let s = tree.leaf_start[c] as usize;
+                let e = s + tree.leaf_len[c] as usize;
+                for k in s..e {
+                    let j = tree.order[k] as usize;
+                    if j <= i {
+                        continue; // each pair once
+                    }
+                    let rj = radii[j];
+                    let rr = ri + rj;
+                    let rr2 = rr * rr;
+                    let jp = j * 3;
+                    let mut dx = xi - cpos[jp];
+                    let mut dy = yi - cpos[jp + 1];
+                    let mut dz = zi - cpos[jp + 2];
+                    let mut l = dx * dx + dy * dy + dz * dz;
+                    if l < rr2 {
+                        if dx == 0.0 { dx = lcg.jiggle(); l += dx * dx; }
+                        if dy == 0.0 { dy = lcg.jiggle(); l += dy * dy; }
+                        if dz == 0.0 { dz = lcg.jiggle(); l += dz * dz; }
+                        let ld = l.sqrt();
+                        let f = (rr - ld) / ld; // strength 1
+                        dx *= f;
+                        dy *= f;
+                        dz *= f;
+                        // split by radius²: node i takes rj²/(ri²+rj²), j takes ri²/(ri²+rj²)
+                        let ri2 = ri * ri;
+                        let rj2 = rj * rj;
+                        let sum = ri2 + rj2;
+                        let (si, sj) = if sum > 0.0 { (rj2 / sum, ri2 / sum) } else { (0.5, 0.5) };
+                        vel[p] += dx * si;
+                        vel[p + 1] += dy * si;
+                        vel[p + 2] += dz * si;
+                        vel[jp] -= dx * sj;
+                        vel[jp + 1] -= dy * sj;
+                        vel[jp + 2] -= dz * sj;
+                    }
+                }
+            } else {
+                let kids = tree.children[c];
+                for &ch in kids.iter() {
+                    if ch != NO_CHILD {
+                        stack.push(ch);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ── main entry ────────────────────────────────────────────────────────────────
 // pos: *mut f32 [3n] in/out. charge: *const f32 [n]. links: *const u32 [2*m].
 // Returns total ticks run (phase1 + phase2) in the low 16 bits, phase1 ticks in high 16.
@@ -671,6 +773,46 @@ pub unsafe extern "C" fn run_polish(
     let mut lcg = Lcg::new();
     for _ in 0..iters {
         apply_collide(&mut tree, pos, &mut vel, radius, n, &mut cpos, &mut cpts, &mut cscratch, &mut stack, &mut lcg);
+        for i in 0..n {
+            let p = i * 3;
+            vel[p] *= velocity_decay;
+            vel[p + 1] *= velocity_decay;
+            vel[p + 2] *= velocity_decay;
+            pos[p] += vel[p];
+            pos[p + 1] += vel[p + 1];
+            pos[p + 2] += vel[p + 2];
+        }
+    }
+}
+
+// pos in/out [3n]; radii [n] per-node collide radius. Runs `iters` per-tier collide-only
+// ticks (no charge/link/center) — the fast Rust path for baking supernode/ultranode
+// min-distance into the layout, replacing the JS d3 collide.
+#[no_mangle]
+pub unsafe extern "C" fn run_polish_tiered(
+    n: usize,
+    pos_ptr: *mut f32,
+    radii_ptr: *const f32,
+    velocity_decay: f32,
+    iters: u32,
+) {
+    let pos = std::slice::from_raw_parts_mut(pos_ptr, n * 3);
+    let radii = std::slice::from_raw_parts(radii_ptr, n);
+    let mut max_r = 0.0f32;
+    for &r in radii {
+        if r > max_r {
+            max_r = r;
+        }
+    }
+    let mut vel = vec![0.0f32; n * 3];
+    let mut tree = Octree::with_capacity(n);
+    let mut cpos: Vec<f32> = Vec::with_capacity(n * 3);
+    let mut cpts: Vec<u32> = (0..n as u32).collect();
+    let mut cscratch: Vec<u32> = vec![0; n];
+    let mut stack: Vec<u32> = Vec::with_capacity(64);
+    let mut lcg = Lcg::new();
+    for _ in 0..iters {
+        apply_collide_tiered(&mut tree, pos, &mut vel, radii, max_r, n, &mut cpos, &mut cpts, &mut cscratch, &mut stack, &mut lcg);
         for i in 0..n {
             let p = i * 3;
             vel[p] *= velocity_decay;
