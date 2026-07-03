@@ -44,7 +44,7 @@ while IFS= read -r line; do
   elif echo "$line" | grep -qiE "^(fix|chore|docs|refactor|style|test|perf)(\(|:)"; then
     [[ "$BUMP" == "none" ]] && BUMP="patch"
   fi
-done < <(git log "${LAST_TAG}..HEAD" --pretty=format:"%s")
+done < <(git log "${LAST_TAG}..HEAD" --pretty=tformat:"%s")
 
 if [[ "$BUMP" == "none" ]]; then
   echo "No conventional commits found — no version bump needed."
