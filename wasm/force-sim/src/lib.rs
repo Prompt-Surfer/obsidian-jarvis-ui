@@ -529,17 +529,55 @@ fn apply_collide(
     }
 }
 
+// Per-cell max collide radius (post-order over the built tree), mirroring d3-force's
+// collide `prepare` pass: each subtree knows the largest radius inside it, so the
+// AABB prune from node i can use reach = ri + cell_max_r instead of ri + GLOBAL max.
+// With ~99% regular nodes (r=12) and ultra radii up to 240, the global-max prune made
+// every node search a ~250-unit box; per-cell reach cuts the traversal massively.
+fn compute_cell_max_r(tree: &Octree, radii: &[f32], out: &mut Vec<f32>) {
+    let ncells = tree.children.len();
+    out.clear();
+    out.resize(ncells, 0.0);
+    // children are always at a higher index than their parent (push order),
+    // so a reverse pass is a valid post-order (same trick as accumulate_charge).
+    for cell in (0..ncells).rev() {
+        let ls = tree.leaf_start[cell];
+        let mut m = 0.0f32;
+        if ls != u32::MAX {
+            let s = ls as usize;
+            let e = s + tree.leaf_len[cell] as usize;
+            for k in s..e {
+                let r = radii[tree.order[k] as usize];
+                if r > m {
+                    m = r;
+                }
+            }
+        } else {
+            for &c in tree.children[cell].iter() {
+                if c == NO_CHILD {
+                    continue;
+                }
+                let v = out[c as usize];
+                if v > m {
+                    m = v;
+                }
+            }
+        }
+        out[cell] = m;
+    }
+}
+
 // Per-node-radius variant of apply_collide: each node i carries its own radius radii[i]
 // (supernodes/ultranodes get larger clearance). Two nodes collide when their gap is below
 // radii[i]+radii[j]; the push is split by radius² so the larger node moves less (matches
-// d3-force). max_r (the largest radius) bounds the octree search from each node.
+// d3-force). The octree search from each node is bounded by ri + per-cell max radius.
 #[allow(clippy::too_many_arguments)]
 fn apply_collide_tiered(
     tree: &mut Octree,
     pos: &[f32],
     vel: &mut [f32],
     radii: &[f32],
-    max_r: f32,
+    cell_max_r: &mut Vec<f32>,
     n: usize,
     cpos: &mut Vec<f32>,
     pts: &mut Vec<u32>,
@@ -561,20 +599,20 @@ fn apply_collide_tiered(
         }
     }
     tree.build(cpos, pts, scratch);
+    compute_cell_max_r(tree, radii, cell_max_r);
     for i in 0..n {
         let p = i * 3;
         let xi = cpos[p];
         let yi = cpos[p + 1];
         let zi = cpos[p + 2];
         let ri = radii[i];
-        // reach = ri + max_r catches any j whose (ri+rj) could overlap i
-        let reach = ri + max_r;
         stack.clear();
         stack.push(0);
         while let Some(cell) = stack.pop() {
             let c = cell as usize;
             let is_leaf = tree.leaf_start[c] != u32::MAX;
-            let hx = tree.half[c] + reach;
+            // reach = ri + cell_max_r catches any j in this cell whose (ri+rj) could overlap i
+            let hx = tree.half[c] + ri + cell_max_r[c];
             if (tree.cx[c] - xi).abs() > hx
                 || (tree.cy[c] - yi).abs() > hx
                 || (tree.cz[c] - zi).abs() > hx
@@ -798,21 +836,16 @@ pub unsafe extern "C" fn run_polish_tiered(
 ) {
     let pos = std::slice::from_raw_parts_mut(pos_ptr, n * 3);
     let radii = std::slice::from_raw_parts(radii_ptr, n);
-    let mut max_r = 0.0f32;
-    for &r in radii {
-        if r > max_r {
-            max_r = r;
-        }
-    }
     let mut vel = vec![0.0f32; n * 3];
     let mut tree = Octree::with_capacity(n);
     let mut cpos: Vec<f32> = Vec::with_capacity(n * 3);
     let mut cpts: Vec<u32> = (0..n as u32).collect();
     let mut cscratch: Vec<u32> = vec![0; n];
     let mut stack: Vec<u32> = Vec::with_capacity(64);
+    let mut cell_max_r: Vec<f32> = Vec::with_capacity(2 * n);
     let mut lcg = Lcg::new();
     for _ in 0..iters {
-        apply_collide_tiered(&mut tree, pos, &mut vel, radii, max_r, n, &mut cpos, &mut cpts, &mut cscratch, &mut stack, &mut lcg);
+        apply_collide_tiered(&mut tree, pos, &mut vel, radii, &mut cell_max_r, n, &mut cpos, &mut cpts, &mut cscratch, &mut stack, &mut lcg);
         for i in 0..n {
             let p = i * 3;
             vel[p] *= velocity_decay;
