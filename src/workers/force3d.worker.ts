@@ -77,6 +77,7 @@ let tierMap = new Map<string, 'regular' | 'supernode' | 'ultranode'>()
 // localized drag relax in the pin/move handlers.
 let workerAdjacency = new Map<string, string[]>()
 let nodeByIdMap = new Map<string, WorkerNode>()
+let nodeIndexMap = new Map<string, number>() // id → index into simNodes (= position-array index)
 // Localized drag state: the neighbourhood that springs along with the grabbed
 // node, plus the link constraints (PBD) solved during the drag. Empty when idle.
 let dragMovableSet = new Set<string>()
@@ -504,6 +505,93 @@ function collideRelaxTier(ticks: number, emit: boolean): void {
   }
 }
 
+// ── Min-distance as a pure transform of the BASE layout (the Spread model) ──
+// basePositions = the canonical natural layout WITHOUT any min-distance collide baked
+// in (3N, aligned to simNodes order, at naturalDisplaySpread scale). applyMinDist()
+// always restores these coordinates and re-runs the per-tier collide polish on top, so
+// the sliders are reversible (lowering contracts back toward the natural layout) and
+// idempotent. The base is what the layout cache persists; it is rescaled by setSpread
+// and patched at drag end so user placements survive a re-polish.
+let basePositions: Float32Array | null = null
+const MINDIST_POLISH_ITERS = 6
+
+function captureBase(): void {
+  basePositions = packPositions()
+}
+
+// Per-tier min-distance collide polish over the FULL node set — Rust run_polish_tiered
+// (each node carries its own tier radius) with a d3 collide fallback. No charge/link,
+// so clusters don't move; the layout is just re-spaced.
+function polishTieredFullSet(wasm: ForceWasm | null, iters: number): void {
+  const n = simNodes.length
+  if (n === 0) return
+  if (wasm && typeof wasm.run_polish_tiered === 'function') {
+    const posPtr = wasm.alloc(n * 3 * 4)
+    const radiiPtr = wasm.alloc(n * 4)
+    const pv = new Float32Array(wasm.memory.buffer, posPtr, n * 3)
+    const rv = new Float32Array(wasm.memory.buffer, radiiPtr, n)
+    for (let i = 0; i < n; i++) {
+      pv[i * 3] = simNodes[i].x ?? 0
+      pv[i * 3 + 1] = simNodes[i].y ?? 0
+      pv[i * 3 + 2] = (simNodes[i] as WorkerNode & { z?: number }).z ?? 0
+      rv[i] = tierRadius(simNodes[i].id)
+    }
+    wasm.run_polish_tiered(n, posPtr, radiiPtr, 0.6, iters)
+    const out = new Float32Array(wasm.memory.buffer, posPtr, n * 3) // re-view: memory may have grown
+    for (let i = 0; i < n; i++) {
+      simNodes[i].x = out[i * 3]
+      simNodes[i].y = out[i * 3 + 1]
+      ;(simNodes[i] as WorkerNode & { z?: number }).z = out[i * 3 + 2]
+    }
+    wasm.dealloc(posPtr, n * 3 * 4)
+    wasm.dealloc(radiiPtr, n * 4)
+  } else {
+    collideRelaxTier(iters, false)
+  }
+}
+
+// Apply the current MIN_DIST_* to the natural layout: restore the base coordinates,
+// run the per-tier collide polish (wasm, ~60-100ms for ~10.5k nodes), zero velocities
+// and post ONE 'end' frame — Graph3D's LERP glide animates it, exactly like Spread.
+// No interactive-sim ticks (the old path re-ticked the full sim for ~2s, and d3's
+// forceCollide caches per-node radii at initialize() so the new values never even
+// reached it). Async only on the (cached) wasm load; safe to call back-to-back.
+function applyMinDist(emit: boolean): void {
+  if (graphShape !== 'natural' || simNodes.length === 0) return
+  if (tickRunning) return // precalc in flight — finishPrecalc bakes the current values
+  if (dragMovableSet.size > 0) return // mid-drag: the drag PBD reads the new radii live
+  const gen = initGeneration
+  loadForceWasm().then(wasm => {
+    if (gen !== initGeneration) return
+    if (tickRunning || dragMovableSet.size > 0) return // state moved while wasm loaded
+    const t0 = performance.now()
+    if (basePositions && basePositions.length === simNodes.length * 3) {
+      for (let i = 0; i < simNodes.length; i++) {
+        const n = simNodes[i]
+        n.x = basePositions[i * 3]
+        n.y = basePositions[i * 3 + 1]
+        ;(n as WorkerNode & { z?: number }).z = basePositions[i * 3 + 2]
+      }
+    } else {
+      captureBase() // defensive: no base yet — current positions become the base
+    }
+    polishTieredFullSet(wasm, MINDIST_POLISH_ITERS)
+    for (const n of simNodes) {
+      // Pinned (user-dropped) nodes stay exactly where they were left.
+      if (typeof n.fx === 'number') n.x = n.fx
+      if (typeof n.fy === 'number') n.y = n.fy
+      if (typeof n.fz === 'number') (n as WorkerNode & { z?: number }).z = n.fz
+      n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0
+    }
+    simulation?.alpha(0)
+    if (emit) {
+      const positions = packPositions()
+      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+    }
+    console.log(`[mindist] applied r=${MIN_DIST_REGULAR}/s=${MIN_DIST_SUPER}/u=${MIN_DIST_ULTRA} engine=${wasm ? 'wasm' : 'd3'} compute=${(performance.now() - t0).toFixed(1)}ms n=${simNodes.length}`)
+  })
+}
+
 function buildDragNeighborhood(draggedIds: string[]): void {
   const dragged = new Set(draggedIds)
   dragMovableSet = new Set()
@@ -804,6 +892,18 @@ self.onmessage = (e: MessageEvent) => {
       // Natural: a few more relax iterations to settle the neighbourhood, then emit
       // the final frame and clear drag state (no global sim).
       solveDragRelax(DRAG_ITERS * 2)
+      // Bake the dropped neighbourhood into the min-distance BASE layout so a later
+      // slider change (which re-polishes from base) doesn't snap the drag back.
+      if (basePositions && basePositions.length === simNodes.length * 3) {
+        for (const id of [...ids, ...dragMovableSet]) {
+          const i = nodeIndexMap.get(id)
+          const n = nodeByIdMap.get(id)
+          if (i === undefined || !n) continue
+          basePositions[i * 3] = n.x ?? 0
+          basePositions[i * 3 + 1] = n.y ?? 0
+          basePositions[i * 3 + 2] = (n as WorkerNode & { z?: number }).z ?? 0
+        }
+      }
       clearDragState()
       const positions = packPositions()
       post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
@@ -861,6 +961,8 @@ self.onmessage = (e: MessageEvent) => {
     }))
 
     nodeByIdMap = new Map(simNodes.map(n => [n.id, n]))
+    nodeIndexMap = new Map(simNodes.map((n, i) => [n.id, i]))
+    basePositions = null // node set/order changed — base recaptured on the natural paths below
     dragMovableSet = new Set(); dragLinks = [] // any in-flight drag is invalidated by re-init
 
     // Compute connected components via union-find to identify isolated sub-clusters
@@ -1514,68 +1616,6 @@ self.onmessage = (e: MessageEvent) => {
       const EST_TICKS = 70 // typical early-exit point; progress % is cosmetic
       let pTicks = 0
 
-      // Collide-only polish over the FULL node set so analytically-attached
-      // leaves/orphans get breathing room (no charge/link, so clusters don't move)
-      const polishFullSet = (wasm: ForceWasm | null) => {
-        const n = simNodes.length
-        if (wasm) {
-          const posPtr = wasm.alloc(n * 3 * 4)
-          const pv = new Float32Array(wasm.memory.buffer, posPtr, n * 3)
-          for (let i = 0; i < n; i++) {
-            pv[i * 3] = simNodes[i].x ?? 0
-            pv[i * 3 + 1] = simNodes[i].y ?? 0
-            pv[i * 3 + 2] = (simNodes[i] as WorkerNode & { z?: number }).z ?? 0
-          }
-          wasm.run_polish(n, posPtr, 12, 0.6, 4)
-          const out = new Float32Array(wasm.memory.buffer, posPtr, n * 3) // re-view: memory may have grown
-          for (let i = 0; i < n; i++) {
-            simNodes[i].x = out[i * 3]
-            simNodes[i].y = out[i * 3 + 1]
-            ;(simNodes[i] as WorkerNode & { z?: number }).z = out[i * 3 + 2]
-          }
-          wasm.dealloc(posPtr, n * 3 * 4)
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const polishSim = forceSimulation(simNodes as any, 3)
-            .force('collide', forceCollide().radius((d: { id: string }) => tierRadius(d.id)))
-            .velocityDecay(0.6)
-            .alpha(0.5)
-            .stop()
-          for (let i = 0; i < 4; i++) polishSim.tick()
-        }
-      }
-
-      // Per-tier min-distance polish in Rust (run_polish_tiered) — each node gets its own
-      // collide radius (supernode/ultranode clearance), so the setting is baked into the
-      // precalc'd layout, fast. Falls back to the JS collide relax if the wasm/export is absent.
-      const polishTieredFullSet = (wasm: ForceWasm | null) => {
-        const n = simNodes.length
-        if (n === 0) return
-        if (wasm && typeof wasm.run_polish_tiered === 'function') {
-          const posPtr = wasm.alloc(n * 3 * 4)
-          const radiiPtr = wasm.alloc(n * 4)
-          const pv = new Float32Array(wasm.memory.buffer, posPtr, n * 3)
-          const rv = new Float32Array(wasm.memory.buffer, radiiPtr, n)
-          for (let i = 0; i < n; i++) {
-            pv[i * 3] = simNodes[i].x ?? 0
-            pv[i * 3 + 1] = simNodes[i].y ?? 0
-            pv[i * 3 + 2] = (simNodes[i] as WorkerNode & { z?: number }).z ?? 0
-            rv[i] = tierRadius(simNodes[i].id)
-          }
-          wasm.run_polish_tiered(n, posPtr, radiiPtr, 0.6, 4)
-          const out = new Float32Array(wasm.memory.buffer, posPtr, n * 3) // re-view: memory may have grown
-          for (let i = 0; i < n; i++) {
-            simNodes[i].x = out[i * 3]
-            simNodes[i].y = out[i * 3 + 1]
-            ;(simNodes[i] as WorkerNode & { z?: number }).z = out[i * 3 + 2]
-          }
-          wasm.dealloc(posPtr, n * 3 * 4)
-          wasm.dealloc(radiiPtr, n * 4)
-        } else {
-          collideRelaxTier(4, false)
-        }
-      }
-
       const finishPrecalc = (wasm: ForceWasm | null) => {
         // BFS-attach: every unplaced node linked to a placed one sits beside it
         const placed = new Set(coreIdSet)
@@ -1607,18 +1647,20 @@ self.onmessage = (e: MessageEvent) => {
           n.x = g(); n.y = g(); n.z = g()
         }
         post({ type: 'layoutProgress', pct: 97 })
-        polishFullSet(wasm)
-        // Bake per-tier min-distance into the initial layout (the general polish above uses a
-        // scalar radius) so supernode/ultranode clearance is present at START — computed in
-        // Rust (run_polish_tiered). No re-post — the 'end' below carries it.
-        polishTieredFullSet(wasm)
+        // Layout complete — snapshot it as the canonical BASE (no min-distance baked in;
+        // this is what the layout cache persists), then bake the persisted per-tier
+        // min-distance on top via the Rust collide polish. Keeping base and polish
+        // separate makes the sliders reversible: every change re-polishes from base.
+        captureBase()
+        polishTieredFullSet(wasm, MINDIST_POLISH_ITERS)
         // Rest state; the full interactive simulation takes over from here
         for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
         simulation?.alpha(0)
         tickCount = pTicks
         tickRunning = false
         const positions = packPositions()
-        post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+        const baseCopy = basePositions!.slice()
+        post({ type: 'end', positions, basePositions: baseCopy, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer, baseCopy.buffer])
       }
 
       // ── WASM core path: one blocking solve off the main thread (~5× faster) ──
@@ -1752,13 +1794,18 @@ self.onmessage = (e: MessageEvent) => {
       // Cache hit, no new nodes (reload / shape-switch back to natural / a few notes
       // removed): every node already sits at its cached position (simNodes were
       // initialised from warmPositions, which the hook guarantees is the natural
-      // layout). Emit one final frame instantly — no precalc, no relax.
+      // BASE layout — saved pre-polish). Emit the raw frame instantly, then bake the
+      // persisted per-tier min-distance on top (applyMinDist posts a second, glided
+      // frame) so the setting is visible at load without a precalc.
       console.log('[natural-layout] cache-hit: instant apply (no recompute)')
       naturalDisplaySpread = currentSpread
       for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
       tickCount = 0; stableFrameCount = 0; tickRunning = false
+      captureBase()
       const positions = packPositions()
-      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+      const baseCopy = basePositions!.slice()
+      post({ type: 'end', positions, basePositions: baseCopy, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer, baseCopy.buffer])
+      applyMinDist(true)
     } else if (graphShape === 'natural' && (initReason === 'shape' || warmCoverage < 0.9)) {
       // Cold start or shape switch into natural → silent precalc + one-shot final frame.
       // The precalc geometry defines the baseline for this spread value; spread-adjust
@@ -1788,8 +1835,13 @@ self.onmessage = (e: MessageEvent) => {
       naturalDisplaySpread = currentSpread
       for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
       tickCount = 0; stableFrameCount = 0; tickRunning = false
+      // Snapshot the merged layout (cached base + analytic placements) as the new base,
+      // emit it raw, then bake the per-tier min-distance on top (second glided frame).
+      captureBase()
       const positions = packPositions()
-      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+      const baseCopy = basePositions!.slice()
+      post({ type: 'end', positions, basePositions: baseCopy, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer, baseCopy.buffer])
+      applyMinDist(true)
     } else {
       runTick()
     }
@@ -1815,6 +1867,20 @@ self.onmessage = (e: MessageEvent) => {
           const nz = (n as WorkerNode & { z?: number }).z ?? 0
           ;(n as WorkerNode & { z?: number }).z = cz + (nz - cz) * ratio
           n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0
+        }
+        // Scale the min-distance BASE layout identically (around its own centroid) so a
+        // later applyMinDist() re-polish works in the new scale, not the pre-zoom one.
+        if (basePositions && basePositions.length === simNodes.length * 3) {
+          const b = basePositions
+          const m = simNodes.length
+          let bx = 0, by = 0, bz = 0
+          for (let i = 0; i < m; i++) { bx += b[i * 3]; by += b[i * 3 + 1]; bz += b[i * 3 + 2] }
+          bx /= m; by /= m; bz /= m
+          for (let i = 0; i < m; i++) {
+            b[i * 3] = bx + (b[i * 3] - bx) * ratio
+            b[i * 3 + 1] = by + (b[i * 3 + 1] - by) * ratio
+            b[i * 3 + 2] = bz + (b[i * 3 + 2] - bz) * ratio
+          }
         }
         // Keep the interactive sim's rest lengths/charge consistent with the new scale
         // so a later drag/reheat doesn't pull the graph back toward the base scale.
@@ -1874,8 +1940,12 @@ self.onmessage = (e: MessageEvent) => {
       console.log('[natural-layout] applyPositions: restored cached layout (no recompute)')
       simulation.alpha(0)
       tickCount = 0; stableFrameCount = 0; tickRunning = false
+      // Restored cache = the BASE layout; show it, then re-bake the current min-distance
+      // on top (second glided frame) so Reset All honours the sliders too.
+      captureBase()
       const positions = packPositions()
       post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
+      if (graphShape === 'natural') applyMinDist(true)
     }
   } else if (type === 'reheat') {
     // Natural: a full-sim reheat would collapse the precalc layout. Keep the layout
@@ -1889,30 +1959,25 @@ self.onmessage = (e: MessageEvent) => {
       if (!tickRunning) runTick()
     }
   } else if (type === 'setMinDist') {
-    // Per-tier minimum node distance (collide radius) from the UI sliders. tierRadius()
-    // and separateDragNodes read these lets live, so updating them re-tiers both the
-    // forceCollide radius and the drag PBD. Bump the interactive sim's alpha so
-    // forceCollide re-applies the new radii; guard against undefined/NaN.
+    // Per-tier minimum node distance (collide radius) from the UI sliders.
+    // Natural: applied like Spread — a pure transform of the precalc'd BASE layout
+    // (restore base coords → per-tier collide polish in Rust → ONE glided frame).
+    // NOTE the old path re-ticked the full interactive sim (~2s for 10.5k nodes) and
+    // was a no-op anyway: d3's forceCollide caches per-node radii at initialize(),
+    // so "live" tierRadius reads never reached the collide force.
+    // Non-natural shapes have no collide force (shape formula dominates); the drag
+    // PBD (separateDragNodes/solveDragRelax) reads the updated values live.
     const d = e.data as { regular?: number; super?: number; ultra?: number }
-    if (typeof d.regular === 'number' && Number.isFinite(d.regular)) MIN_DIST_REGULAR = d.regular
-    if (typeof d.super === 'number' && Number.isFinite(d.super)) MIN_DIST_SUPER = d.super
-    if (typeof d.ultra === 'number' && Number.isFinite(d.ultra)) MIN_DIST_ULTRA = d.ultra
-    if (graphShape === 'natural' && simulation) {
-      // Apply via a BOUNDED relax of the full natural forces (charge+link+centre+collide,
-      // collide reads the new tierRadius live). Unlike a collide-only relax — which can only
-      // PUSH APART — the full forces let the layout CONTRACT when min-dist is lowered and
-      // expand when raised. Bounded ticks + a single posted frame (Graph3D glides it) +
-      // App-side debounce = smooth like Spread, with none of the streaming-resettle stutter.
-      simulation.alpha(0.35).stop()
-      for (let i = 0; i < 10; i++) simulation.tick()
-      for (const n of simNodes) { n.vx = 0; n.vy = 0; (n as WorkerNode & { vz?: number }).vz = 0 }
-      simulation.alpha(0)
-      const positions = packPositions()
-      post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
-    } else if (simulation) {
-      simulation.alpha(0.3)
-      if (!tickRunning) { tickCount = 0; runTick() }
-    }
+    const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+    const changed = (num(d.regular) && d.regular !== MIN_DIST_REGULAR)
+      || (num(d.super) && d.super !== MIN_DIST_SUPER)
+      || (num(d.ultra) && d.ultra !== MIN_DIST_ULTRA)
+    if (num(d.regular)) MIN_DIST_REGULAR = d.regular
+    if (num(d.super)) MIN_DIST_SUPER = d.super
+    if (num(d.ultra)) MIN_DIST_ULTRA = d.ultra
+    // Unchanged values (e.g. the UI re-sending persisted settings on mount, when the
+    // init/precalc already baked them) — skip the re-polish entirely.
+    if (changed && graphShape === 'natural') applyMinDist(true)
   } else if (type === 'setFilter') {
     // Natural keeps its fixed precalc/cached layout — a recenter-reheat would
     // collapse it. Visibility is applied by the renderer, not the layout.

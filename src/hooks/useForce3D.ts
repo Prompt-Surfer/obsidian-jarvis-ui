@@ -203,9 +203,13 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
           setSimDone(true)
           setLayoutProgress(null)
           // Persist the settled natural layout so the next load/reset reuses it
-          // instead of recomputing. Only on a layout-defining settle.
-          if (cacheNextEndRef.current && graphShape === 'natural' && live.arr && live.ids.length > 0 && live.arr.length === live.ids.length * 3) {
-            saveLayout(live.ids, live.arr)
+          // instead of recomputing. Only on a layout-defining settle, and only the
+          // worker-provided BASE positions (the layout WITHOUT min-distance polish
+          // baked in) — caching the displayed/polished coords would make lowering
+          // the min-dist sliders irreversible after a reload.
+          const base: Float32Array | null = e.data.basePositions instanceof Float32Array ? e.data.basePositions : null
+          if (cacheNextEndRef.current && graphShape === 'natural' && base && live.ids.length > 0 && base.length === live.ids.length * 3) {
+            saveLayout(live.ids, base)
             cacheNextEndRef.current = false
           }
         }

@@ -317,12 +317,23 @@ function App() {
     setFilter(active)
   }, [graphData, timeFilterIds, tagIsolationIds, setFilter, timelapsePlaying])
 
-  // Push per-tier minimum node distance to the worker when the sliders change — DEBOUNCED
-  // so dragging a slider doesn't fire a collide-relax on every input event (which stutters).
-  // The relax runs ~120ms after the user stops moving; Graph3D then glides to it.
+  // Push per-tier minimum node distance to the worker when the sliders change — THROTTLED
+  // (leading + trailing, ~100ms): the layout tracks the slider live while dragging (like
+  // Spread) but the worker gets at most ~10 re-polishes/s, and the final value always
+  // lands. Each apply is a fast pure transform of the cached base layout (wasm collide,
+  // tens of ms) that Graph3D glides — instant feel, unlike the old ~2s full-sim relax.
+  const minDistPushRef = useRef<{ last: number; timer: ReturnType<typeof setTimeout> | null }>({ last: 0, timer: null })
   useEffect(() => {
-    const t = setTimeout(() => setMinDist(minDistRegular, minDistSuper, minDistUltra), 120)
-    return () => clearTimeout(t)
+    const MIN_DIST_PUSH_MS = 100
+    const st = minDistPushRef.current
+    if (st.timer) clearTimeout(st.timer)
+    const wait = Math.max(0, MIN_DIST_PUSH_MS - (performance.now() - st.last))
+    st.timer = setTimeout(() => {
+      st.last = performance.now()
+      st.timer = null
+      setMinDist(minDistRegular, minDistSuper, minDistUltra)
+    }, wait)
+    return () => { if (st.timer) { clearTimeout(st.timer); st.timer = null } }
   }, [minDistRegular, minDistSuper, minDistUltra, setMinDist])
 
   // Compute node degrees from links

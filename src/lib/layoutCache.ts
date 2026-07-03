@@ -18,9 +18,10 @@
 
 // Bump this version whenever the layout ALGORITHM changes (positions cached under
 // an old version would otherwise replay a stale layout, since the cache key is the
-// node set, not the algorithm). v7: per-tier min-distance now baked in Rust at precalc
-// (run_polish_tiered) using the persisted settings — positions change, re-settle.
-const KEY = 'jarvis-natural-layout-v7'
+// node set, not the algorithm). v8: the cache now stores the BASE layout (pre
+// min-distance polish); the worker re-applies the per-tier collide on load, so the
+// sliders stay reversible. v7 caches held polished coords — re-settle once.
+const KEY = 'jarvis-natural-layout-v8'
 const MAX_NODES = 200_000 // sanity cap; refuse absurd sizes
 
 export interface CachedLayout {
