@@ -14,6 +14,7 @@ export interface GraphNode {
   createdAt: string
   modifiedAt: string
   folder: string
+  tagDirect?: number // tag nodes only: notes carrying the tag directly (0 = implied ancestor)
   // 3D position (set by force simulation)
   x?: number
   y?: number

@@ -108,6 +108,7 @@ interface VaultNode {
   createdAt: string
   modifiedAt: string
   folder: string
+  tagDirect?: number // tag nodes only: notes carrying the tag directly (0 = implied ancestor)
 }
 
 interface VaultLink {

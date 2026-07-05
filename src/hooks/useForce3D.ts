@@ -252,7 +252,7 @@ export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'sat
     setLayoutProgress(null)
     worker.postMessage({
       type: 'init',
-      nodes: graphData.nodes.map((n: GraphNode) => ({ id: n.id, folder: n.folder ?? '', tags: n.tags ?? [] })),
+      nodes: graphData.nodes.map((n: GraphNode) => ({ id: n.id, folder: n.folder ?? '', tags: n.tags ?? [], tagDirect: n.tagDirect })),
       links: graphData.links.map((l: GraphLink) => ({
         source: typeof l.source === 'string' ? l.source : (l.source as GraphNode).id,
         target: typeof l.target === 'string' ? l.target : (l.target as GraphNode).id,

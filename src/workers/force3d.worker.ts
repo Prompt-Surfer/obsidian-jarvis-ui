@@ -54,6 +54,7 @@ interface WorkerNode {
   id: string
   folder: string
   tags?: string[]
+  tagDirect?: number // tag nodes only: notes carrying the tag directly (0 = implied ancestor)
   x: number
   y: number
   z: number
@@ -768,7 +769,7 @@ function runTick() {
 self.onmessage = (e: MessageEvent) => {
   const { type, nodes, links } = e.data as {
     type: string
-    nodes?: Array<{ id: string; folder: string; tags?: string[] }>
+    nodes?: Array<{ id: string; folder: string; tags?: string[]; tagDirect?: number }>
     links?: Array<{ source: string; target: string }>
     graphShape?: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
     topN?: number
@@ -946,6 +947,7 @@ self.onmessage = (e: MessageEvent) => {
         id: n.id,
         folder: n.folder,
         tags: n.tags ?? [],
+        tagDirect: n.tagDirect,
         x: warm?.x ?? (Math.random() - 0.5) * 400,
         y: warm?.y ?? (Math.random() - 0.5) * 400,
         z: warm?.z ?? (Math.random() - 0.5) * 400,
@@ -1077,10 +1079,14 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // ── Tag-node tiers: hierarchy-based, not degree-based ───────────────────
-    // For a tag named T: root WITH children → ultranode (#memory, #topic);
-    // nested (contains '/') → supernode (#memory/fact); flat leaf → regular
-    // (#2026, #hive-drop). The server materialises implied parents, so every
-    // ancestor of a nested tag exists as a node here.
+    // For a tag named T: root WITH children that notes carry directly
+    // (tagDirect > 0) → ultranode (#memory, #topic, #project); root with
+    // children that exists only as an implied ancestor (#hive, #status — never
+    // typed on any note) → supernode; nested (contains '/') → supernode
+    // (#memory/fact); flat leaf → regular (#hive-drop). The server materialises
+    // implied parents and ships tagDirect, so every ancestor of a nested tag
+    // exists as a node here and the top tier is reserved for taxonomies the
+    // user actually tags with.
     {
       const tagNames: string[] = []
       for (const id of allNodeIds) if (isTagNodeId(id)) tagNames.push(id.slice(TAG_NODE_ID_PREFIX.length))
@@ -1090,11 +1096,16 @@ self.onmessage = (e: MessageEvent) => {
         for (let i = 1; i < parts.length; i++) parentsWithChildren.add(parts.slice(0, i).join('/'))
       }
       for (const name of tagNames) {
-        const isRoot = !name.includes('/')
-        const tier = isRoot
-          ? (parentsWithChildren.has(name) ? 'ultranode' as const : 'regular' as const)
-          : 'supernode' as const
-        tierMap.set(TAG_NODE_ID_PREFIX + name, tier)
+        const id = TAG_NODE_ID_PREFIX + name
+        let tier: 'regular' | 'supernode' | 'ultranode'
+        if (name.includes('/')) {
+          tier = 'supernode'
+        } else if (!parentsWithChildren.has(name)) {
+          tier = 'regular'
+        } else {
+          tier = (nodeByIdMap.get(id)?.tagDirect ?? 0) > 0 ? 'ultranode' : 'supernode'
+        }
+        tierMap.set(id, tier)
       }
     }
 
