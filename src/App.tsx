@@ -759,7 +759,10 @@ function App() {
   const navigateToNode = useCallback((nodeId: string) => {
     if (!graphData?.nodes || !graphData?.links) return
 
-    if (nodeId.startsWith('tag:')) {
+    if (nodeId.startsWith('tag:') && !graphData.nodes.some(n => n.id === nodeId)) {
+      // Legacy virtual-tag id with no matching tag node in the graph:
+      // fall back to highlighting the tagged notes. When the tag node exists
+      // (it normally does now), fall through and navigate to it like any node.
       const tag = nodeId.slice(4)
       const taggedNodes = graphData.nodes.filter(n => n.tags.includes(tag)).map(n => n.id)
       setSearchResults(taggedNodes)

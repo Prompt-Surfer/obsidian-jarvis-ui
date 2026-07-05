@@ -234,7 +234,8 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
   }, [node?.id])
 
   useEffect(() => {
-    if (!node || !fullView) {
+    if (!node || !fullView || node.type === 'tag') {
+      // Tag nodes are synthetic — there is no .md file behind them to fetch
       setMarkdownContent(null)
       return
     }
@@ -314,7 +315,7 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
   }, [])
 
   useEffect(() => {
-    if (!node || !fullView) { setSimilarNotes([]); return }
+    if (!node || !fullView || node.type === 'tag') { setSimilarNotes([]); return }
     fetchSimilarNotes(node.id, node.label, node.excerpt)
   }, [node?.id, fullView, fetchSimilarNotes])
 
@@ -325,6 +326,22 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
         return tid === node.id || node.id.endsWith('/' + tid)
       }))
     : []
+
+  // ── Tag-node panel data ─────────────────────────────────────────────────────
+  // A tag node ('tag:<name>') has no markdown body; instead show its place in the
+  // tag hierarchy (parent, direct sub-tags) and the notes carrying the tag.
+  const tagName = node?.type === 'tag' ? node.id.slice('tag:'.length) : null
+  const normTag = (t: string) => t.trim().replace(/^#+/, '').replace(/\/+$/, '')
+  const taggedNotes = tagName
+    ? allNodes.filter(n => n.type !== 'tag' && n.tags.some(t => normTag(t) === tagName))
+    : []
+  const subTags = tagName
+    ? allNodes.filter(n =>
+        n.type === 'tag' &&
+        n.id.startsWith(`tag:${tagName}/`) &&
+        !n.id.slice(`tag:${tagName}/`.length).includes('/'))
+    : []
+  const parentTagName = tagName && tagName.includes('/') ? tagName.slice(0, tagName.lastIndexOf('/')) : null
 
   const visible = !!node
 
@@ -631,12 +648,14 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
               title="Close (Escape)"
             >✕</button>
             <div style={{ color: '#585b70', fontSize: 11, marginTop: 6 }}>
-              {node.type.toUpperCase()} · {node.path}
+              {node.type === 'tag'
+                ? `TAG · ${taggedNotes.length} note${taggedNotes.length === 1 ? '' : 's'}${subTags.length > 0 ? ` · ${subTags.length} sub-tag${subTags.length === 1 ? '' : 's'}` : ''}`
+                : `${node.type.toUpperCase()} · ${node.path}`}
             </div>
           </div>
 
-          {/* ── View/Edit tabs ────────────────────────────────────────────────── */}
-          {fullView && (
+          {/* ── View/Edit tabs (not for synthetic tag nodes) ─────────────────── */}
+          {fullView && node.type !== 'tag' && (
             <div style={{
               display: 'flex',
               borderBottom: '1px solid #313244',
@@ -744,6 +763,79 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── Tag hierarchy panel (tag nodes only) ───────────────────────── */}
+          {tagName && (
+            <>
+              {parentTagName && (
+                <div style={{ padding: '12px 20px', borderBottom: '1px solid #181825' }}>
+                  <div style={{ color: '#585b70', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    Parent Tag
+                  </div>
+                  <span
+                    onClick={() => onNavigate(`tag:${parentTagName}`)}
+                    style={{ color: '#a6e3a1', cursor: 'pointer', fontSize: 13 }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'none' }}
+                  >
+                    ↑ #{parentTagName}
+                  </span>
+                </div>
+              )}
+              {subTags.length > 0 && (
+                <div style={{ padding: '12px 20px', borderBottom: '1px solid #181825' }}>
+                  <div style={{ color: '#585b70', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    Sub-tags ({subTags.length})
+                  </div>
+                  {subTags.map(st => (
+                    <span
+                      key={st.id}
+                      onClick={() => onNavigate(st.id)}
+                      title={st.excerpt}
+                      style={{
+                        display: 'inline-block',
+                        background: 'rgba(166,227,161,0.10)',
+                        border: '1px solid rgba(166,227,161,0.35)',
+                        color: '#a6e3a1',
+                        borderRadius: 12,
+                        padding: '2px 10px',
+                        fontSize: 12,
+                        marginRight: 4,
+                        marginBottom: 4,
+                        cursor: 'pointer',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(166,227,161,0.22)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(166,227,161,0.10)' }}
+                    >
+                      {st.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {taggedNotes.length > 0 && (
+                <div style={{ padding: '12px 20px', borderBottom: '1px solid #181825' }}>
+                  <div style={{ color: '#585b70', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    Tagged Notes ({taggedNotes.length})
+                  </div>
+                  {taggedNotes.slice(0, 50).map(tn => (
+                    <span
+                      key={tn.id}
+                      onClick={() => onNavigate(tn.id)}
+                      style={{ display: 'block', color: '#89dceb', cursor: 'pointer', padding: '3px 0', fontSize: 13 }}
+                    >
+                      {tn.label}
+                    </span>
+                  ))}
+                  {taggedNotes.length > 50 && (
+                    <div style={{ color: '#585b70', fontSize: 12, marginTop: 4 }}>
+                      … and {taggedNotes.length - 50} more
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           {/* ── Backlinks ──────────────────────────────────────────────────── */}
@@ -861,7 +953,7 @@ export function Sidebar({ node, fullView, allNodes, onClose, onNavigate, onTagFi
             </div>
           )}
 
-          {fullView && !editMode && (
+          {fullView && !editMode && node.type !== 'tag' && (
             <div ref={contentRef} style={{ padding: '16px 20px 32px', lineHeight: 1.7, fontSize: 15, color: '#dcddde' }}>
               {loadingMd ? (
                 <div style={{ color: '#585b70' }}>Loading…</div>

@@ -301,11 +301,121 @@ async function buildGraphAsync(vaultPath: string): Promise<void> {
     }
   }
 
+  buildTagLayer(nodeMap, nodeArr, links, linkSet)
+
   parentPort!.postMessage({
     type: 'done',
     graph: { nodes: Array.from(nodeMap.values()), links },
     noteBodyMap: Array.from(noteBodyMap.entries()),
   } satisfies WorkerMsg)
+}
+
+// ─── Tag-node layer ───────────────────────────────────────────────────────────
+// Promote every distinct tag to a first-class graph node. Ids are prefixed
+// ('tag:memory/fact') so they can never collide with note ids (relative paths).
+// Implied parents are materialised — 'memory/fact' guarantees a 'memory' node
+// even when no note carries bare #memory. Two edge families are added:
+//   note → tag            for every tag on every note
+//   child tag → parent    'tag:memory/fact' → 'tag:memory'
+// The force worker tiers tag nodes by hierarchy (root-with-children → ultranode,
+// nested → supernode, flat leaf → regular), making hub tags hubs-of-hubs.
+
+export const TAG_NODE_ID_PREFIX = 'tag:'
+
+function normalizeTagName(raw: string): string {
+  return raw.trim().replace(/^#+/, '').replace(/\/{2,}/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+interface TagAgg { direct: number; createdMs: number; modifiedMs: number }
+
+function buildTagLayer(
+  nodeMap: Map<string, VaultNode>,
+  noteArr: VaultNode[],
+  links: VaultLink[],
+  linkSet: Set<string>,
+): void {
+  // Aggregate per-tag note counts and date ranges (tag "exists" from its first note)
+  const tagAgg = new Map<string, TagAgg>()
+  const getAgg = (tag: string): TagAgg => {
+    let agg = tagAgg.get(tag)
+    if (!agg) { agg = { direct: 0, createdMs: Infinity, modifiedMs: -Infinity }; tagAgg.set(tag, agg) }
+    return agg
+  }
+  for (const note of noteArr) {
+    const c = Date.parse(note.createdAt)
+    const m = Date.parse(note.modifiedAt)
+    for (const raw of note.tags) {
+      const tag = normalizeTagName(raw)
+      if (!tag) continue
+      const agg = getAgg(tag)
+      agg.direct++
+      if (Number.isFinite(c) && c < agg.createdMs) agg.createdMs = c
+      if (Number.isFinite(m) && m > agg.modifiedMs) agg.modifiedMs = m
+    }
+  }
+
+  // Materialise implied ancestors so every hierarchy level exists as a node
+  for (const tag of Array.from(tagAgg.keys())) {
+    const parts = tag.split('/')
+    for (let i = 1; i < parts.length; i++) getAgg(parts.slice(0, i).join('/'))
+  }
+
+  // Direct-child counts + roll dates up the hierarchy (a parent tag appears on
+  // the timeline as early as its earliest descendant)
+  const childCount = new Map<string, number>()
+  for (const [tag, agg] of tagAgg) {
+    const parts = tag.split('/')
+    if (parts.length > 1) {
+      const parent = parts.slice(0, -1).join('/')
+      childCount.set(parent, (childCount.get(parent) ?? 0) + 1)
+    }
+    for (let i = 1; i < parts.length; i++) {
+      const anc = tagAgg.get(parts.slice(0, i).join('/'))!
+      if (agg.createdMs < anc.createdMs) anc.createdMs = agg.createdMs
+      if (agg.modifiedMs > anc.modifiedMs) anc.modifiedMs = agg.modifiedMs
+    }
+  }
+
+  const nowIso = new Date().toISOString()
+  const msToIso = (ms: number): string => (Number.isFinite(ms) ? new Date(ms).toISOString() : nowIso)
+  const addLink = (source: string, target: string): void => {
+    const key = [source, target].sort().join('→')
+    if (linkSet.has(key)) return
+    linkSet.add(key)
+    links.push({ source, target })
+  }
+
+  // Tag nodes (sorted for deterministic node order) + hierarchy edges
+  for (const tag of Array.from(tagAgg.keys()).sort()) {
+    const agg = tagAgg.get(tag)!
+    const id = TAG_NODE_ID_PREFIX + tag
+    if (nodeMap.has(id)) continue // paranoia: never clobber a real note id
+    const slash = tag.lastIndexOf('/')
+    const parentId = slash > 0 ? TAG_NODE_ID_PREFIX + tag.slice(0, slash) : null
+    const kids = childCount.get(tag) ?? 0
+    nodeMap.set(id, {
+      id,
+      label: `#${tag}`,
+      path: '',
+      type: 'tag',
+      tags: [tag],
+      links: parentId ? [parentId] : [],
+      excerpt: `Tag · ${agg.direct} note${agg.direct === 1 ? '' : 's'}${kids > 0 ? ` · ${kids} sub-tag${kids === 1 ? '' : 's'}` : ''}`,
+      createdAt: msToIso(agg.createdMs),
+      modifiedAt: msToIso(agg.modifiedMs),
+      folder: '#tags',
+    })
+    if (parentId) addLink(id, parentId)
+  }
+
+  // note → tag edges
+  for (const note of noteArr) {
+    for (const raw of note.tags) {
+      const tag = normalizeTagName(raw)
+      if (!tag) continue
+      addLink(note.id, TAG_NODE_ID_PREFIX + tag)
+    }
+  }
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────

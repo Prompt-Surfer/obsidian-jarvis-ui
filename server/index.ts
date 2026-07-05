@@ -563,7 +563,9 @@ app.post('/api/note', (req, res) => {
 
 function triggerEmbeddingBuild(): void {
   if (!cachedGraph) return
-  const notes = cachedGraph.nodes.map(n => ({
+  // Tag nodes are synthetic (no body, aggregated mtimes) — embedding them wastes
+  // model time and churns the on-disk cache on every vault change. Notes only.
+  const notes = cachedGraph.nodes.filter(n => n.type !== 'tag').map(n => ({
     id: n.id,
     label: n.label,
     content: noteBodyMap.get(n.id) ?? '',
@@ -587,7 +589,7 @@ app.get('/api/semantic-search', async (req, res) => {
     return
   }
 
-  const notes = cachedGraph.nodes.map(n => ({
+  const notes = cachedGraph.nodes.filter(n => n.type !== 'tag').map(n => ({
     id: n.id,
     label: n.label,
     content: noteBodyMap.get(n.id) ?? '',

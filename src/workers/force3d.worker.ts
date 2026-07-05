@@ -1034,13 +1034,28 @@ self.onmessage = (e: MessageEvent) => {
     // MOC hubs AND big connector notes that aren't formally MOCs (Openclaw, Lessons:X…)
     // count. Empty Dataview-only topic MOCs (deg < MOC_MIN_DEGREE) are excluded so they
     // don't float as disconnected supernode-sized dots.
+    //
+    // Tag nodes (id 'tag:<name>') are tiered by HIERARCHY below, not by degree — and
+    // note↔tag edges are excluded from note degree counts here, so promoting tags to
+    // graph nodes doesn't inflate thousands of tagged notes into supernodes (or turn
+    // every multi-tagged hub note into an ultranode via its tag-supernode neighbours).
     const SUPERNODE_MIN_DEGREE = 15        // high-degree hub, MOC or not
     const MOC_MIN_DEGREE = 3               // an `moc`-tagged node needs at least this to count as a hub
     const ULTRANODE_MIN_SUPER_LINKS = 4    // nexus: links to >3 distinct supernodes
+    const TAG_NODE_ID_PREFIX = 'tag:'
+    const isTagNodeId = (id: string) => id.startsWith(TAG_NODE_ID_PREFIX)
+    const noteLinkDegree = new Map<string, number>() // degree over note↔note edges only
+    for (const l of links ?? []) {
+      if (isTagNodeId(l.source) || isTagNodeId(l.target)) continue
+      noteLinkDegree.set(l.source, (noteLinkDegree.get(l.source) ?? 0) + 1)
+      noteLinkDegree.set(l.target, (noteLinkDegree.get(l.target) ?? 0) + 1)
+    }
     const mocIds = new Set<string>()
     for (const n of simNodes) if ((n.tags ?? []).includes('moc')) mocIds.add(n.id)
     const supernodeIds = new Set<string>()
-    for (const [id, deg] of degreeMap) {
+    for (const id of allNodeIds) {
+      if (isTagNodeId(id)) continue
+      const deg = noteLinkDegree.get(id) ?? 0
       if (deg >= SUPERNODE_MIN_DEGREE || (mocIds.has(id) && deg >= MOC_MIN_DEGREE)) supernodeIds.add(id)
     }
 
@@ -1049,6 +1064,7 @@ self.onmessage = (e: MessageEvent) => {
     // trivially satisfied by low-degree nodes (2 of 2 neighbours = ultra) and missed true hubs.
     tierMap = new Map<string, 'regular' | 'supernode' | 'ultranode'>()
     for (const id of allNodeIds) {
+      if (isTagNodeId(id)) continue // tag nodes tiered by hierarchy below
       if (!supernodeIds.has(id)) {
         tierMap.set(id, 'regular')
         continue
@@ -1059,11 +1075,39 @@ self.onmessage = (e: MessageEvent) => {
       }
       tierMap.set(id, superNeighbours.size >= ULTRANODE_MIN_SUPER_LINKS ? 'ultranode' : 'supernode')
     }
+
+    // ── Tag-node tiers: hierarchy-based, not degree-based ───────────────────
+    // For a tag named T: root WITH children → ultranode (#memory, #topic);
+    // nested (contains '/') → supernode (#memory/fact); flat leaf → regular
+    // (#2026, #hive-drop). The server materialises implied parents, so every
+    // ancestor of a nested tag exists as a node here.
+    {
+      const tagNames: string[] = []
+      for (const id of allNodeIds) if (isTagNodeId(id)) tagNames.push(id.slice(TAG_NODE_ID_PREFIX.length))
+      const parentsWithChildren = new Set<string>()
+      for (const name of tagNames) {
+        const parts = name.split('/')
+        for (let i = 1; i < parts.length; i++) parentsWithChildren.add(parts.slice(0, i).join('/'))
+      }
+      for (const name of tagNames) {
+        const isRoot = !name.includes('/')
+        const tier = isRoot
+          ? (parentsWithChildren.has(name) ? 'ultranode' as const : 'regular' as const)
+          : 'supernode' as const
+        tierMap.set(TAG_NODE_ID_PREFIX + name, tier)
+      }
+    }
+
     // dev aid — verify tier counts in devtools console
     {
-      let s = 0, u = 0
-      for (const t of tierMap.values()) { if (t === 'supernode') s++; else if (t === 'ultranode') u++ }
-      console.log(`[tier] supernodes=${s} ultranodes=${u} (super: moc-tag or deg>=${SUPERNODE_MIN_DEGREE}; ultra: >3 supernode links)`)
+      let s = 0, u = 0, ts = 0, tu = 0, tagCount = 0
+      for (const [id, t] of tierMap) {
+        const isTag = isTagNodeId(id)
+        if (isTag) tagCount++
+        if (t === 'supernode') { s++; if (isTag) ts++ }
+        else if (t === 'ultranode') { u++; if (isTag) tu++ }
+      }
+      console.log(`[tier] supernodes=${s} ultranodes=${u} — tags: ${tagCount} nodes (${tu} ultra, ${ts} super) by hierarchy; notes: moc-tag or note-deg>=${SUPERNODE_MIN_DEGREE}; note-ultra: >3 supernode links`)
     }
     // ────────────────────────────────────────────────────────────────────────
 

@@ -188,7 +188,7 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
     const tagTerms = terms.filter(t => t.startsWith('#')).map(t => t.slice(1))
     const textTerms = terms.filter(t => !t.startsWith('#'))
 
-    const matched = allNodes.filter(node => {
+    const matchedAll = allNodes.filter(node => {
       if (tagTerms.length > 0) {
         const nodeTags = node.tags.map(t => t.toLowerCase())
         if (!tagTerms.every(tt => nodeTags.some(nt => nt.includes(tt)))) return false
@@ -198,7 +198,16 @@ export function SearchBar({ visible, allNodes, allTags, onResults, onNavigate, o
         if (!textTerms.every(t => searchText.includes(t))) return false
       }
       return true
-    }).slice(0, 20)
+    })
+    // Tag nodes sit at the end of the node array, so without a boost they can
+    // never surface within the result cap. Rank them first (most general — i.e.
+    // shortest name — leading), then notes, keeping the same total cap.
+    const tagMatches = matchedAll
+      .filter(n => n.type === 'tag')
+      .sort((a, b) => a.label.length - b.label.length || a.label.localeCompare(b.label))
+      .slice(0, 6)
+    const noteMatches = matchedAll.filter(n => n.type !== 'tag')
+    const matched = [...tagMatches, ...noteMatches].slice(0, 20)
 
     setResults(matched)
     setSelectedIdx(0)
