@@ -120,21 +120,28 @@ export function Settings({
 }: SettingsProps) {
   const prevBloom = useRef(bloomStrength > 0 ? bloomStrength : 1.5)
   const [hoveredShape, setHoveredShape] = useState<string | null>(null)
-  // Community-cloud formations the user has loaded (names only; code is fetched on demand)
-  const [communityShapes, setCommunityShapes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('jarvis-community-shapes') ?? '[]') } catch { return [] }
+  // Starred community formations — the only ones shown above the catalog.
+  // Selecting a shape no longer auto-saves it; users curate via the ★ button.
+  const [communityFavs, setCommunityFavs] = useState<string[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('jarvis-community-favourites') ?? 'null')
+      if (Array.isArray(stored)) return stored
+    } catch { /* */ }
+    return ['JARVIS MATRIX', 'BLACKHOLE'] // starter favourites
   })
+  const toggleCommunityFav = (name: string) => {
+    const next = communityFavs.includes(name)
+      ? communityFavs.filter((n) => n !== name)
+      : [...communityFavs, name]
+    setCommunityFavs(next)
+    try { localStorage.setItem('jarvis-community-favourites', JSON.stringify(next)) } catch { /* */ }
+  }
   const [communityInput, setCommunityInput] = useState('')
   const [communityOpen, setCommunityOpen] = useState(false)
   const [communityAnchor, setCommunityAnchor] = useState<{ top: number; left: number } | null>(null)
   const communityBtnRef = useRef<HTMLButtonElement | null>(null)
   const communityMenuRef = useRef<HTMLDivElement | null>(null)
   const selectCommunityShape = (name: string) => {
-    if (!communityShapes.includes(name)) {
-      const next = [...communityShapes, name]
-      setCommunityShapes(next)
-      try { localStorage.setItem('jarvis-community-shapes', JSON.stringify(next)) } catch { /* */ }
-    }
     onGraphShapeChange(casberryShapeId(name))
     // menu stays open — it closes via the trigger button or a graph click
   }
@@ -171,12 +178,6 @@ export function Settings({
   const activeImportedLabel = activeCommunityName ?? activeImportedStatic?.label ?? null
   const activeImportedIcon = activeImportedStatic?.icon ?? '☁️'
   const minDistApplies = graphShape === 'natural'
-  // Pinned favourites on top; saved shapes follow
-  const PINNED_COMMUNITY = ['JARVIS MATRIX', 'BLACKHOLE']
-  const communityMenu = [
-    ...PINNED_COMMUNITY,
-    ...communityShapes.filter((n) => !PINNED_COMMUNITY.includes(n)),
-  ]
   // Full upstream catalog (newest first, like the site's gallery), cached 1h
   const [catalog, setCatalog] = useState<CatalogEntry[] | null>(() => {
     try {
@@ -218,9 +219,9 @@ export function Settings({
   const filterText = communityInput.trim()
   const filterIsUrl = /^https?:\/\//i.test(filterText)
   const matchesFilter = (n: string) => !filterText || filterIsUrl || n.toLowerCase().includes(filterText.toLowerCase())
-  const menuTop = communityMenu.filter(matchesFilter)
+  const menuTop = communityFavs.filter(matchesFilter)
   const catalogMap = useMemo(() => new Map((catalog ?? []).map((e) => [e.name, e.publisher])), [catalog])
-  const catalogRest = (catalog ?? []).map((e) => e.name).filter((n) => !communityMenu.includes(n) && matchesFilter(n))
+  const catalogRest = (catalog ?? []).map((e) => e.name).filter((n) => !communityFavs.includes(n) && matchesFilter(n))
   const miniBtnStyle = {
     background: 'transparent',
     color: '#4a6a7a',
@@ -235,6 +236,7 @@ export function Settings({
   const communityItem = (name: string) => {
     const active = graphShape === casberryShapeId(name)
     const author = catalogMap.get(name)
+    const fav = communityFavs.includes(name)
     return (
       <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <button
@@ -259,6 +261,13 @@ export function Settings({
         >
           ☁️ {name}
           {author ? <span style={{ color: '#585b70', fontSize: 9 }}> by {author}</span> : null}
+        </button>
+        <button
+          title={fav ? 'Remove from favourites' : 'Add to favourites'}
+          onClick={() => toggleCommunityFav(name)}
+          style={{ ...miniBtnStyle, color: fav ? '#ffd75e' : miniBtnStyle.color }}
+        >
+          {fav ? '★' : '☆'}
         </button>
         <button
           title="Copy formation code"
@@ -611,6 +620,11 @@ export function Settings({
                         </button>
                       )
                     })}
+                    {menuTop.length > 0 && (
+                      <div style={{ fontSize: 9, letterSpacing: '0.08em', color: '#585b70', margin: '2px 4px 4px' }}>
+                        ★ FAVOURITES
+                      </div>
+                    )}
                     {menuTop.map(communityItem)}
                     {catalogRest.length > 0 && (
                       <div style={{ fontSize: 9, letterSpacing: '0.08em', color: '#585b70', margin: '8px 4px 4px', borderTop: '1px solid #1a3a4a', paddingTop: 8 }}>

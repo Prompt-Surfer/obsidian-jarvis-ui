@@ -23,7 +23,8 @@ test('community flyout menu: pinned JARVIS MATRIX + live motion', async ({ page 
   const menuItem = page.locator('button', { hasText: 'JARVIS MATRIX' }).first()
   await expect(menuItem).toBeVisible()
 
-  // Full upstream catalog loads (830-ish formations, newest first)
+  // Starter favourites section on top; full catalog below (newest first)
+  await expect(page.getByText('★ FAVOURITES')).toBeVisible()
   await expect(page.getByText('ALL FORMATIONS')).toBeVisible({ timeout: 20000 })
   const itemCount = await page.locator('button', { hasText: '☁️' }).count()
   expect(itemCount, 'full catalog should be listed').toBeGreaterThan(100)
