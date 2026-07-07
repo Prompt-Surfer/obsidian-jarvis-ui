@@ -143,7 +143,7 @@ function App() {
   const [minDistUltra, setMinDistUltra] = useState(() => {
     try { const v = localStorage.getItem('jarvis-min-dist-ultra'); return v ? parseFloat(v) : 70 } catch { return 70 }
   })
-  const { positions, livePositions, simDone, tagBoxes, layoutProgress, shapeError, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale, { regular: minDistRegular, super: minDistSuper, ultra: minDistUltra })
+  const { positions, livePositions, simDone, tagBoxes, treeBranches, treeLabels, layoutProgress, shapeError, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale, { regular: minDistRegular, super: minDistSuper, ultra: minDistUltra })
 
   // Keep worker-side shape motion in sync; re-send on shape switches since a
   // worker re-init can race a toggle sent before it
@@ -173,6 +173,11 @@ function App() {
     try { return parseInt(localStorage.getItem('jarvis-timelapse-speed') ?? '1', 10) || 1 } catch { return 1 }
   })
   const [timelapseDate, setTimelapseDate] = useState<number | undefined>(undefined)
+  // Bumping this rewinds the timelapse to the start (used by trees auto-replay)
+  const [timelapseRestartKey, setTimelapseRestartKey] = useState(0)
+  // Trees auto-replay is deferred until the tree layout has finished forming —
+  // set on shape switch, consumed by the simDone effect below
+  const pendingTreesReplayRef = useRef(false)
   const [tagIsolationIds, setTagIsolationIds] = useState<Set<string> | null>(null)
   const [tagIsolationTags, setTagIsolationTags] = useState<string[]>([])
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set())
@@ -180,7 +185,8 @@ function App() {
   const [nodeOpacity, setNodeOpacity] = useState(1.0)
   const [starsEnabled, setStarsEnabled] = useState(false)
   const [labelsEnabled, setLabelsEnabled] = useState(false)
-  const [linksEnabled, setLinksEnabled] = useState(true)
+  // Links default off in trees mode — the 14k-link web buries the tree silhouettes
+  const [linksEnabled, setLinksEnabled] = useState(() => graphShape !== 'trees')
   const [spread, setSpreadState] = useState(4.0)
   const [textSize, setTextSizeState] = useState(() => {
     try { const v = localStorage.getItem('jarvis-text-size'); return v ? parseFloat(v) : 1.0 } catch { return 1.0 }
@@ -305,8 +311,23 @@ function App() {
   // When sim finishes: clear patternLoading if active.
   // Dep array is [simDone] only — firing on patternLoading changes risks clearing with a
   // stale simDone=true before setSimDone(false) has applied in the same batch.
+  const hasSettledResetRef = useRef(false)
   useEffect(() => {
     if (!simDone) return
+    // One-time settle reset for shape-driven layouts on INITIAL load (e.g. a
+    // ?graphShape= deep link): the first-tick auto-reset fires on early positions
+    // before the shape has formed, and the patternLoading re-reset below only
+    // covers shape *changes* — without this the camera stays inside the layout.
+    if (!hasSettledResetRef.current) {
+      hasSettledResetRef.current = true
+      if (graphShape !== 'natural') graphRef.current?.resetCamera()
+    }
+    // Trees auto-replay: the shape has now rendered — rewind and play
+    if (pendingTreesReplayRef.current) {
+      pendingTreesReplayRef.current = false
+      setTimelapseRestartKey(k => k + 1)
+      setTimelapsePlaying(true)
+    }
     console.log('[patternLoading] simDone=true — patternLoadingRef:', patternLoadingRef.current)
     if (patternLoadingRef.current) {
       console.log('[patternLoading] clearing (sim finished)')
@@ -937,6 +958,8 @@ function App() {
           graphShape={graphShape}
           autoRotate={autoRotate}
           tagBoxes={tagBoxes}
+          treeBranches={treeBranches}
+          treeLabels={treeLabels}
           timeFilterActive={timeFilterIds !== null}
           perfRef={perfRef}
         />
@@ -1010,8 +1033,18 @@ function App() {
           } else if (bloomStrength === 0) {
             setBloomStrength(1.5) // restore bloom for other shapes
           }
-          if (v.startsWith('imported:casberry:')) {
+          if (v === 'trees') {
+            setLinksEnabled(false) // link web buries the tree silhouettes
+            // Auto-replay the timelapse at 10× once the trees have rendered —
+            // starting now would replay over the previous shape's layout
+            setTimelapseSpeed(10)
+            pendingTreesReplayRef.current = true
+          } else if (v.startsWith('imported:casberry:')) {
             setLinksEnabled(false) // link lines bury dense swarm formations
+          } else if (graphShape === 'trees') {
+            if (!linksEnabled) setLinksEnabled(true) // restore links when leaving trees
+            pendingTreesReplayRef.current = false
+            setTimelapsePlaying(false)
           } else if (graphShape.startsWith('imported:casberry:') && !linksEnabled) {
             setLinksEnabled(true) // restore links when leaving community shapes
           }
@@ -1049,6 +1082,7 @@ function App() {
         playSpeed={timelapseSpeed}
         onPlayChange={setTimelapsePlaying}
         onSpeedChange={setTimelapseSpeed}
+        restartKey={timelapseRestartKey}
         activePreset={activeTimePreset}
         onPresetChange={setActiveTimePreset}
       />

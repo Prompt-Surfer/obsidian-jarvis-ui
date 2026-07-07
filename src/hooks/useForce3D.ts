@@ -24,6 +24,16 @@ export interface TagBox {
   isVirtual?: boolean; parentTags?: [string, string]
 }
 
+// Trees shape: trunk/branch skeleton line segment (world space, a→b)
+export interface TreeBranch {
+  ax: number; ay: number; az: number; bx: number; by: number; bz: number
+}
+
+// Trees shape: folder-name label at a tree base
+export interface TreeLabel {
+  text: string; x: number; y: number; z: number
+}
+
 // Perf metrics exposed to Graph3D's performance HUD
 export interface PerfMetrics {
   simFps: number        // simulation tick batches received per second
@@ -53,6 +63,8 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
   const [tagBoxes, setTagBoxes] = useState<TagBox[]>([])
+  const [treeBranches, setTreeBranches] = useState<TreeBranch[]>([])
+  const [treeLabels, setTreeLabels] = useState<TreeLabel[]>([])
   // Natural precalc progress (0-100) while the worker silently solves the core
   // layout; null whenever no precalc is running
   const [layoutProgress, setLayoutProgress] = useState<number | null>(null)
@@ -121,6 +133,12 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
 
       if (type === 'tagBoxes') {
         setTagBoxes(e.data.tagBoxes ?? [])
+        return
+      }
+
+      if (type === 'treeBranches') {
+        setTreeBranches(e.data.treeBranches ?? [])
+        setTreeLabels(e.data.treeLabels ?? [])
         return
       }
 
@@ -341,5 +359,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, shapeError, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
+  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, treeBranches, treeLabels, layoutProgress, shapeError, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
 }

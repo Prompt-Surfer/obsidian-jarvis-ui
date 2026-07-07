@@ -14,6 +14,8 @@ interface TimeFilterProps {
   onSpeedChange: (speed: number) => void
   activePreset?: string
   onPresetChange?: (preset: string) => void
+  /** Bump to rewind the timelapse to the earliest date (e.g. trees auto-replay) */
+  restartKey?: number
 }
 
 type Preset = '1D' | '1W' | '1M' | '1Y' | 'ALL'
@@ -34,7 +36,7 @@ function getPresetRange(preset: Preset): [Date, Date] | null {
   return [start, now]
 }
 
-export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, onPlayChange, onSpeedChange, activePreset: controlledPreset, onPresetChange }: TimeFilterProps) {
+export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, onPlayChange, onSpeedChange, activePreset: controlledPreset, onPresetChange, restartKey }: TimeFilterProps) {
   const { minTs, maxTs } = useMemo(() => {
     const timestamps = nodes.map(n => new Date(n.createdAt).getTime()).filter(Boolean)
     return {
@@ -119,6 +121,23 @@ export function TimeFilter({ nodes, onChange, onDateChange, playing, playSpeed, 
   // phase and would trigger "setState during render" warnings).
   const rangeRef = useRef(range)
   useEffect(() => { rangeRef.current = range }, [range])
+
+  // External restart: rewind to the earliest date so a play that's already
+  // active (or about to start) replays from the beginning. Gated on a truthy
+  // key (the parent starts at 0) rather than a first-run ref — StrictMode
+  // double-invokes mount effects, which would consume the ref and rewind on load.
+  useEffect(() => {
+    if (!restartKey) return
+    const next: [number, number] = [minTs, minTs]
+    setRange(next)
+    rangeRef.current = next
+    const filtered = new Set(
+      nodes.filter(n => new Date(n.createdAt).getTime() <= minTs).map(n => n.id)
+    )
+    onChange(filtered.size === 0 ? null : filtered)
+    onDateChange?.(minTs)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restartKey])
 
   // Auto-advance upper bound during playback
   useEffect(() => {

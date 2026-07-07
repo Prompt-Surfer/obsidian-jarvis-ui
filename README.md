@@ -164,6 +164,7 @@ VITE_VAULT_PATH=/home/yourname/Documents/ObsidianVault
 - **D3 Force 3D** — physics simulation running in a Web Worker
 - **Vite** — build tooling and dev server
 - **Express** — local API server to read vault `.md` files
+- **[TreeGenerator](https://github.com/someuser-321/TreeGenerator)** by Chris Harrison (MIT) — the stochastic binary-split fractal tree algorithm (`TreeD.js`) powering the Trees shape's branch skeletons, ported to the layout worker
 
 ---
 

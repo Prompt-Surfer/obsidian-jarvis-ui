@@ -142,6 +142,35 @@ interface TagBoxTarget {
   assignedBox?: { cx: number; cy: number; cz: number; halfSizeX: number; halfSizeY: number; halfSizeZ: number }
 }
 let tagBoxesList: TagBoxEntry[] = []
+// Trees shape branch skeleton (trunk + branch line segments, world space) —
+// rebuilt per init, posted to the main thread for LineSegments rendering
+export interface TreeBranchSegment { ax: number; ay: number; az: number; bx: number; by: number; bz: number }
+let treeBranchesList: TreeBranchSegment[] = []
+let treesTargets = new Map<string, { x: number; y: number; z: number }>()
+// Trees spread support: geometry is authored once in per-tree local coords
+// (base point + local offset) so the spread slider can rescale every tree about
+// its own base on the plane — taller from the same base, branches and leaves
+// proportionally wider. Ground-scatter notes are static (they ARE the plane).
+interface TreeLocalTarget { bx: number; bz: number; lx: number; ly: number; lz: number }
+interface TreeLocalBranch { bx: number; bz: number; lax: number; lay: number; laz: number; lbx: number; lby: number; lbz: number }
+export interface TreeLabelInfo { text: string; x: number; y: number; z: number }
+let treesStaticTargets = new Map<string, { x: number; y: number; z: number }>()
+let treesLocalTargets = new Map<string, TreeLocalTarget>()
+let treesLocalBranches: TreeLocalBranch[] = []
+// Folder-name label at each tree base (does not scale with spread — bases are fixed)
+let treeLabelsList: TreeLabelInfo[] = []
+const TREES_NEUTRAL_SPREAD = 2 // slider value at which trees render at authored size
+function applyTreesSpread(spread: number): void {
+  const s = Math.max(0.25, spread / TREES_NEUTRAL_SPREAD)
+  treesTargets = new Map(treesStaticTargets)
+  for (const [id, t] of treesLocalTargets) {
+    treesTargets.set(id, { x: t.bx + t.lx * s, y: t.ly * s, z: t.bz + t.lz * s })
+  }
+  treeBranchesList = treesLocalBranches.map(b => ({
+    ax: b.bx + b.lax * s, ay: b.lay * s, az: b.bz + b.laz * s,
+    bx: b.bx + b.lbx * s, by: b.lby * s, bz: b.bz + b.lbz * s,
+  }))
+}
 let tagBoxTargets = new Map<string, TagBoxTarget>()
 
 // Tag box world-space constants
@@ -517,6 +546,9 @@ let MIN_DIST_REGULAR = 12
 let MIN_DIST_SUPER = 35
 let MIN_DIST_ULTRA = 70
 function tierRadius(id: string): number {
+  // Trees: min-distance disabled — leaf/junction placement is authored geometry
+  // and per-tier radii would blow the tight tip clusters apart (e.g. drag PBD)
+  if (graphShape === 'trees') return 1
   const t = tierMap.get(id)
   return t === 'ultranode' ? MIN_DIST_ULTRA : t === 'supernode' ? MIN_DIST_SUPER : MIN_DIST_REGULAR
 }
@@ -844,9 +876,25 @@ self.onmessage = (e: MessageEvent) => {
       tagBoxesList = []
       self.postMessage({ type: 'tagBoxes', tagBoxes: [] })
     }
+    // Trees: snap nodes onto the (init-computed) forest targets and re-announce
+    // the branch skeleton; clear the skeleton when switching away
+    if (graphShape === 'trees') {
+      applyTreesSpread(currentSpread) // spread may have moved while in another shape
+      for (const node of simNodes) {
+        const target = treesTargets.get(node.id)
+        if (!target) continue
+        node.x = target.x
+        node.y = target.y
+        node.z = target.z
+        node.vx = 0; node.vy = 0; node.vz = 0
+      }
+      self.postMessage({ type: 'treeBranches', treeBranches: treeBranchesList, treeLabels: treeLabelsList })
+    } else {
+      self.postMessage({ type: 'treeBranches', treeBranches: [], treeLabels: [] })
+    }
     // Reheat sim — update forces to match new shape
     if (simulation) {
-      const shapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes' || graphShape.startsWith('imported:')
+      const shapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes' || graphShape === 'trees' || graphShape.startsWith('imported:')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lf = simulation.force('link') as any
       if (lf?.strength) lf.strength(shapeDriven ? 0 : 0.5)
@@ -1045,8 +1093,11 @@ self.onmessage = (e: MessageEvent) => {
     // Radial pull toward origin for isolated nodes (0.08 = moderate, tunable)
     // Disabled in tagboxes mode — shapeForce + AABB containment handle placement there.
     // isolatedForce (k=0.08) would overpower the shapeForce (k=0.012) and drain nodes from distant boxes.
+    // Also disabled in trees mode: every note has an authored branch-tip target,
+    // and this pull displaces orphan notes ~9% toward origin (0.08 vs the 0.8
+    // shape force) — visibly detaching them from trees at the row edges.
     const isolatedForce = (alpha: number) => {
-      if (graphShape === 'tagboxes') return
+      if (graphShape === 'tagboxes' || graphShape === 'trees') return
       const k = alpha * 0.08
       for (const node of simNodes) {
         if (isolatedIds.has(node.id)) {
@@ -1457,6 +1508,266 @@ self.onmessage = (e: MessageEvent) => {
       }
     }
 
+    // ── Trees target positions (fractal trees on a horizontal ground plane) ──
+    // One fractal tree per top-level folder, grown with the stochastic
+    // binary-split algorithm ported from someuser-321/TreeGenerator (TreeD.js,
+    // MIT, credited in README). The folder's root note sits at the trunk base,
+    // and the folder's notes hang as leaf clusters on the branch tips in
+    // depth-first folder order, so each subfolder occupies a contiguous bough.
+    // Root-level vault notes scatter on the ground between trees. World-space
+    // targets, spread-independent, so the exported branch skeleton
+    // (treeBranchesList) always matches node positions. Node ids are relative
+    // vault paths, so the folder chain comes straight from the id.
+    treeBranchesList = []
+    treesTargets = new Map<string, { x: number; y: number; z: number }>()
+    treesStaticTargets = new Map()
+    treesLocalTargets = new Map()
+    treesLocalBranches = []
+    treeLabelsList = []
+
+    {
+      const TREE_GAP = 140           // gap between trees along a row
+      const ROW_DEPTH = 480          // z distance between rows
+      const golden = Math.PI * (3 - Math.sqrt(5))
+      // TreeGenerator parameters (defaults of the TreeD.js sliders)
+      const ROT = 0.125              // split angle, fraction of π
+      const ROT_RAND = 0.4           // split rotation variation
+      const LEN_RAND = 0.35          // branch length variation
+
+      interface FolderInfo { key: string; depth: number; children: string[]; notes: string[] }
+      const folderMap = new Map<string, FolderInfo>()
+      const ensureFolder = (key: string): FolderInfo => {
+        let f = folderMap.get(key)
+        if (!f) {
+          f = { key, depth: key === '' ? -1 : key.split('/').length - 1, children: [], notes: [] }
+          folderMap.set(key, f)
+          if (key !== '') {
+            const parentKey = key.includes('/') ? key.slice(0, key.lastIndexOf('/')) : ''
+            ensureFolder(parentKey).children.push(key)
+          }
+        }
+        return f
+      }
+      ensureFolder('')
+      for (const node of simNodes) {
+        const slash = node.id.lastIndexOf('/')
+        ensureFolder(slash === -1 ? '' : node.id.slice(0, slash)).notes.push(node.id)
+      }
+
+      // Subtree note counts (bottom-up), used for tree sizing and bough order
+      const countMap = new Map<string, number>()
+      const computeCount = (key: string): number => {
+        const f = folderMap.get(key)!
+        let c = f.notes.length
+        for (const ch of f.children) c += computeCount(ch)
+        countMap.set(key, c)
+        return c
+      }
+      const treeKeys = folderMap.get('')!.children
+      for (const t of treeKeys) computeCount(t)
+
+      // Deterministic per-folder variation (0..1) — stable across reloads
+      const hash01 = (key: string) => {
+        let h = 7
+        for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 997
+        return h / 997
+      }
+
+      // Seeded PRNG (mulberry32) — replaces p5's randomSeed()/random()
+      const mulberry32 = (a: number) => {
+        let s = a | 0
+        return () => {
+          s = (s + 0x6D2B79F5) | 0
+          let t = Math.imul(s ^ (s >>> 15), 1 | s)
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+        }
+      }
+
+      // Column-major 3×3 rotation helpers for the branch local frame
+      type Mat3 = [number, number, number, number, number, number, number, number, number]
+      const IDENT: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+      const matMul = (a: Mat3, b: Mat3): Mat3 => {
+        const c = new Array(9) as Mat3
+        for (let j = 0; j < 3; j++) {
+          for (let i = 0; i < 3; i++) {
+            c[3 * j + i] = a[i] * b[3 * j] + a[3 + i] * b[3 * j + 1] + a[6 + i] * b[3 * j + 2]
+          }
+        }
+        return c
+      }
+      const rotY = (t: number): Mat3 => {
+        const c = Math.cos(t), s = Math.sin(t)
+        return [c, 0, -s, 0, 1, 0, s, 0, c]
+      }
+      const rotX = (t: number): Mat3 => {
+        const c = Math.cos(t), s = Math.sin(t)
+        return [1, 0, 0, 0, c, s, 0, -s, c]
+      }
+
+      // Data-driven port of TreeD.js branch(): the recursion follows the vault
+      // hierarchy instead of a fixed depth. Each branch carries a work list of
+      // items (notes and whole subfolders): one note left → the branch ends and
+      // that note IS the tip (every tip is a node, no empty branches); a single
+      // subfolder left → its root/MOC note marks the junction at the branch end
+      // and the folder's contents continue from there; several items → split in
+      // two contiguous halves of ~equal weight using TreeGenerator's yaw/pitch
+      // rotations and 1/level length falloff.
+      interface RawSeg { ax: number; ay: number; az: number; bx: number; by: number; bz: number }
+      interface BranchItem { note?: string; folder?: string; weight: number }
+
+      // A folder's root note anchors its junction ONLY when a genuine index-like
+      // note exists (<folder>/<folder>, moc, index, readme). No degree fallback:
+      // promoting an arbitrary hub note to the base misrepresents the folder
+      // (e.g. "Speculative Decoding" masquerading as the local_llm base). Bare
+      // bases/junctions are fine — routing is purely path-based, and every tree
+      // base carries a folder-name label regardless.
+      const rootNote = (key: string): string | null => {
+        const direct = folderMap.get(key)!.notes
+        if (direct.length === 0) return null
+        const base = key.split('/').pop()
+        return direct.find(id => id === key + '/' + base)
+          ?? direct.find(id => id === key + '/moc')
+          ?? direct.find(id => id === key + '/index')
+          ?? direct.find(id => id === key + '/readme')
+          ?? null
+      }
+
+      // A folder's contents as branch items: direct notes (minus the root note,
+      // which sits at the folder's junction) plus one weighted item per subfolder
+      const folderItems = (key: string, excludeRoot: string | null): BranchItem[] => {
+        const f = folderMap.get(key)!
+        const items: BranchItem[] = []
+        for (const id of f.notes) if (id !== excludeRoot) items.push({ note: id, weight: 1 })
+        for (const c of f.children) items.push({ folder: c, weight: Math.max(countMap.get(c)!, 1) })
+        items.sort((a, b) => b.weight - a.weight)
+        return items
+      }
+
+      // Grow each tree in local coords (trunk base at origin), measure extent
+      interface TreeGen { key: string; segs: RawSeg[]; locals: Map<string, { lx: number; ly: number; lz: number }>; halfW: number }
+      const gens: TreeGen[] = []
+      for (const key of treeKeys) {
+        const count = countMap.get(key)!
+        const unitLen = 60 + Math.sqrt(count) * 4.5
+        const segs: RawSeg[] = []
+        const locals = new Map<string, { lx: number; ly: number; lz: number }>()
+
+        const branch = (items: BranchItem[], level: number, s: number, px: number, py: number, pz: number, m: Mat3): void => {
+          const rng = mulberry32(Math.floor(s))
+          const seed1 = rng() * 4294967296
+          const seed2 = rng() * 4294967296
+          const segLen = (unitLen / level) * (1 + (rng() * 2 - 1) * LEN_RAND)
+          const ex = px + m[3] * segLen
+          const ey = py + m[4] * segLen
+          const ez = pz + m[5] * segLen
+          segs.push({ ax: px, ay: py, az: pz, bx: ex, by: ey, bz: ez })
+          // Unwrap folder chains: each folder's root note marks this junction
+          let cur = items
+          while (cur.length === 1 && cur[0].folder !== undefined) {
+            const fkey = cur[0].folder as string
+            const root = rootNote(fkey)
+            if (root) locals.set(root, { lx: ex, ly: ey + 3, lz: ez })
+            cur = folderItems(fkey, root)
+            if (cur.length === 0) return // MOC-only folder — its junction is the tip
+          }
+          if (cur.length === 1 && cur[0].note !== undefined) {
+            locals.set(cur[0].note as string, { lx: ex, ly: ey + 3, lz: ez }) // tip = the node
+            return
+          }
+          // Split into two contiguous halves of ~equal weight (both non-empty)
+          const total = cur.reduce((sum, it) => sum + it.weight, 0)
+          let acc = 0
+          let cut = 1
+          for (let i = 0; i < cur.length - 1; i++) {
+            acc += cur[i].weight
+            cut = i + 1
+            if (acc >= total / 2) break
+          }
+          const r11 = ROT * Math.PI * (1 + (rng() * 2 - 1) * ROT_RAND)
+          const r12 = ROT * Math.PI * (1 + (rng() * 2 - 1) * ROT_RAND)
+          const r21 = ROT * Math.PI * (1 + (rng() * 2 - 1) * ROT_RAND)
+          const r22 = ROT * Math.PI * (1 + (rng() * 2 - 1) * ROT_RAND)
+          branch(cur.slice(0, cut), level + 1, seed1, ex, ey, ez, matMul(matMul(m, rotY(Math.PI / 2 + r11)), rotX(r12)))
+          branch(cur.slice(cut), level + 1, seed2, ex, ey, ez, matMul(matMul(m, rotY(Math.PI / 2 + r21)), rotX(-r22)))
+        }
+
+        // Base node: the top-level folder's root note sits at the trunk foot
+        const treeRoot = rootNote(key)
+        if (treeRoot) locals.set(treeRoot, { lx: 0, ly: 4, lz: 0 })
+        const items = folderItems(key, treeRoot)
+        if (items.length > 0) {
+          branch(items, 1, Math.floor(hash01(key) * 4294967296), 0, 0, 0, IDENT)
+        } else if (treeRoot) {
+          // Lone-note folder (e.g. just a moc): draw a short trunk stub and put
+          // the note on top so it never floats unattached in its row slot
+          segs.push({ ax: 0, ay: 0, az: 0, bx: 0, by: 40, bz: 0 })
+          locals.set(treeRoot, { lx: 0, ly: 43, lz: 0 })
+        }
+
+        let halfW = 0
+        for (const sg of segs) halfW = Math.max(halfW, Math.abs(sg.bx), Math.abs(sg.bz))
+        gens.push({ key, segs, locals, halfW: Math.max(halfW, 40) })
+      }
+
+      // Plant trees in rows, biggest tree at the back — forest faces the camera
+      gens.sort((a, b) => countMap.get(b.key)! - countMap.get(a.key)!)
+      const diam = (g: TreeGen) => 2 * g.halfW + TREE_GAP
+      const totalW = gens.reduce((s, g) => s + diam(g), 0)
+      const rowLimit = Math.max(gens.length > 0 ? diam(gens[0]) : 0, totalW / 2.4)
+      const rows: TreeGen[][] = []
+      let row: TreeGen[] = []
+      let rowW = 0
+      for (const g of gens) {
+        if (row.length > 0 && rowW + diam(g) > rowLimit) { rows.push(row); row = []; rowW = 0 }
+        row.push(g); rowW += diam(g)
+      }
+      if (row.length > 0) rows.push(row)
+
+      const zStart = -((rows.length - 1) * ROW_DEPTH) / 2
+      rows.forEach((r, ri) => {
+        const w = r.reduce((s, g) => s + diam(g), 0)
+        let xCursor = -w / 2
+        const tz = zStart + ri * ROW_DEPTH
+        for (const g of r) {
+          const tx = xCursor + diam(g) / 2
+          xCursor += diam(g)
+          for (const sg of g.segs) {
+            treesLocalBranches.push({
+              bx: tx, bz: tz,
+              lax: sg.ax, lay: sg.ay, laz: sg.az,
+              lbx: sg.bx, lby: sg.by, lbz: sg.bz,
+            })
+          }
+          for (const [id, l] of g.locals) {
+            treesLocalTargets.set(id, { bx: tx, bz: tz, lx: l.lx, ly: l.ly, lz: l.lz })
+          }
+          // Folder-name label floating at the trunk base
+          treeLabelsList.push({ text: g.key, x: tx, y: 14, z: tz + 14 })
+        }
+      })
+
+      // Root-level notes: fallen leaves on the ground in front of the rows
+      const groundNotes = folderMap.get('')!.notes
+      const forestW = Math.max(rowLimit, 400)
+      const frontZ = zStart + rows.length * ROW_DEPTH
+      groundNotes.forEach((id, i) => {
+        treesStaticTargets.set(id, {
+          x: (((i * 0.6180339887498949) % 1) - 0.5) * forestW,
+          y: 3 + ((i * 0.7548776662466927) % 1) * 8,
+          z: frontZ + ((i * 0.5698402909980532) % 1) * 200,
+        })
+      })
+
+      // Bake the current spread into targets + skeleton (trees scale about
+      // their own base points; ground scatter stays put on the plane)
+      applyTreesSpread(currentSpread)
+    }
+
+    // Announce the branch skeleton (empty unless trees) so the renderer can
+    // draw/remove the trunk+branch lines for this init's layout
+    self.postMessage({ type: 'treeBranches', treeBranches: graphShape === 'trees' ? treeBranchesList : [], treeLabels: graphShape === 'trees' ? treeLabelsList : [] })
+
     // ── Tag Box targets: only pre-build if starting with tagboxes shape ──
     if (graphShape === 'tagboxes') buildTagBoxTargets(tagBoxTopN)
 
@@ -1552,6 +1863,15 @@ self.onmessage = (e: MessageEvent) => {
         node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
         node.z = target.z * currentSpread + (Math.random() - 0.5) * 20
       }
+    } else if (graphShape === 'trees') {
+      // World-space positions — spread-independent (branch skeleton lines must match)
+      for (const node of simNodes) {
+        const target = treesTargets.get(node.id)
+        if (!target) continue
+        node.x = target.x + (Math.random() - 0.5) * 14
+        node.y = target.y + (Math.random() - 0.5) * 14
+        node.z = target.z + (Math.random() - 0.5) * 14
+      }
     } else if (graphShape === 'tagboxes') {
       // World-space positions — spread-independent
       for (const node of simNodes) {
@@ -1630,6 +1950,18 @@ self.onmessage = (e: MessageEvent) => {
           node.vy += (target.y * currentSpread - node.y) * k
           node.vz += (target.z * currentSpread - node.z) * k
         }
+      } else if (graphShape === 'trees') {
+        // Pull all nodes toward forest targets (strong snap — shape formula
+        // dominates). World-space, spread-independent: the rendered branch
+        // skeleton lines are fixed geometry and nodes must stay glued to them.
+        const k = alpha * 0.8
+        for (const node of simNodes) {
+          const target = treesTargets.get(node.id)
+          if (!target) continue
+          node.vx += (target.x - node.x) * k
+          node.vy += (target.y - node.y) * k
+          node.vz += (target.z - node.z) * k
+        }
       } else if (graphShape === 'tagboxes') {
         // Venn diagram force: pull strength varies by overlap zone
         const CONTAIN_K = 0.05
@@ -1660,7 +1992,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const isShapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes' || graphShape.startsWith('imported:')
+    const isShapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes' || graphShape === 'trees' || graphShape.startsWith('imported:')
     const chargeStrength = isShapeDriven ? 0 : -120
     const centerStrength = isShapeDriven ? 0 : 0.05
 
@@ -2017,13 +2349,19 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     currentSpread = spread  // shape targets scale with spread
+    // Trees: spread rescales each tree about its own base point on the plane —
+    // taller from the same base, branches and leaves proportionally wider
+    if (graphShape === 'trees') {
+      applyTreesSpread(spread)
+      self.postMessage({ type: 'treeBranches', treeBranches: treeBranchesList, treeLabels: treeLabelsList })
+    }
     if (simulation) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lf = simulation.force('link') as any
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = (graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape.startsWith('imported:')) ? 0 : -120
+      const baseCharge = (graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes' || graphShape === 'trees' || graphShape.startsWith('imported:')) ? 0 : -120
       if (cf?.strength) {
         cf.strength(baseCharge * spread)
       }

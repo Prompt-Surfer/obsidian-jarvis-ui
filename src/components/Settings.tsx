@@ -470,6 +470,7 @@ export function Settings({
                 { value: 'milkyway', icon: '🌌', label: 'Milky Way' },
                 { value: 'brain', icon: '🧠', label: 'Brain' },
                 { value: 'tagboxes', icon: '🗃️', label: 'Tag Boxes' },
+                { value: 'trees', icon: '🌳', label: 'Trees' },
               ] as const).map(({ value, icon, label }) => {
                 const isSelected = graphShape === value
                 const isHovered = hoveredShape === value

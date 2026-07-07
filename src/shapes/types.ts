@@ -1,7 +1,7 @@
 // Shared shape typing. Built-ins are hand-tuned layouts in the force worker;
 // imported shapes are ported particle-swarm position functions resolved
 // through src/shapes/registry.ts and selected as `imported:<id>`.
-export const BUILTIN_SHAPES = ['natural', 'sun', 'saturn', 'milkyway', 'brain', 'tagboxes'] as const
+export const BUILTIN_SHAPES = ['natural', 'sun', 'saturn', 'milkyway', 'brain', 'tagboxes', 'trees'] as const
 export type BuiltinShape = (typeof BUILTIN_SHAPES)[number]
 export type GraphShape = BuiltinShape | `imported:${string}`
 

@@ -8,7 +8,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { GraphNode, GraphData } from '../hooks/useVaultGraph'
-import type { NodePosition, TagBox, PerfMetrics, LiveSimPositions } from '../hooks/useForce3D'
+import type { NodePosition, TagBox, TreeBranch, TreeLabel, PerfMetrics, LiveSimPositions } from '../hooks/useForce3D'
 import type { GraphShape } from '../shapes/types'
 import { getNodeColor } from '../lib/colors'
 
@@ -51,6 +51,8 @@ interface Graph3DProps {
   graphShape?: GraphShape
   autoRotate?: boolean
   tagBoxes?: TagBox[]
+  treeBranches?: TreeBranch[]
+  treeLabels?: TreeLabel[]
   linksEnabled?: boolean
   timeFilterActive?: boolean
   textSize?: number
@@ -69,6 +71,8 @@ export interface Graph3DHandle {
 }
 
 const NODE_RADIUS = 4
+// Trees shape: fixed camera elevation above the ground plane (turntable orbit)
+const TREES_ELEV_RAD = 12 * Math.PI / 180
 const NODE_SEGMENTS = 8
 
 // Enable render-loop profiling via ?perf query param in dev
@@ -168,6 +172,8 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   graphShape,
   autoRotate = false,
   tagBoxes,
+  treeBranches,
+  treeLabels,
   linksEnabled = true,
   timeFilterActive = false,
   textSize = 1.0,
@@ -227,6 +233,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
   // PERF: dirty-flag render gate — only call renderer.render() when scene has changed
   const isDirtyRef = useRef(true)
+  // Live graphShape for the RAF loop (the loop effect doesn't re-run per shape)
+  const graphShapeRef = useRef(graphShape)
+  graphShapeRef.current = graphShape
 
   // Position interpolation (lerp) — decouple render rate from sim rate for smooth 60fps motion.
   // P1/P2: lerp targets come from livePositions (typed array, index-aligned to
@@ -620,6 +629,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const linkMat = new THREE.LineBasicMaterial({ color: 0x1a3a4a, transparent: true, opacity: 0.5 })
     const lines = new THREE.LineSegments(linkGeo, linkMat)
     lines.frustumCulled = false
+    // Apply the current toggle at creation — the visibility effect above may have
+    // run before this mesh existed (e.g. links defaulted off in trees mode)
+    lines.visible = linksEnabled
     scene.add(lines)
     lineSegmentsRef.current = lines
 
@@ -764,6 +776,129 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     isDirtyRef.current = true
   }, [tagBoxes, graphShape])
+
+  // Trees ground — a solid opaque square plane with grid lines on top, sized
+  // square to the settled layout for a clean viewing platform. Rebuilt on
+  // delayed timers because node positions stream in after the shape switch;
+  // purely cosmetic so late sizing is harmless.
+  const treesGroundRef = useRef<THREE.Group | null>(null)
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    const removeGround = () => {
+      const g = treesGroundRef.current
+      if (g) {
+        scene.remove(g)
+        g.traverse(obj => {
+          const mesh = obj as THREE.Mesh
+          if (mesh.geometry) mesh.geometry.dispose()
+          if (mesh.material) (mesh.material as THREE.Material).dispose()
+        })
+        treesGroundRef.current = null
+      }
+    }
+    if (graphShape !== 'trees') { removeGround(); return }
+    const buildGround = () => {
+      let maxE = 0
+      for (const [, p] of displayedPositionsRef.current) {
+        maxE = Math.max(maxE, Math.abs(p.x), Math.abs(p.z))
+      }
+      if (maxE === 0) return
+      removeGround()
+      const size = maxE * 2.6
+      const group = new THREE.Group()
+      // Opaque floor slab just under the grid lines
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(size, size),
+        new THREE.MeshBasicMaterial({ color: 0x0b2338, side: THREE.DoubleSide })
+      )
+      floor.rotation.x = -Math.PI / 2
+      floor.position.y = -2
+      group.add(floor)
+      const grid = new THREE.GridHelper(size, 24, 0x11607a, 0x0c3a52)
+      const gmat = grid.material as THREE.LineBasicMaterial
+      gmat.transparent = true
+      gmat.opacity = 0.5
+      gmat.depthWrite = false
+      group.add(grid)
+      scene.add(group)
+      treesGroundRef.current = group
+      isDirtyRef.current = true
+    }
+    const timers = [setTimeout(buildGround, 1500), setTimeout(buildGround, 5000), setTimeout(buildGround, 12000)]
+    return () => { timers.forEach(clearTimeout); removeGround() }
+    // treeBranches dep: resizes the slab when the spread slider rescales the forest
+  }, [graphShape, treeBranches])
+
+  // Trees branch skeleton — trunk + branch lines from worker-computed segments,
+  // drawn as glowing lines so each folder tree reads as an actual tree
+  const treeBranchLinesRef = useRef<THREE.LineSegments | null>(null)
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    const removeLines = () => {
+      if (treeBranchLinesRef.current) {
+        scene.remove(treeBranchLinesRef.current)
+        treeBranchLinesRef.current.geometry.dispose()
+        ;(treeBranchLinesRef.current.material as THREE.Material).dispose()
+        treeBranchLinesRef.current = null
+      }
+    }
+    removeLines()
+    if (graphShape !== 'trees' || !treeBranches || treeBranches.length === 0) {
+      isDirtyRef.current = true
+      return
+    }
+    const pos = new Float32Array(treeBranches.length * 6)
+    treeBranches.forEach((s, i) => {
+      pos[i * 6] = s.ax; pos[i * 6 + 1] = s.ay; pos[i * 6 + 2] = s.az
+      pos[i * 6 + 3] = s.bx; pos[i * 6 + 4] = s.by; pos[i * 6 + 5] = s.bz
+    })
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    const mat = new THREE.LineBasicMaterial({
+      color: 0x2fae7d, // bioluminescent branch green — distinct from cyan note links
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+    const lines = new THREE.LineSegments(geo, mat)
+    scene.add(lines)
+    treeBranchLinesRef.current = lines
+    isDirtyRef.current = true
+    return removeLines
+  }, [treeBranches, graphShape])
+
+  // Trees base labels — folder name floating at each trunk foot, so every tree
+  // is identifiable even when the folder has no index/moc note to anchor it
+  const treeLabelSpritesRef = useRef<THREE.Sprite[]>([])
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    const removeLabels = () => {
+      for (const s of treeLabelSpritesRef.current) {
+        scene.remove(s)
+        ;(s.material as THREE.SpriteMaterial).map?.dispose()
+        s.material.dispose()
+      }
+      treeLabelSpritesRef.current = []
+    }
+    removeLabels()
+    if (graphShape !== 'trees' || !treeLabels || treeLabels.length === 0) {
+      isDirtyRef.current = true
+      return
+    }
+    for (const l of treeLabels) {
+      const sprite = createLabelSprite(l.text)
+      sprite.scale.set(110, 20.6, 1)
+      sprite.position.set(l.x, l.y, l.z)
+      scene.add(sprite)
+      treeLabelSpritesRef.current.push(sprite)
+    }
+    isDirtyRef.current = true
+    return removeLabels
+  }, [treeLabels, graphShape])
 
   // PERF: Split into two effects — heavy structural work (matrix/links/labels) only runs on
   // position/filter/size changes; lightweight color/interaction work runs on hover/selection.
@@ -1082,6 +1217,29 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       // PERF: controls.update() runs every frame to advance damping; the 'change' event fires
       // automatically during damping decay, keeping isDirtyRef true until camera fully settles
       localControls.update()
+
+      // Trees: turntable camera — whatever TrackballControls did, re-project onto
+      // a fixed-elevation cone around the target: mouse rotation becomes pure
+      // horizontal orbit, the plane tilt never changes, and the camera can never
+      // go under the plane.
+      if (graphShapeRef.current === 'trees') {
+        const cam = cameraRef.current
+        if (cam) {
+          const t = localControls.target
+          const ox = cam.position.x - t.x
+          const oy = cam.position.y - t.y
+          const oz = cam.position.z - t.z
+          const r = Math.sqrt(ox * ox + oy * oy + oz * oz)
+          if (r > 1e-3) {
+            const azim = Math.atan2(ox, oz)
+            const cosE = Math.cos(TREES_ELEV_RAD)
+            const sinE = Math.sin(TREES_ELEV_RAD)
+            cam.position.set(t.x + r * cosE * Math.sin(azim), t.y + r * sinE, t.z + r * cosE * Math.cos(azim))
+            cam.up.set(0, 1, 0)
+            cam.lookAt(t)
+          }
+        }
+      }
 
       // Spread-aware zoom-out: Spread animates via this RAF loop (not React state), so the
       // effect-based maxDistance clamp goes stale and you couldn't zoom out after raising
@@ -1505,6 +1663,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     const hit = getHitNode(e)
     if (hit) {
+      // Direct hit: hide the proximity annotation line so it can't linger stale
+      if (annotLineRef.current?.visible) {
+        annotLineRef.current.visible = false
+        isDirtyRef.current = true
+      }
       onNodeHover(hit.node, e.clientX, e.clientY)
       return
     }
@@ -1568,6 +1731,10 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       } else {
         annotLine.visible = false
       }
+      // Mark the frame dirty so the line renders even when nothing else does —
+      // with links hidden (trees default) an idle scene has no other render
+      // trigger and the annotation would appear stale or not at all
+      isDirtyRef.current = true
     }
 
     onNodeHover(nearestNode, e.clientX, e.clientY)
@@ -1670,6 +1837,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         box.getBoundingSphere(sphere)
         const fov = camera.fov * Math.PI / 180
         dist = (sphere.radius * 1.4) / Math.tan(fov / 2)
+        if (graphShape === 'trees') {
+          // Target the centre of the ground plane (geometric bounds), not the
+          // centre of mass — the biggest tree would drag the view toward itself
+          box.getCenter(endTarget)
+        }
       }
     }
     controls.maxDistance = 500000
@@ -1699,6 +1871,15 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         endTarget.y + dist * Math.sin(angle) * 0.3,
         endTarget.z + dist * 0.1
       )
+    } else if (graphShape === 'trees') {
+      // Horizontal plane, camera tilted only slightly toward it — tree profiles
+      // stay readable while the ground plane recedes with a hint of depth.
+      // Same fixed elevation the RAF turntable enforces.
+      endPos = new THREE.Vector3(
+        endTarget.x,
+        endTarget.y + dist * Math.sin(TREES_ELEV_RAD),
+        endTarget.z + dist * Math.cos(TREES_ELEV_RAD)
+      )
     } else if (graphShape === 'tagboxes') {
       // Straight-on front view — flat grid layout, slight elevation
       endPos = new THREE.Vector3(endTarget.x, endTarget.y + dist * 0.15, endTarget.z + dist)
@@ -1708,6 +1889,13 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
 
     const startPos = camera.position.clone()
     const startTarget = controls.target.clone()
+    // TrackballControls rolls camera.up during free tumbling — reset must level
+    // the horizon too, or the "reset" view keeps the old roll and the ground
+    // plane comes back tilted. Nudge a fully-inverted up so the lerp can't
+    // degenerate through the zero vector.
+    const startUp = camera.up.clone().normalize()
+    const endUp = new THREE.Vector3(0, 1, 0)
+    if (startUp.dot(endUp) < -0.99) startUp.x += 0.05
     const duration = 500
     const start = performance.now()
 
@@ -1717,6 +1905,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       const t = Math.min((now - start) / duration, 1)
       const ease = 1 - Math.pow(1 - t, 3)
       localCamera.position.lerpVectors(startPos, endPos, ease)
+      localCamera.up.lerpVectors(startUp, endUp, ease).normalize()
       localControls.target.lerpVectors(startTarget, endTarget, ease)
       localControls.update()
       if (t < 1) requestAnimationFrame(animReset)
