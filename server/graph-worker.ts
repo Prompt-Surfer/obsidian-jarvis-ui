@@ -120,6 +120,24 @@ function extractTags(content: string): string[] {
   return Array.from(tags)
 }
 
+// Frontmatter created:/date: is the source of truth for creation time — file
+// birthtime gets clobbered by migrations/syncs. Fallback: min(birthtime, mtime),
+// since original mtimes often survive a copy that resets birthtime.
+function extractCreatedAt(content: string, stat: { birthtime: Date; mtime: Date }): string {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
+  if (fmMatch) {
+    for (const key of ['created', 'date']) {
+      const m = fmMatch[1].match(new RegExp(`^${key}:\\s*['"]?(\\d{4}-\\d{2}-\\d{2}(?:[T ]\\d{2}:\\d{2}(?::\\d{2})?)?)`, 'm'))
+      if (m) {
+        const d = new Date(m[1].replace(' ', 'T'))
+        if (!isNaN(d.getTime()) && d.getTime() > 946684800000) return d.toISOString()
+      }
+    }
+  }
+  const earliest = Math.min(stat.birthtime.getTime() || Infinity, stat.mtime.getTime())
+  return new Date(earliest).toISOString()
+}
+
 function extractWikilinks(content: string): string[] {
   const matches = content.match(/\[\[([^\]|#]+?)(?:\|[^\]]+)?\]\]/g) ?? []
   return matches.map(m => {
@@ -234,7 +252,7 @@ async function buildGraphAsync(vaultPath: string): Promise<void> {
         tags: extractTags(content),
         links: extractWikilinks(content),
         excerpt: extractExcerpt(content),
-        createdAt: stat.birthtime.toISOString(),
+        createdAt: extractCreatedAt(content, stat),
         modifiedAt: stat.mtime.toISOString(),
         folder: getTopFolder(relPath),
       }
