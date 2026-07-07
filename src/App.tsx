@@ -1000,6 +1000,11 @@ function App() {
           } else if (bloomStrength === 0) {
             setBloomStrength(1.5) // restore bloom for other shapes
           }
+          if (v.startsWith('imported:casberry:')) {
+            setLinksEnabled(false) // link lines bury dense swarm formations
+          } else if (graphShape.startsWith('imported:casberry:') && !linksEnabled) {
+            setLinksEnabled(true) // restore links when leaving community shapes
+          }
         }}
         tagBoxTopN={tagBoxTopN}
         onTagBoxTopNChange={setTagBoxTopN}

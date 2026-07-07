@@ -36,6 +36,9 @@ test('community flyout menu: pinned JARVIS MATRIX + live motion', async ({ page 
   await page.screenshot({ path: '/tmp/jarvis-matrix-flyout-loaded.png' })
   await expect(trigger).toContainText('JARVIS MATRIX')
 
+  // Community shapes default links to off (dense swarms bury link lines)
+  await expect(page.locator('button', { hasText: 'LINKS OFF' })).toBeVisible()
+
   // Clicking the graph (canvas) closes the menu
   await page.locator('canvas').first().click({ position: { x: 300, y: 200 }, force: true })
   await expect(page.getByText('ALL FORMATIONS')).not.toBeVisible()
