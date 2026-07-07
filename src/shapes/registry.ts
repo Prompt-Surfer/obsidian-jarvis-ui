@@ -1,11 +1,14 @@
 import { BUILTIN_SHAPES, type GraphShape, type ImportedShapeDef } from './types'
-import { blackhole } from './imported/blackhole'
 import { CASBERRY_PREFIX, casberryShapeName, casberryShapeDef, fetchFormation } from './casberry'
 
 const IMPORTED_PREFIX = 'imported:'
 
-/** Add newly ported shapes here — they appear in the Settings dropdown automatically. */
-export const importedShapes: ImportedShapeDef[] = [blackhole]
+/**
+ * Hand-ported static shapes. Currently empty — community formations
+ * (including BLACKHOLE, once a static port here) load through the casberry
+ * pipeline instead. Add entries only for shapes with no upstream source.
+ */
+export const importedShapes: ImportedShapeDef[] = []
 
 export function getImportedShape(shape: string): ImportedShapeDef | undefined {
   if (!shape.startsWith(IMPORTED_PREFIX)) return undefined

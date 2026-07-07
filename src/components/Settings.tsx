@@ -171,8 +171,8 @@ export function Settings({
   const activeImportedLabel = activeCommunityName ?? activeImportedStatic?.label ?? null
   const activeImportedIcon = activeImportedStatic?.icon ?? '☁️'
   const minDistApplies = graphShape === 'natural'
-  // JARVIS MATRIX is pinned on top; saved shapes follow
-  const PINNED_COMMUNITY = ['JARVIS MATRIX']
+  // Pinned favourites on top; saved shapes follow
+  const PINNED_COMMUNITY = ['JARVIS MATRIX', 'BLACKHOLE']
   const communityMenu = [
     ...PINNED_COMMUNITY,
     ...communityShapes.filter((n) => !PINNED_COMMUNITY.includes(n)),

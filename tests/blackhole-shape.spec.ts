@@ -16,11 +16,12 @@ test('imported Black Hole shape via dropdown', async ({ page }) => {
   await page.waitForTimeout(6000)
   await page.screenshot({ path: '/tmp/jarvis-blackhole-before.png' })
 
-  // Static ports live in the community flyout now — open it and pick Black Hole
+  // BLACKHOLE loads via the community pipeline like every other formation;
+  // the pinned entry renders first in the flyout
   const trigger = page.locator('button[title*="Community cloud"]')
   await trigger.click({ force: true })
-  await page.locator('button', { hasText: 'Black Hole' }).first().click()
-  await expect(trigger).toContainText('Black Hole')
+  await page.locator('button', { hasText: 'BLACKHOLE' }).first().click()
+  await expect(trigger).toContainText('BLACKHOLE')
 
   // Wait for the swarm to morph into the shape
   await page.waitForTimeout(12000)
