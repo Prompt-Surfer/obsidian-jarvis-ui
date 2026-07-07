@@ -167,17 +167,17 @@ const noop = () => {}
 const addControl = (_id: string, _label: string, _min: number, _max: number, initial?: number) =>
   initial ?? _min
 
-/** Compile a formation body into a static (time=0) position function. */
-export function compileFormation(code: string): (i: number, count: number) => { x: number; y: number; z: number } {
+/** Compile a formation body into a position function (time=0 unless passed). */
+export function compileFormation(code: string): (i: number, count: number, time?: number) => { x: number; y: number; z: number } {
   const rejected = validateFormationCode(code)
   if (rejected) throw new Error(`formation code rejected: ${rejected}`)
   // eslint-disable-next-line no-new-func
   const body = new Function('i', 'count', 'target', 'color', 'THREE', 'time', 'setInfo', 'annotate', 'addControl', code)
   const target = new Vec3()
   const color = new THREE_SHIM.Color()
-  return (i: number, count: number) => {
+  return (i: number, count: number, time = 0) => {
     target.set(0, 0, 0)
-    body(i, count, target, color, THREE_SHIM, 0, noop, noop, addControl)
+    body(i, count, target, color, THREE_SHIM, time, noop, noop, addControl)
     return { x: target.x, y: target.y, z: target.z }
   }
 }
@@ -209,8 +209,9 @@ export function casberryShapeDef(formation: CasberryFormation): ImportedShapeDef
     label: formation.name,
     icon: '☁️',
     source: `particles.casberry.in community formation "${formation.name}" by ${formation.publisher}`,
-    position(i, count) {
-      const p = raw(i, count)
+    animated: /\btime\b/.test(formation.code),
+    position(i, count, _rng, time = 0) {
+      const p = raw(i, count, time)
       if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return { x: 0, y: 0, z: 0 }
       return { x: p.x * scale, y: p.y * scale, z: p.z * scale }
     },

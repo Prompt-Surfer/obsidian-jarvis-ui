@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 const BASE = process.env.JARVIS_TEST_URL || 'http://localhost:5173'
 
-test('load JARVIS MATRIX from community cloud via URL', async ({ page }) => {
+test('community flyout menu: pinned JARVIS MATRIX + live motion', async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (err) => pageErrors.push(String(err)))
   page.on('console', (msg) => {
@@ -14,17 +14,24 @@ test('load JARVIS MATRIX from community cloud via URL', async ({ page }) => {
   await page.waitForSelector('canvas', { timeout: 30000 })
   await page.waitForTimeout(6000)
 
-  const input = page.locator('input[placeholder*="community"]')
-  await input.fill('https://particles.casberry.in/?sim=JARVIS%2520MATRIX', { force: true })
-  await page.locator('button', { hasText: 'LOAD' }).click({ force: true })
+  // Open the community dropdown — flyout should appear right of the panel
+  const trigger = page.locator('button[title*="Community cloud"]')
+  await trigger.click({ force: true })
+  const menuItem = page.locator('button', { hasText: 'JARVIS MATRIX' }).last()
+  await expect(menuItem).toBeVisible()
+  await page.screenshot({ path: '/tmp/jarvis-community-flyout.png' })
 
-  // fetch + compile + morph
+  // Top pinned option loads the shape
+  await menuItem.click()
   await page.waitForTimeout(15000)
-  await page.screenshot({ path: '/tmp/jarvis-matrix-shape.png' })
+  await page.screenshot({ path: '/tmp/jarvis-matrix-flyout-loaded.png' })
+  await expect(trigger).toContainText('JARVIS MATRIX')
 
-  // dropdown should now show the community shape as selected
-  const dropdown = page.locator('select', { has: page.locator('option[value="imported:blackhole"]') })
-  await expect(dropdown).toHaveValue('imported:casberry:JARVIS MATRIX')
+  // Live motion + auto-rotate: the frame must keep changing over time
+  const a = await page.locator('canvas').first().screenshot()
+  await page.waitForTimeout(3000)
+  const b = await page.locator('canvas').first().screenshot()
+  expect(a.equals(b), 'canvas should animate (shape motion / auto-rotate)').toBe(false)
 
   expect(pageErrors, `page errors:\n${pageErrors.join('\n')}`).toEqual([])
 })

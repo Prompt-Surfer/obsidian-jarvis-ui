@@ -117,6 +117,20 @@ function App() {
       return asGraphShape(localStorage.getItem('jarvis-graph-shape')) ?? 'natural'
     } catch { return 'natural' }
   })
+  const [autoRotate, setAutoRotate] = useState(() => {
+    try { return localStorage.getItem('jarvis-auto-rotate') !== 'false' } catch { return true }
+  })
+  const handleAutoRotateToggle = (v: boolean) => {
+    setAutoRotate(v)
+    try { localStorage.setItem('jarvis-auto-rotate', String(v)) } catch { /* */ }
+  }
+  const [shapeMotion, setShapeMotionState] = useState(() => {
+    try { return localStorage.getItem('jarvis-shape-motion') !== 'false' } catch { return true }
+  })
+  const handleShapeMotionToggle = (v: boolean) => {
+    setShapeMotionState(v)
+    try { localStorage.setItem('jarvis-shape-motion', String(v)) } catch { /* */ }
+  }
   const [tagBoxTopN, setTagBoxTopN] = useState(2)
   const [tagBoxSizeScale, setTagBoxSizeScale] = useState(2.0)
   // Declared before useForce3D so the persisted min-distance can be baked into the precalc.
@@ -129,7 +143,11 @@ function App() {
   const [minDistUltra, setMinDistUltra] = useState(() => {
     try { const v = localStorage.getItem('jarvis-min-dist-ultra'); return v ? parseFloat(v) : 70 } catch { return 70 }
   })
-  const { positions, livePositions, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale, { regular: minDistRegular, super: minDistSuper, ultra: minDistUltra })
+  const { positions, livePositions, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale, { regular: minDistRegular, super: minDistSuper, ultra: minDistUltra })
+
+  // Keep worker-side shape motion in sync; re-send on shape switches since a
+  // worker re-init can race a toggle sent before it
+  useEffect(() => { setShapeMotion(shapeMotion) }, [shapeMotion, graphShape, setShapeMotion])
   const { animate: animateElectron, cancel: cancelElectron } = useElectron()
   const history = useHistory()
   const { presets, save: savePreset, remove: removePreset, load: loadPreset } = usePresets()
@@ -907,6 +925,7 @@ function App() {
           onMoveNodes={moveNodes}
           onUnpinNodes={unpinNodes}
           graphShape={graphShape}
+          autoRotate={autoRotate}
           tagBoxes={tagBoxes}
           timeFilterActive={timeFilterIds !== null}
           perfRef={perfRef}
@@ -986,6 +1005,10 @@ function App() {
         onTagBoxTopNChange={setTagBoxTopN}
         tagBoxSizeScale={tagBoxSizeScale}
         onTagBoxSizeScaleChange={setTagBoxSizeScale}
+        autoRotate={autoRotate}
+        onAutoRotateToggle={handleAutoRotateToggle}
+        shapeMotion={shapeMotion}
+        onShapeMotionToggle={handleShapeMotionToggle}
         onChangeVault={() => setShowChangeVault(true)}
         presets={presets}
         onPresetSave={handlePresetSave}

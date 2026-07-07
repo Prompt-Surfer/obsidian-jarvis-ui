@@ -12,6 +12,11 @@ import type { NodePosition, TagBox, PerfMetrics, LiveSimPositions } from '../hoo
 import type { GraphShape } from '../shapes/types'
 import { getNodeColor } from '../lib/colors'
 
+// Auto-rotate: casberry's OrbitControls default (autoRotateSpeed 2.0 → 30s/orbit @60fps)
+const AUTO_ROTATE_AXIS = new THREE.Vector3(0, 1, 0)
+const AUTO_ROTATE_ANGLE = (2 * Math.PI) / (30 * 60)
+const autoRotOffset = new THREE.Vector3()
+
 interface Graph3DProps {
   graphData: GraphData
   positions: Map<string, NodePosition>
@@ -44,6 +49,7 @@ interface Graph3DProps {
   onUnpinNodes?: (ids: string[]) => void
   electronScene?: THREE.Scene
   graphShape?: GraphShape
+  autoRotate?: boolean
   tagBoxes?: TagBox[]
   linksEnabled?: boolean
   timeFilterActive?: boolean
@@ -160,6 +166,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   onMoveNodes,
   onUnpinNodes,
   graphShape,
+  autoRotate = false,
   tagBoxes,
   linksEnabled = true,
   timeFilterActive = false,
@@ -167,6 +174,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   perfRef: simPerfRef,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const autoRotateRef = useRef(autoRotate)
+  const userInteractingRef = useRef(false)
+  useEffect(() => { autoRotateRef.current = autoRotate }, [autoRotate])
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
@@ -330,7 +340,7 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     // at the poles. Damped, left-drag rotates, middle dollies, right is disabled
     // (reserved for node dragging via mouse events).
     const controls = new TrackballControls(camera, canvas)
-    controls.rotateSpeed = 3.0
+    controls.rotateSpeed = 1.5
     controls.zoomSpeed = 1.2
     controls.noPan = true              // panning off (matches prior behaviour)
     controls.noZoom = true             // built-in wheel zoom off — replaced by zoom-to-cursor below
@@ -342,6 +352,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
       MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: -1 as unknown as THREE.MOUSE, // unmapped → ignored, frees right-click for node drag
     }
+    // Auto-rotate pauses while the user is dragging
+    controls.addEventListener('start', () => { userInteractingRef.current = true })
+    controls.addEventListener('end', () => { userInteractingRef.current = false })
     controlsRef.current = controls
 
     // Bloom post-processing — half-res bloom for 4× cheaper blur passes
@@ -1052,6 +1065,18 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
           if (buf.length > 300) buf.shift()
         }
         lastRafTsRef.current = rafNow
+      }
+
+      // Auto-rotate (ported from casberry's OrbitControls autoRotate, speed 2.0 ≈ 30s/orbit):
+      // orbit the camera about the target around world-Y, rotating up with it so the
+      // trackball's free orientation is preserved. Paused while the user drags.
+      if (autoRotateRef.current && !userInteractingRef.current) {
+        const cam = cameraRef.current
+        if (cam) {
+          autoRotOffset.subVectors(cam.position, localControls.target).applyAxisAngle(AUTO_ROTATE_AXIS, AUTO_ROTATE_ANGLE)
+          cam.position.copy(localControls.target).add(autoRotOffset)
+          cam.up.applyAxisAngle(AUTO_ROTATE_AXIS, AUTO_ROTATE_ANGLE)
+        }
       }
 
       // PERF: controls.update() runs every frame to advance damping; the 'change' event fires

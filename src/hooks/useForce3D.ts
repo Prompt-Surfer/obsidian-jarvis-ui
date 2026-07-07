@@ -296,6 +296,11 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
     workerRef.current?.postMessage({ type: 'setMinDist', regular, super: sup, ultra })
   }, [])
 
+  // Live particle motion for animated imported shapes (casberry time-driven formations)
+  const setShapeMotion = useCallback((enabled: boolean) => {
+    workerRef.current?.postMessage({ type: 'setShapeMotion', enabled })
+  }, [])
+
   // Reset All: restore the cached canonical layout instead of recomputing.
   // Reapplies positions in the worker (no simulation) and rebases spread.
   const resetLayout = useCallback((spread: number) => {
@@ -327,5 +332,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
+  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
 }

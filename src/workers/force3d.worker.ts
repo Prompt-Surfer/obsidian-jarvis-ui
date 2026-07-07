@@ -98,6 +98,34 @@ let graphShape: GraphShape = 'natural'
 let importedTargets = new Map<string, { x: number; y: number; z: number }>()
 let importedTargetsShape: string | null = null
 let rebuildImportedTargets: ((shape: string) => void) | null = null
+// Live particle motion (casberry `time`-driven formations): the active def and
+// its node ordering are kept so runTick can re-evaluate targets each tick.
+let importedDefActive: import('../shapes/types').ImportedShapeDef | null = null
+let importedOrdered: { id: string }[] | null = null
+let shapeMotion = true
+let shapeTime = 0
+const motionRng = () => 0.5 // animated formations derive randomness from i, not rng
+
+function shapeMotionActive(): boolean {
+  return shapeMotion && graphShape.startsWith('imported:') && !!importedDefActive?.animated && !!importedOrdered
+}
+
+function advanceShapeMotion() {
+  if (!importedDefActive || !importedOrdered) return
+  shapeTime += 1 / 60
+  const count = importedOrdered.length
+  for (let i = 0; i < count; i++) {
+    const t = importedDefActive.position(i, count, motionRng, shapeTime)
+    const cur = importedTargets.get(importedOrdered[i].id)
+    if (cur) {
+      cur.x = t.x
+      cur.y = t.y
+      cur.z = t.z
+    } else {
+      importedTargets.set(importedOrdered[i].id, t)
+    }
+  }
+}
 let currentSpread = 2.0
 // Spread the current natural-layout positions represent. Spread-adjust scales all
 // coordinates by (newSpread / naturalDisplaySpread) around the centre of gravity —
@@ -707,8 +735,15 @@ function clearDragState(): void {
 }
 
 function runTick() {
+  // Animated imported shapes never converge: advance formation time, refresh
+  // targets, and hold alpha above the floor so the shape force keeps tracking.
+  const animating = shapeMotionActive()
+  if (animating && simulation) {
+    advanceShapeMotion()
+    if (simulation.alpha() < 0.12) simulation.alpha(0.12)
+  }
   // Stop when max ticks reached OR simulation has converged (alpha below threshold)
-  if (!simulation || tickCount >= MAX_TICKS || simulation.alpha() < ALPHA_MIN) {
+  if (!simulation || (!animating && (tickCount >= MAX_TICKS || simulation.alpha() < ALPHA_MIN))) {
     tickRunning = false
     const positions = packPositions()
     post({ type: 'end', positions, tickCount, tagBoxes: tagBoxesList, timestamp: performance.now() }, [positions.buffer])
@@ -751,7 +786,7 @@ function runTick() {
   // transferable Float32Array (P1) instead of N structured-cloned objects
   if (tickCount % POSTING_RATE === 0) {
     const currentAlpha = simulation.alpha()
-    const done = tickCount >= MAX_TICKS || currentAlpha < ALPHA_MIN
+    const done = !animating && (tickCount >= MAX_TICKS || currentAlpha < ALPHA_MIN)
     const positions = packPositions()
     post({
       type: done ? 'end' : 'tick',
@@ -1435,10 +1470,15 @@ self.onmessage = (e: MessageEvent) => {
         targets.set(node.id, def.position(i, ordered.length, rng))
       })
       importedTargets = targets
+      importedDefActive = def
+      importedOrdered = ordered
+      shapeTime = 0
     }
     rebuildImportedTargets = (shape: string) => {
       importedTargetsShape = shape
       importedTargets = new Map()
+      importedDefActive = null
+      importedOrdered = null
       const staticDef = getImportedShape(shape)
       if (staticDef) {
         applyImportedDef(staticDef)
@@ -2023,6 +2063,14 @@ self.onmessage = (e: MessageEvent) => {
     } else if (simulation) {
       tickCount = 0; stableFrameCount = 0
       simulation.alpha(0.3)
+      if (!tickRunning) runTick()
+    }
+  } else if (type === 'setShapeMotion') {
+    shapeMotion = !!(e.data as { enabled?: boolean }).enabled
+    if (shapeMotion && shapeMotionActive()) {
+      tickCount = 0
+      stableFrameCount = 0
+      simulation?.alpha(0.3)
       if (!tickRunning) runTick()
     }
   } else if (type === 'setMinDist') {

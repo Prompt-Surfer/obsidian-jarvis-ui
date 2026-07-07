@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { PresetManager } from './PresetManager'
 import type { Preset } from '../hooks/usePresets'
 import type { GraphShape } from '../shapes/types'
@@ -39,6 +40,10 @@ interface SettingsProps {
   onZoomToNodeToggle: (v: boolean) => void
   graphShape: GraphShape
   onGraphShapeChange: (v: GraphShape) => void
+  autoRotate: boolean
+  onAutoRotateToggle: (v: boolean) => void
+  shapeMotion: boolean
+  onShapeMotionToggle: (v: boolean) => void
   textSize: number
   onTextSizeChange: (v: number) => void
   tagBoxTopN: number
@@ -83,6 +88,10 @@ export function Settings({
   onZoomToNodeToggle,
   graphShape,
   onGraphShapeChange,
+  autoRotate,
+  onAutoRotateToggle,
+  shapeMotion,
+  onShapeMotionToggle,
   textSize,
   onTextSizeChange,
   tagBoxTopN,
@@ -101,22 +110,50 @@ export function Settings({
     try { return JSON.parse(localStorage.getItem('jarvis-community-shapes') ?? '[]') } catch { return [] }
   })
   const [communityInput, setCommunityInput] = useState('')
-  const loadCommunityShape = () => {
-    const name = parseCasberryInput(communityInput)
-    if (!name) return
+  const [communityOpen, setCommunityOpen] = useState(false)
+  const [communityAnchor, setCommunityAnchor] = useState<{ top: number; left: number } | null>(null)
+  const communityBtnRef = useRef<HTMLButtonElement | null>(null)
+  const communityMenuRef = useRef<HTMLDivElement | null>(null)
+  const selectCommunityShape = (name: string) => {
     if (!communityShapes.includes(name)) {
       const next = [...communityShapes, name]
       setCommunityShapes(next)
       try { localStorage.setItem('jarvis-community-shapes', JSON.stringify(next)) } catch { /* */ }
     }
     onGraphShapeChange(casberryShapeId(name))
+    setCommunityOpen(false)
+  }
+  const loadCommunityShape = () => {
+    const name = parseCasberryInput(communityInput)
+    if (!name) return
+    selectCommunityShape(name)
     setCommunityInput('')
   }
-  // A casberry shape restored from URL/localStorage may not be in the saved list yet
+  const toggleCommunityMenu = () => {
+    if (!communityOpen && communityBtnRef.current) {
+      const r = communityBtnRef.current.getBoundingClientRect()
+      // Fly out to the right of the settings panel, clamped to the viewport
+      setCommunityAnchor({ top: Math.max(12, Math.min(r.top, window.innerHeight - 320)), left: r.right + 16 })
+    }
+    setCommunityOpen((v) => !v)
+  }
+  useEffect(() => {
+    if (!communityOpen) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (communityMenuRef.current?.contains(t) || communityBtnRef.current?.contains(t)) return
+      setCommunityOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [communityOpen])
   const activeCommunityName = casberryShapeName(graphShape)
-  const communityOptions = activeCommunityName && !communityShapes.includes(activeCommunityName)
-    ? [...communityShapes, activeCommunityName]
-    : communityShapes
+  // JARVIS MATRIX is pinned on top; saved shapes follow
+  const PINNED_COMMUNITY = ['JARVIS MATRIX']
+  const communityMenu = [
+    ...PINNED_COMMUNITY,
+    ...communityShapes.filter((n) => !PINNED_COMMUNITY.includes(n)),
+  ]
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
   })
@@ -329,73 +366,151 @@ export function Settings({
             <div style={{ marginTop: 8 }}>
               <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>IMPORTED SHAPES</div>
               <select
-                value={graphShape.startsWith('imported:') ? graphShape : ''}
+                value={graphShape.startsWith('imported:') && !activeCommunityName ? graphShape : ''}
                 onChange={(e) => { if (e.target.value) onGraphShapeChange(e.target.value as GraphShape) }}
                 style={{
                   width: '100%',
                   background: 'rgba(0,0,0,0.5)',
-                  color: graphShape.startsWith('imported:') ? '#00d4ff' : '#585b70',
-                  border: `1px solid ${graphShape.startsWith('imported:') ? '#00d4ff' : '#1a3a4a'}`,
+                  color: graphShape.startsWith('imported:') && !activeCommunityName ? '#00d4ff' : '#585b70',
+                  border: `1px solid ${graphShape.startsWith('imported:') && !activeCommunityName ? '#00d4ff' : '#1a3a4a'}`,
                   borderRadius: 4,
                   padding: '8px 6px',
                   fontFamily: 'inherit',
                   fontSize: 11,
                   letterSpacing: '0.05em',
                   cursor: 'pointer',
-                  boxShadow: graphShape.startsWith('imported:') ? '0 0 8px #00d4ff44' : 'none',
+                  boxShadow: graphShape.startsWith('imported:') && !activeCommunityName ? '0 0 8px #00d4ff44' : 'none',
                 }}
               >
                 <option value="" disabled>— SELECT IMPORTED SHAPE —</option>
                 {importedShapes.map((s) => (
                   <option key={s.id} value={`imported:${s.id}`}>{s.icon} {s.label}</option>
                 ))}
-                {communityOptions.length > 0 && (
-                  <optgroup label="COMMUNITY CLOUD">
-                    {communityOptions.map((name) => (
-                      <option key={name} value={casberryShapeId(name)}>☁️ {name}</option>
-                    ))}
-                  </optgroup>
-                )}
               </select>
-              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                <input
-                  value={communityInput}
-                  onChange={(e) => setCommunityInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') loadCommunityShape() }}
-                  placeholder="community shape name or ?sim= URL"
-                  spellCheck={false}
+              <button
+                ref={communityBtnRef}
+                onClick={toggleCommunityMenu}
+                title="Community cloud shapes (particles.casberry.in)"
+                style={{
+                  width: '100%',
+                  marginTop: 6,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'rgba(0,0,0,0.5)',
+                  color: activeCommunityName ? '#00d4ff' : '#585b70',
+                  border: `1px solid ${activeCommunityName || communityOpen ? '#00d4ff' : '#1a3a4a'}`,
+                  borderRadius: 4,
+                  padding: '8px 6px',
+                  fontFamily: 'inherit',
+                  fontSize: 11,
+                  letterSpacing: '0.05em',
+                  cursor: 'pointer',
+                  boxShadow: activeCommunityName ? '0 0 8px #00d4ff44' : 'none',
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  ☁️ {activeCommunityName ?? 'COMMUNITY CLOUD'}
+                </span>
+                <span>{communityOpen ? '◂' : '▸'}</span>
+              </button>
+              {communityOpen && communityAnchor && createPortal(
+                <div
+                  ref={communityMenuRef}
                   style={{
-                    flex: 1,
-                    minWidth: 0,
-                    background: 'rgba(0,0,0,0.5)',
-                    color: '#00d4ff',
-                    border: '1px solid #1a3a4a',
-                    borderRadius: 4,
-                    padding: '7px 6px',
-                    fontFamily: 'inherit',
-                    fontSize: 10,
-                    letterSpacing: '0.05em',
-                  }}
-                />
-                <button
-                  onClick={loadCommunityShape}
-                  title="Load from community cloud"
-                  style={{
-                    background: 'rgba(0,212,255,0.1)',
-                    color: '#00d4ff',
-                    border: '1px solid #1a3a4a',
-                    borderRadius: 4,
-                    padding: '7px 10px',
-                    fontFamily: 'inherit',
-                    fontSize: 10,
-                    letterSpacing: '0.08em',
-                    cursor: 'pointer',
+                    position: 'fixed',
+                    top: communityAnchor.top,
+                    left: communityAnchor.left,
+                    zIndex: 400,
+                    width: 250,
+                    maxHeight: 340,
+                    overflowY: 'auto',
+                    background: 'rgba(4,12,20,0.96)',
+                    border: '1px solid #00d4ff55',
+                    borderRadius: 6,
+                    boxShadow: '0 0 18px #00d4ff33',
+                    padding: 8,
+                    fontFamily: 'monospace',
                   }}
                 >
-                  LOAD
-                </button>
-              </div>
+                  <div style={{ fontSize: 10, letterSpacing: '0.08em', color: '#585b70', margin: '2px 4px 8px' }}>
+                    COMMUNITY CLOUD
+                  </div>
+                  {communityMenu.map((name) => {
+                    const active = graphShape === casberryShapeId(name)
+                    return (
+                      <button
+                        key={name}
+                        onClick={() => selectCommunityShape(name)}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          background: active ? 'rgba(0,212,255,0.12)' : 'transparent',
+                          color: active ? '#00d4ff' : '#8fa3ad',
+                          border: `1px solid ${active ? '#00d4ff88' : 'transparent'}`,
+                          borderRadius: 4,
+                          padding: '7px 8px',
+                          fontFamily: 'inherit',
+                          fontSize: 11,
+                          letterSpacing: '0.05em',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ☁️ {name}
+                      </button>
+                    )
+                  })}
+                  <div style={{ borderTop: '1px solid #1a3a4a', margin: '8px 0' }} />
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <input
+                      value={communityInput}
+                      onChange={(e) => setCommunityInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') loadCommunityShape() }}
+                      placeholder="community shape name or ?sim= URL"
+                      spellCheck={false}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        background: 'rgba(0,0,0,0.5)',
+                        color: '#00d4ff',
+                        border: '1px solid #1a3a4a',
+                        borderRadius: 4,
+                        padding: '7px 6px',
+                        fontFamily: 'inherit',
+                        fontSize: 10,
+                        letterSpacing: '0.05em',
+                      }}
+                    />
+                    <button
+                      onClick={loadCommunityShape}
+                      title="Load from community cloud"
+                      style={{
+                        background: 'rgba(0,212,255,0.1)',
+                        color: '#00d4ff',
+                        border: '1px solid #1a3a4a',
+                        borderRadius: 4,
+                        padding: '7px 10px',
+                        fontFamily: 'inherit',
+                        fontSize: 10,
+                        letterSpacing: '0.08em',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      LOAD
+                    </button>
+                  </div>
+                </div>,
+                document.body
+              )}
             </div>
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>MOTION</div>
+            {toggleBtn(autoRotate, `[ AUTO ROTATE ${autoRotate ? 'ON' : 'OFF'} ]`, () => onAutoRotateToggle(!autoRotate))}
+            <div style={{ height: 6 }} />
+            {toggleBtn(shapeMotion, `[ SHAPE MOTION ${shapeMotion ? 'ON' : 'OFF'} ]`, () => onShapeMotionToggle(!shapeMotion))}
           </div>
 
           <PresetManager

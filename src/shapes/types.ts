@@ -11,12 +11,15 @@ export interface ImportedShapeDef {
   icon: string
   /** Provenance of the ported position function (repo/site it came from). */
   source: string
+  /** True when the formula uses `time` — the worker re-evaluates targets each tick. */
+  animated?: boolean
   /**
    * Swarm position function in the casberry particle-simulator style:
    * particle i of count → target position in world units (pre-spread), y up.
    * Indices are assigned by node importance (degree desc), so i=0 is the
    * biggest hub — functions can reserve low indices for focal regions.
    * rng is deterministic and shared across the whole build (call order matters).
+   * time (seconds) drives animated shapes; static ports ignore it.
    */
-  position(i: number, count: number, rng: () => number): { x: number; y: number; z: number }
+  position(i: number, count: number, rng: () => number, time?: number): { x: number; y: number; z: number }
 }
