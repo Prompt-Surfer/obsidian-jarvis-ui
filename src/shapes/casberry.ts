@@ -48,14 +48,49 @@ export function parseCasberryInput(input: string): string | null {
   }
 }
 
-// Same spirit as the upstream validator: community code gets no escape
-// hatches out of the position-function sandbox.
-const BLOCKED =
-  /\b(document|window|globalThis|self|fetch|XMLHttpRequest|WebSocket|importScripts|eval|Function|setTimeout|setInterval|prototype|__proto__|constructor|localStorage|sessionStorage|indexedDB|process|require|postMessage|onmessage)\b|\bimport\s*[(\s]/
+// Same spirit as the upstream publish-time validator, but tuned for the Worker
+// context we compile into (Workers have fetch/self/importScripts/postMessage).
+// We deny escape hatches out of the position-function sandbox WITHOUT rejecting
+// ordinary code: the sandbox-escape vector is DOTTED property access
+// (`x.constructor.constructor`, `x.prototype`, `__proto__`), so we block those
+// rather than the bare words — that lets formations define ES6 classes
+// (`constructor(x, y) {}`) or mention "prototype" in a comment, exactly as
+// upstream allows. Dynamic eval is blocked as `eval(` / `Function(` (incl.
+// `new Function`), not the bare identifier.
+const BLOCKED_PATTERNS: Array<[RegExp, string]> = [
+  [/\bdocument\b/, 'document'],
+  [/\bwindow\b/, 'window'],
+  [/\bglobalThis\b/, 'globalThis'],
+  [/\bself\b/, 'self'],
+  [/\blocation\b/, 'location'],
+  [/\bnavigator\b/, 'navigator'],
+  [/\bfetch\b/, 'fetch'],
+  [/\bXMLHttpRequest\b/, 'XMLHttpRequest'],
+  [/\bWebSocket\b/, 'WebSocket'],
+  [/\bimportScripts\b/, 'importScripts'],
+  [/\bpostMessage\b/, 'postMessage'],
+  [/\bonmessage\b/, 'onmessage'],
+  [/\beval\s*\(/, 'eval('],
+  [/\bFunction\s*\(/, 'Function('],
+  [/\bimport\s*[(\s]/, 'import'],
+  [/\brequire\s*\(/, 'require('],
+  [/\bprocess\b/, 'process'],
+  [/\bmodule\b/, 'module'],
+  [/\.\s*constructor\b/, '.constructor'],
+  [/\.\s*prototype\b/, '.prototype'],
+  [/__proto__/, '__proto__'],
+  [/\blocalStorage\b/, 'localStorage'],
+  [/\bsessionStorage\b/, 'sessionStorage'],
+  [/\bindexedDB\b/, 'indexedDB'],
+  [/\bsetTimeout\b/, 'setTimeout'],
+  [/\bsetInterval\b/, 'setInterval'],
+]
 
 export function validateFormationCode(code: string): string | null {
-  const m = code.match(BLOCKED)
-  return m ? `blocked token "${m[0].trim()}"` : null
+  for (const [pattern, label] of BLOCKED_PATTERNS) {
+    if (pattern.test(code)) return `blocked token "${label}"`
+  }
+  return null
 }
 
 export interface CasberryFormation {
@@ -125,7 +160,7 @@ export async function fetchFormationCatalog(): Promise<CatalogEntry[]> {
     const rows = (await res.json()) as Array<{ document?: FirestoreDoc }>
     const docs = rows.filter((r) => r.document)
     for (const r of docs) {
-      const n = r.document?.fields?.name?.stringValue?.trim()
+      const n = r.document ? docDisplayName(r.document) : ''
       if (n && !seen.has(n)) {
         seen.add(n)
         entries.push({ name: n, publisher: r.document?.fields?.publisher?.stringValue?.trim() ?? '' })
@@ -137,14 +172,24 @@ export async function fetchFormationCatalog(): Promise<CatalogEntry[]> {
 }
 
 interface FirestoreDoc {
+  name?: string // full resource path — last segment is the doc id
   fields?: Record<string, { stringValue?: string }>
 }
 
+// Some docs (e.g. BLACKHOLE.01) have no `name` field — their doc id IS the name
+function docDisplayName(doc: FirestoreDoc): string {
+  const field = doc.fields?.name?.stringValue?.trim()
+  if (field) return field
+  const id = doc.name?.split('/').pop() ?? ''
+  try { return decodeURIComponent(id) } catch { return id }
+}
+
 function docToFormation(doc: unknown): CasberryFormation {
-  const f = (doc as FirestoreDoc).fields ?? {}
+  const d = doc as FirestoreDoc
+  const f = d.fields ?? {}
   const code = f.code?.stringValue ?? ''
   if (!code) throw new Error('formation has no code field')
-  return { name: f.name?.stringValue ?? '', publisher: f.publisher?.stringValue ?? 'unknown', code }
+  return { name: docDisplayName(d), publisher: f.publisher?.stringValue ?? 'unknown', code }
 }
 
 // Minimal THREE shim — enough for the annotate/vector math formations use.
@@ -187,19 +232,31 @@ class Vec3 {
   }
 }
 
-const THREE_SHIM = {
+// Chainable inert value: any property access, call, or construction returns
+// itself, and numeric coercion yields 0. Used for `color` (we ignore formation
+// colors — jarvis colours by folder) and for THREE members we don't model,
+// so formations using e.g. color.setHex()/THREE.Color.lerp() run instead of
+// crashing the compile probe.
+function makeInert(): unknown {
+  // Target MUST be a plain function (not an arrow) so the Proxy is constructable
+  // — `new THREE.Color()` and friends fail with "not a constructor" otherwise.
+  function fn() {}
+  const inert: ReturnType<typeof Object> = new Proxy(fn, {
+    get: (_t, prop) => {
+      // Coerce to 0 for numbers and '' for strings so `color.r * 2` etc. stay finite
+      if (prop === Symbol.toPrimitive) return () => 0
+      if (prop === 'valueOf') return () => 0
+      return inert
+    },
+    apply: () => inert,
+    construct: () => inert as object,
+  })
+  return inert
+}
+const INERT = makeInert()
+
+const THREE_SHIM_KNOWN: Record<string, unknown> = {
   Vector3: Vec3,
-  Color: class {
-    setHSL() {
-      return this
-    }
-    setRGB() {
-      return this
-    }
-    set() {
-      return this
-    }
-  },
   MathUtils: {
     lerp: (a: number, b: number, t: number) => a + (b - a) * t,
     clamp: (v: number, mn: number, mx: number) => Math.min(mx, Math.max(mn, v)),
@@ -208,8 +265,18 @@ const THREE_SHIM = {
       return t * t * (3 - 2 * t)
     },
     mapLinear: (x: number, a1: number, a2: number, b1: number, b2: number) => b1 + ((x - a1) * (b2 - b1)) / (a2 - a1),
+    degToRad: (d: number) => (d * Math.PI) / 180,
+    radToDeg: (r: number) => (r * 180) / Math.PI,
+    randFloat: (lo: number, hi: number) => lo + (hi - lo) * 0.5,
+    randFloatSpread: () => 0,
+    euclideanModulo: (n: number, m: number) => ((n % m) + m) % m,
   },
 }
+
+// Unknown THREE members (Color, Quaternion, …) resolve to the inert value
+const THREE_SHIM = new Proxy(THREE_SHIM_KNOWN, {
+  get: (t, prop: string) => (prop in t ? t[prop] : INERT),
+})
 
 const noop = () => {}
 // Sliders resolve to their published default value
@@ -223,7 +290,7 @@ export function compileFormation(code: string): (i: number, count: number, time?
   // eslint-disable-next-line no-new-func
   const body = new Function('i', 'count', 'target', 'color', 'THREE', 'time', 'setInfo', 'annotate', 'addControl', code)
   const target = new Vec3()
-  const color = new THREE_SHIM.Color()
+  const color = INERT // formation colors are ignored; accept any method chain
   return (i: number, count: number, time = 0) => {
     target.set(0, 0, 0)
     body(i, count, target, color, THREE_SHIM, time, noop, noop, addControl)
@@ -242,15 +309,29 @@ export function casberryShapeDef(formation: CasberryFormation): ImportedShapeDef
   const raw = compileFormation(formation.code)
   let maxR = 0
   let finite = 0
+  // Probe several time values: many formations grow FROM the origin with
+  // time (explosions, waves) and are all-zero at exactly t=0.
+  const PROBE_TIMES = [0, 1.37, 4.2]
   for (let k = 0; k < PROBE_SAMPLES; k++) {
-    const p = raw(Math.floor((k / PROBE_SAMPLES) * PROBE_COUNT), PROBE_COUNT)
-    if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
-      finite++
-      maxR = Math.max(maxR, Math.hypot(p.x, p.y, p.z))
+    let anyFinite = false
+    for (const pt of PROBE_TIMES) {
+      const p = raw(Math.floor((k / PROBE_SAMPLES) * PROBE_COUNT), PROBE_COUNT, pt)
+      if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
+        anyFinite = true
+        maxR = Math.max(maxR, Math.hypot(p.x, p.y, p.z))
+      }
     }
+    if (anyFinite) finite++
   }
-  if (finite < PROBE_SAMPLES * 0.5 || maxR < 1e-6) {
+  // Mirror upstream's sanitation lock: it never rejects a formation, it just
+  // resets non-finite targets to the origin every frame (some published
+  // formations, e.g. BLACKHOLE.01, emit NaN for whole zones via masked sums).
+  // Reject only when NOTHING is finite; scale comes from the finite samples.
+  if (finite === 0 || maxR < 1e-6) {
     throw new Error(`formation "${formation.name}" failed the stability probe (finite=${finite}, maxR=${maxR})`)
+  }
+  if (finite < PROBE_SAMPLES * 0.9) {
+    console.warn(`[casberry] "${formation.name}": ${PROBE_SAMPLES - finite}/${PROBE_SAMPLES} probe samples non-finite — those particles sit at the origin (matches upstream behaviour)`)
   }
   const scale = NORMALIZED_RADIUS / maxR
   return {

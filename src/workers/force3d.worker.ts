@@ -1491,6 +1491,7 @@ self.onmessage = (e: MessageEvent) => {
           if (importedTargetsShape !== shape) return // superseded by another switch
           if (!def) {
             console.warn(`[force3d] unknown imported shape "${shape}" — no targets built`)
+            post({ type: 'shapeError', shape, message: 'shape not found in the community cloud' })
             return
           }
           applyImportedDef(def)
@@ -1499,7 +1500,14 @@ self.onmessage = (e: MessageEvent) => {
           simulation?.alpha(0.5)
           if (!tickRunning) runTick()
         })
-        .catch((err) => console.warn(`[force3d] imported shape "${shape}" failed to load:`, err))
+        .catch((err) => {
+          if (importedTargetsShape !== shape) return
+          console.warn(`[force3d] imported shape "${shape}" failed to load:`, err)
+          // Strip our own prefixes for a human-readable reason
+          const raw = err instanceof Error ? err.message : String(err)
+          const message = raw.replace(/^formation "[^"]*"\s*/, '').replace(/^Error:\s*/, '')
+          post({ type: 'shapeError', shape, message })
+        })
     }
     if (graphShape.startsWith('imported:')) rebuildImportedTargets(graphShape)
 

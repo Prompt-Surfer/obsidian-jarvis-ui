@@ -143,7 +143,7 @@ function App() {
   const [minDistUltra, setMinDistUltra] = useState(() => {
     try { const v = localStorage.getItem('jarvis-min-dist-ultra'); return v ? parseFloat(v) : 70 } catch { return 70 }
   })
-  const { positions, livePositions, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale, { regular: minDistRegular, super: minDistSuper, ultra: minDistUltra })
+  const { positions, livePositions, simDone, tagBoxes, layoutProgress, shapeError, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef } = useForce3D(graphData, graphShape, tagBoxTopN, tagBoxSizeScale, { regular: minDistRegular, super: minDistSuper, ultra: minDistUltra })
 
   // Keep worker-side shape motion in sync; re-send on shape switches since a
   // worker re-init can race a toggle sent before it
@@ -214,6 +214,16 @@ function App() {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(null), 2000)
   }, [])
+
+  // Surface community/imported shape load failures (fetch or compile) instead
+  // of leaving the graph silently unchanged. Revert to natural so the user
+  // isn't stranded on a shape that never rendered.
+  useEffect(() => {
+    if (!shapeError) return
+    showToast(`⚠️ Shape failed: ${shapeError.message}`)
+    setGraphShape('natural')
+    try { localStorage.setItem('jarvis-graph-shape', 'natural') } catch { /* */ }
+  }, [shapeError, showToast])
 
   // Poll semantic indexing status
   useEffect(() => {

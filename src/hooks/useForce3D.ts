@@ -56,6 +56,8 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
   // Natural precalc progress (0-100) while the worker silently solves the core
   // layout; null whenever no precalc is running
   const [layoutProgress, setLayoutProgress] = useState<number | null>(null)
+  const [shapeError, setShapeError] = useState<{ shape: string; message: string; seq: number } | null>(null)
+  const shapeErrorSeqRef = useRef(0)
   const workerRef = useRef<Worker | null>(null)
 
   // Track current spread so worker init can use it (not stale default)
@@ -124,6 +126,13 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
 
       if (type === 'layoutProgress') {
         setLayoutProgress(typeof e.data.pct === 'number' ? e.data.pct : null)
+        return
+      }
+
+      if (type === 'shapeError') {
+        // Imported/community shape failed to fetch or compile — bump seq so
+        // repeated failures of the same shape still notify.
+        setShapeError({ shape: e.data.shape ?? '', message: e.data.message ?? 'failed to load', seq: shapeErrorSeqRef.current++ })
         return
       }
 
@@ -332,5 +341,5 @@ export function useForce3D(graphData: GraphData | null, graphShape: GraphShape =
     workerRef.current?.postMessage({ type: 'resetPins' })
   }, [])
 
-  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
+  return { positions, livePositions: livePositionsRef, simDone, tagBoxes, layoutProgress, shapeError, reheat, setSpread, setFilter, setMinDist, setShapeMotion, pinNodes, moveNodes, unpinNodes, resetPins, resetLayout, perfRef }
 }
