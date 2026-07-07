@@ -12,9 +12,9 @@ import type { NodePosition, TagBox, PerfMetrics, LiveSimPositions } from '../hoo
 import type { GraphShape } from '../shapes/types'
 import { getNodeColor } from '../lib/colors'
 
-// Auto-rotate: casberry's OrbitControls default (autoRotateSpeed 2.0 → 30s/orbit @60fps)
+// Auto-rotate: half of casberry's default speed (autoRotateSpeed 1.0 → 60s/orbit @60fps)
 const AUTO_ROTATE_AXIS = new THREE.Vector3(0, 1, 0)
-const AUTO_ROTATE_ANGLE = (2 * Math.PI) / (30 * 60)
+const AUTO_ROTATE_ANGLE = (2 * Math.PI) / (60 * 60)
 const autoRotOffset = new THREE.Vector3()
 
 interface Graph3DProps {

@@ -29,11 +29,16 @@ test('community flyout menu: pinned JARVIS MATRIX + live motion', async ({ page 
   expect(itemCount, 'full catalog should be listed').toBeGreaterThan(100)
   await page.screenshot({ path: '/tmp/jarvis-community-flyout.png' })
 
-  // Top pinned option loads the shape
+  // Top pinned option loads the shape — and the menu stays open
   await menuItem.click()
+  await expect(page.getByText('ALL FORMATIONS')).toBeVisible()
   await page.waitForTimeout(15000)
   await page.screenshot({ path: '/tmp/jarvis-matrix-flyout-loaded.png' })
   await expect(trigger).toContainText('JARVIS MATRIX')
+
+  // Clicking the graph (canvas) closes the menu
+  await page.locator('canvas').first().click({ position: { x: 300, y: 200 }, force: true })
+  await expect(page.getByText('ALL FORMATIONS')).not.toBeVisible()
 
   // Min-distance doesn't apply to shape-driven layouts — greyed + disabled
   await expect(page.getByText('MIN DISTANCE · NATURAL ONLY')).toBeVisible()

@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { PresetManager } from './PresetManager'
 import type { Preset } from '../hooks/usePresets'
 import type { GraphShape } from '../shapes/types'
 import { importedShapes, casberryShapeId, casberryShapeName, parseCasberryInput } from '../shapes/registry'
-import { fetchFormationCatalog } from '../shapes/casberry'
+import { fetchFormationCatalog, fetchFormation, casberryShareUrl, type CatalogEntry } from '../shapes/casberry'
+
+// Clipboard with a fallback for insecure origins (LAN http), where
+// navigator.clipboard is unavailable.
+function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text)
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  try { document.execCommand('copy') } finally { document.body.removeChild(ta) }
+  return Promise.resolve()
+}
 
 interface SettingsProps {
   bloomStrength: number
@@ -122,7 +136,7 @@ export function Settings({
       try { localStorage.setItem('jarvis-community-shapes', JSON.stringify(next)) } catch { /* */ }
     }
     onGraphShapeChange(casberryShapeId(name))
-    setCommunityOpen(false)
+    // menu stays open — it closes via the trigger button or a graph click
   }
   const loadCommunityShape = () => {
     const name = parseCasberryInput(communityInput)
@@ -141,10 +155,12 @@ export function Settings({
   }
   useEffect(() => {
     if (!communityOpen) return
+    // Close only on a graph (canvas) click or the trigger button (its own
+    // toggle handles that) — clicks elsewhere in the settings panel keep it open
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node
       if (communityMenuRef.current?.contains(t) || communityBtnRef.current?.contains(t)) return
-      setCommunityOpen(false)
+      if ((t as HTMLElement).tagName === 'CANVAS') setCommunityOpen(false)
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
@@ -162,10 +178,10 @@ export function Settings({
     ...communityShapes.filter((n) => !PINNED_COMMUNITY.includes(n)),
   ]
   // Full upstream catalog (newest first, like the site's gallery), cached 1h
-  const [catalog, setCatalog] = useState<string[] | null>(() => {
+  const [catalog, setCatalog] = useState<CatalogEntry[] | null>(() => {
     try {
-      const raw = JSON.parse(localStorage.getItem('jarvis-community-catalog-v1') ?? 'null')
-      if (raw && Date.now() - raw.ts < 3600_000 && Array.isArray(raw.names)) return raw.names
+      const raw = JSON.parse(localStorage.getItem('jarvis-community-catalog-v2') ?? 'null')
+      if (raw && Date.now() - raw.ts < 3600_000 && Array.isArray(raw.entries)) return raw.entries
     } catch { /* */ }
     return null
   })
@@ -175,46 +191,90 @@ export function Settings({
     if (catalog || catalogFetchingRef.current) return
     catalogFetchingRef.current = true
     fetchFormationCatalog()
-      .then((names) => {
-        setCatalog(names)
+      .then((entries) => {
+        setCatalog(entries)
         setCatalogError(null)
-        try { localStorage.setItem('jarvis-community-catalog-v1', JSON.stringify({ ts: Date.now(), names })) } catch { /* */ }
+        try { localStorage.setItem('jarvis-community-catalog-v2', JSON.stringify({ ts: Date.now(), entries })) } catch { /* */ }
       })
       .catch((e) => setCatalogError(String(e)))
       .finally(() => { catalogFetchingRef.current = false })
+  }
+  // Copy code / share link feedback: key = `${kind}:${name}` while showing ✓
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const flashCopied = (key: string) => {
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1200)
+  }
+  const copyShapeCode = (name: string) => {
+    fetchFormation(name)
+      .then((f) => copyText(f.code))
+      .then(() => flashCopied(`code:${name}`))
+      .catch(() => flashCopied(`err:${name}`))
+  }
+  const copyShareLink = (name: string) => {
+    copyText(casberryShareUrl(name)).then(() => flashCopied(`link:${name}`))
   }
   // The input doubles as list filter and name/URL loader
   const filterText = communityInput.trim()
   const filterIsUrl = /^https?:\/\//i.test(filterText)
   const matchesFilter = (n: string) => !filterText || filterIsUrl || n.toLowerCase().includes(filterText.toLowerCase())
   const menuTop = communityMenu.filter(matchesFilter)
-  const catalogRest = (catalog ?? []).filter((n) => !communityMenu.includes(n) && matchesFilter(n))
+  const catalogMap = useMemo(() => new Map((catalog ?? []).map((e) => [e.name, e.publisher])), [catalog])
+  const catalogRest = (catalog ?? []).map((e) => e.name).filter((n) => !communityMenu.includes(n) && matchesFilter(n))
+  const miniBtnStyle = {
+    background: 'transparent',
+    color: '#4a6a7a',
+    border: '1px solid transparent',
+    borderRadius: 4,
+    padding: '4px 4px',
+    fontFamily: 'inherit',
+    fontSize: 11,
+    cursor: 'pointer',
+    flexShrink: 0,
+  } as const
   const communityItem = (name: string) => {
     const active = graphShape === casberryShapeId(name)
+    const author = catalogMap.get(name)
     return (
-      <button
-        key={name}
-        onClick={() => selectCommunityShape(name)}
-        style={{
-          display: 'block',
-          width: '100%',
-          textAlign: 'left',
-          background: active ? 'rgba(0,212,255,0.12)' : 'transparent',
-          color: active ? '#00d4ff' : '#8fa3ad',
-          border: `1px solid ${active ? '#00d4ff88' : 'transparent'}`,
-          borderRadius: 4,
-          padding: '6px 8px',
-          fontFamily: 'inherit',
-          fontSize: 11,
-          letterSpacing: '0.05em',
-          cursor: 'pointer',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        ☁️ {name}
-      </button>
+      <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <button
+          onClick={() => selectCommunityShape(name)}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            textAlign: 'left',
+            background: active ? 'rgba(0,212,255,0.12)' : 'transparent',
+            color: active ? '#00d4ff' : '#8fa3ad',
+            border: `1px solid ${active ? '#00d4ff88' : 'transparent'}`,
+            borderRadius: 4,
+            padding: '6px 8px',
+            fontFamily: 'inherit',
+            fontSize: 11,
+            letterSpacing: '0.05em',
+            cursor: 'pointer',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ☁️ {name}
+          {author ? <span style={{ color: '#585b70', fontSize: 9 }}> by {author}</span> : null}
+        </button>
+        <button
+          title="Copy formation code"
+          onClick={() => copyShapeCode(name)}
+          style={{ ...miniBtnStyle, color: copiedKey === `code:${name}` ? '#00ff9d' : copiedKey === `err:${name}` ? '#ff6b6b' : miniBtnStyle.color }}
+        >
+          {copiedKey === `code:${name}` ? '✓' : copiedKey === `err:${name}` ? '✕' : '⧉'}
+        </button>
+        <button
+          title="Copy share link"
+          onClick={() => copyShareLink(name)}
+          style={{ ...miniBtnStyle, color: copiedKey === `link:${name}` ? '#00ff9d' : miniBtnStyle.color }}
+        >
+          {copiedKey === `link:${name}` ? '✓' : '🔗'}
+        </button>
+      </div>
     )
   }
   const [open, setOpen] = useState(() => {
@@ -528,7 +588,7 @@ export function Settings({
                       return (
                         <button
                           key={shapeId}
-                          onClick={() => { onGraphShapeChange(shapeId); setCommunityOpen(false) }}
+                          onClick={() => onGraphShapeChange(shapeId)}
                           style={{
                             display: 'block',
                             width: '100%',

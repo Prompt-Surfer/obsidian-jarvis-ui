@@ -87,13 +87,23 @@ export async function fetchFormation(name: string): Promise<CasberryFormation> {
   return docToFormation(doc)
 }
 
+export interface CatalogEntry {
+  name: string
+  publisher: string
+}
+
+/** Share URL in the site's own format. */
+export function casberryShareUrl(name: string): string {
+  return `https://particles.casberry.in/?sim=${encodeURIComponent(name)}`
+}
+
 /**
  * Full community catalog, mirroring upstream's gallery query
- * (orderBy timestamp desc) but projecting `name` only and paging through the
- * whole collection instead of infinite-scrolling 30 at a time.
+ * (orderBy timestamp desc) but projecting name+publisher only and paging
+ * through the whole collection instead of infinite-scrolling 30 at a time.
  */
-export async function fetchFormationCatalog(): Promise<string[]> {
-  const names: string[] = []
+export async function fetchFormationCatalog(): Promise<CatalogEntry[]> {
+  const entries: CatalogEntry[] = []
   const seen = new Set<string>()
   const PAGE = 300
   const MAX_DOCS = 5000 // hard stop — the collection is ~830 today
@@ -105,7 +115,7 @@ export async function fetchFormationCatalog(): Promise<string[]> {
         structuredQuery: {
           from: [{ collectionId: 'formations' }],
           orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
-          select: { fields: [{ fieldPath: 'name' }] },
+          select: { fields: [{ fieldPath: 'name' }, { fieldPath: 'publisher' }] },
           limit: PAGE,
           offset,
         },
@@ -118,12 +128,12 @@ export async function fetchFormationCatalog(): Promise<string[]> {
       const n = r.document?.fields?.name?.stringValue?.trim()
       if (n && !seen.has(n)) {
         seen.add(n)
-        names.push(n)
+        entries.push({ name: n, publisher: r.document?.fields?.publisher?.stringValue?.trim() ?? '' })
       }
     }
     if (docs.length < PAGE) break
   }
-  return names
+  return entries
 }
 
 interface FirestoreDoc {
