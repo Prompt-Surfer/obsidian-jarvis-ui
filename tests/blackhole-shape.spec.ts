@@ -16,9 +16,11 @@ test('imported Black Hole shape via dropdown', async ({ page }) => {
   await page.waitForTimeout(6000)
   await page.screenshot({ path: '/tmp/jarvis-blackhole-before.png' })
 
-  // Select the imported shape from the dropdown (Settings panel)
-  const dropdown = page.locator('select', { has: page.locator('option[value="imported:blackhole"]') })
-  await dropdown.selectOption('imported:blackhole', { force: true })
+  // Static ports live in the community flyout now — open it and pick Black Hole
+  const trigger = page.locator('button[title*="Community cloud"]')
+  await trigger.click({ force: true })
+  await page.locator('button', { hasText: 'Black Hole' }).first().click()
+  await expect(trigger).toContainText('Black Hole')
 
   // Wait for the swarm to morph into the shape
   await page.waitForTimeout(12000)

@@ -150,6 +150,10 @@ export function Settings({
     return () => document.removeEventListener('mousedown', onDown)
   }, [communityOpen])
   const activeCommunityName = casberryShapeName(graphShape)
+  // Static ports (blackhole, …) live in the same flyout now — one loader menu
+  const activeImportedStatic = importedShapes.find((s) => graphShape === `imported:${s.id}`)
+  const activeImportedLabel = activeCommunityName ?? activeImportedStatic?.label ?? null
+  const activeImportedIcon = activeImportedStatic?.icon ?? '☁️'
   const minDistApplies = graphShape === 'natural'
   // JARVIS MATRIX is pinned on top; saved shapes follow
   const PINNED_COMMUNITY = ['JARVIS MATRIX']
@@ -430,52 +434,29 @@ export function Settings({
             </div>
             <div style={{ marginTop: 8 }}>
               <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>IMPORTED SHAPES</div>
-              <select
-                value={graphShape.startsWith('imported:') && !activeCommunityName ? graphShape : ''}
-                onChange={(e) => { if (e.target.value) onGraphShapeChange(e.target.value as GraphShape) }}
-                style={{
-                  width: '100%',
-                  background: 'rgba(0,0,0,0.5)',
-                  color: graphShape.startsWith('imported:') && !activeCommunityName ? '#00d4ff' : '#585b70',
-                  border: `1px solid ${graphShape.startsWith('imported:') && !activeCommunityName ? '#00d4ff' : '#1a3a4a'}`,
-                  borderRadius: 4,
-                  padding: '8px 6px',
-                  fontFamily: 'inherit',
-                  fontSize: 11,
-                  letterSpacing: '0.05em',
-                  cursor: 'pointer',
-                  boxShadow: graphShape.startsWith('imported:') && !activeCommunityName ? '0 0 8px #00d4ff44' : 'none',
-                }}
-              >
-                <option value="" disabled>— SELECT IMPORTED SHAPE —</option>
-                {importedShapes.map((s) => (
-                  <option key={s.id} value={`imported:${s.id}`}>{s.icon} {s.label}</option>
-                ))}
-              </select>
               <button
                 ref={communityBtnRef}
                 onClick={toggleCommunityMenu}
                 title="Community cloud shapes (particles.casberry.in)"
                 style={{
                   width: '100%',
-                  marginTop: 6,
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   background: 'rgba(0,0,0,0.5)',
-                  color: activeCommunityName ? '#00d4ff' : '#585b70',
-                  border: `1px solid ${activeCommunityName || communityOpen ? '#00d4ff' : '#1a3a4a'}`,
+                  color: activeImportedLabel ? '#00d4ff' : '#585b70',
+                  border: `1px solid ${activeImportedLabel || communityOpen ? '#00d4ff' : '#1a3a4a'}`,
                   borderRadius: 4,
                   padding: '8px 6px',
                   fontFamily: 'inherit',
                   fontSize: 11,
                   letterSpacing: '0.05em',
                   cursor: 'pointer',
-                  boxShadow: activeCommunityName ? '0 0 8px #00d4ff44' : 'none',
+                  boxShadow: activeImportedLabel ? '0 0 8px #00d4ff44' : 'none',
                 }}
               >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  ☁️ {activeCommunityName ?? 'COMMUNITY CLOUD'}
+                  {activeImportedIcon} {activeImportedLabel ?? 'COMMUNITY CLOUD'}
                 </span>
                 <span>{communityOpen ? '◂' : '▸'}</span>
               </button>
@@ -541,6 +522,35 @@ export function Settings({
                     </button>
                   </div>
                   <div style={{ overflowY: 'auto', minHeight: 0 }}>
+                    {importedShapes.filter((s) => matchesFilter(s.label)).map((s) => {
+                      const shapeId = `imported:${s.id}` as GraphShape
+                      const active = graphShape === shapeId
+                      return (
+                        <button
+                          key={shapeId}
+                          onClick={() => { onGraphShapeChange(shapeId); setCommunityOpen(false) }}
+                          style={{
+                            display: 'block',
+                            width: '100%',
+                            textAlign: 'left',
+                            background: active ? 'rgba(0,212,255,0.12)' : 'transparent',
+                            color: active ? '#00d4ff' : '#8fa3ad',
+                            border: `1px solid ${active ? '#00d4ff88' : 'transparent'}`,
+                            borderRadius: 4,
+                            padding: '6px 8px',
+                            fontFamily: 'inherit',
+                            fontSize: 11,
+                            letterSpacing: '0.05em',
+                            cursor: 'pointer',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {s.icon} {s.label}
+                        </button>
+                      )
+                    })}
                     {menuTop.map(communityItem)}
                     {catalogRest.length > 0 && (
                       <div style={{ fontSize: 9, letterSpacing: '0.08em', color: '#585b70', margin: '8px 4px 4px', borderTop: '1px solid #1a3a4a', paddingTop: 8 }}>
