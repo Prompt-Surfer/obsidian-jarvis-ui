@@ -5,7 +5,7 @@ import { useState, useRef } from 'react'
 import { PresetManager } from './PresetManager'
 import type { Preset } from '../hooks/usePresets'
 import type { GraphShape } from '../shapes/types'
-import { importedShapes } from '../shapes/registry'
+import { importedShapes, casberryShapeId, casberryShapeName, parseCasberryInput } from '../shapes/registry'
 
 interface SettingsProps {
   bloomStrength: number
@@ -96,6 +96,27 @@ export function Settings({
 }: SettingsProps) {
   const prevBloom = useRef(bloomStrength > 0 ? bloomStrength : 1.5)
   const [hoveredShape, setHoveredShape] = useState<string | null>(null)
+  // Community-cloud formations the user has loaded (names only; code is fetched on demand)
+  const [communityShapes, setCommunityShapes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('jarvis-community-shapes') ?? '[]') } catch { return [] }
+  })
+  const [communityInput, setCommunityInput] = useState('')
+  const loadCommunityShape = () => {
+    const name = parseCasberryInput(communityInput)
+    if (!name) return
+    if (!communityShapes.includes(name)) {
+      const next = [...communityShapes, name]
+      setCommunityShapes(next)
+      try { localStorage.setItem('jarvis-community-shapes', JSON.stringify(next)) } catch { /* */ }
+    }
+    onGraphShapeChange(casberryShapeId(name))
+    setCommunityInput('')
+  }
+  // A casberry shape restored from URL/localStorage may not be in the saved list yet
+  const activeCommunityName = casberryShapeName(graphShape)
+  const communityOptions = activeCommunityName && !communityShapes.includes(activeCommunityName)
+    ? [...communityShapes, activeCommunityName]
+    : communityShapes
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
   })
@@ -328,7 +349,52 @@ export function Settings({
                 {importedShapes.map((s) => (
                   <option key={s.id} value={`imported:${s.id}`}>{s.icon} {s.label}</option>
                 ))}
+                {communityOptions.length > 0 && (
+                  <optgroup label="COMMUNITY CLOUD">
+                    {communityOptions.map((name) => (
+                      <option key={name} value={casberryShapeId(name)}>☁️ {name}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
+              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                <input
+                  value={communityInput}
+                  onChange={(e) => setCommunityInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') loadCommunityShape() }}
+                  placeholder="community shape name or ?sim= URL"
+                  spellCheck={false}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    color: '#00d4ff',
+                    border: '1px solid #1a3a4a',
+                    borderRadius: 4,
+                    padding: '7px 6px',
+                    fontFamily: 'inherit',
+                    fontSize: 10,
+                    letterSpacing: '0.05em',
+                  }}
+                />
+                <button
+                  onClick={loadCommunityShape}
+                  title="Load from community cloud"
+                  style={{
+                    background: 'rgba(0,212,255,0.1)',
+                    color: '#00d4ff',
+                    border: '1px solid #1a3a4a',
+                    borderRadius: 4,
+                    padding: '7px 10px',
+                    fontFamily: 'inherit',
+                    fontSize: 10,
+                    letterSpacing: '0.08em',
+                    cursor: 'pointer',
+                  }}
+                >
+                  LOAD
+                </button>
+              </div>
             </div>
           </div>
 

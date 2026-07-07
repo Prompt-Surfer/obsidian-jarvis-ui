@@ -9,8 +9,8 @@ import {
   forceCollide,
 } from 'd3-force-3d'
 import wasmUrl from './force_sim.wasm?url'
-import type { GraphShape } from '../shapes/types'
-import { getImportedShape, mulberry32 } from '../shapes/registry'
+import type { GraphShape, ImportedShapeDef } from '../shapes/types'
+import { getImportedShape, resolveImportedShape, mulberry32 } from '../shapes/registry'
 
 // ── Rust/WASM natural-layout core (optional accelerator) ─────────────────────
 // Plain wasm (no wasm-bindgen): JS allocs buffers, writes f32/u32 arrays into
@@ -1426,20 +1426,40 @@ self.onmessage = (e: MessageEvent) => {
     if (graphShape === 'tagboxes') buildTagBoxTargets(tagBoxTopN)
 
     // ── Imported shape targets (ported swarm position functions, src/shapes/) ──
-    rebuildImportedTargets = (shape: string) => {
-      importedTargets = new Map()
-      importedTargetsShape = shape
-      const def = getImportedShape(shape)
-      if (!def) {
-        console.warn(`[force3d] unknown imported shape "${shape}" — no targets built`)
-        return
-      }
+    const applyImportedDef = (def: ImportedShapeDef) => {
       // Hubs first: position functions reserve low indices for focal regions
       const ordered = [...simNodes].sort((a, b) => (degreeMap.get(b.id) ?? 0) - (degreeMap.get(a.id) ?? 0))
       const rng = mulberry32(0x6a72)
+      const targets = new Map<string, { x: number; y: number; z: number }>()
       ordered.forEach((node, i) => {
-        importedTargets.set(node.id, def.position(i, ordered.length, rng))
+        targets.set(node.id, def.position(i, ordered.length, rng))
       })
+      importedTargets = targets
+    }
+    rebuildImportedTargets = (shape: string) => {
+      importedTargetsShape = shape
+      importedTargets = new Map()
+      const staticDef = getImportedShape(shape)
+      if (staticDef) {
+        applyImportedDef(staticDef)
+        return
+      }
+      // Dynamic shapes (community cloud) resolve async: fetch + compile, then
+      // fill targets and reheat so the swarm morphs when they arrive.
+      resolveImportedShape(shape)
+        .then((def) => {
+          if (importedTargetsShape !== shape) return // superseded by another switch
+          if (!def) {
+            console.warn(`[force3d] unknown imported shape "${shape}" — no targets built`)
+            return
+          }
+          applyImportedDef(def)
+          tickCount = 0
+          stableFrameCount = 0
+          simulation?.alpha(0.5)
+          if (!tickRunning) runTick()
+        })
+        .catch((err) => console.warn(`[force3d] imported shape "${shape}" failed to load:`, err))
     }
     if (graphShape.startsWith('imported:')) rebuildImportedTargets(graphShape)
 
