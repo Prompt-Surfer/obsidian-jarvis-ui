@@ -16,6 +16,8 @@ import { FirstRunSetup } from './components/FirstRunSetup'
 import { GraphBuildProgress } from './components/GraphBuildProgress'
 import { useVaultGraph, type GraphNode } from './hooks/useVaultGraph'
 import { useForce3D } from './hooks/useForce3D'
+import type { GraphShape } from './shapes/types'
+import { asGraphShape } from './shapes/registry'
 import { useElectron } from './hooks/useElectron'
 import { useHistory } from './hooks/useHistory'
 import { usePresets, type PresetSettings, type PresetCamera, type PresetFilters } from './hooks/usePresets'
@@ -107,14 +109,12 @@ function App() {
 
   const { data: graphData, loading, error, buildProgress, embeddingProgress } = useVaultGraph(graphEnabled)
   const _urlParams = new URLSearchParams(window.location.search)
-  const [graphShape, setGraphShape] = useState<'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'>(() => {
-    const url = _urlParams.get('graphShape') as 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
+  const [graphShape, setGraphShape] = useState<GraphShape>(() => {
+    const url = asGraphShape(_urlParams.get('graphShape'))
     if (url) return url
     try {
-      const stored = localStorage.getItem('jarvis-graph-shape') as 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' | null
-      // Migrate old 'centroid' value to 'natural'
-      if (stored === 'centroid' as string) return 'natural'
-      return stored ?? 'natural'
+      // asGraphShape drops unknown values (incl. the legacy 'centroid') → natural
+      return asGraphShape(localStorage.getItem('jarvis-graph-shape')) ?? 'natural'
     } catch { return 'natural' }
   })
   const [tagBoxTopN, setTagBoxTopN] = useState(2)

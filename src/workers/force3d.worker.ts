@@ -9,6 +9,8 @@ import {
   forceCollide,
 } from 'd3-force-3d'
 import wasmUrl from './force_sim.wasm?url'
+import type { GraphShape } from '../shapes/types'
+import { getImportedShape, mulberry32 } from '../shapes/registry'
 
 // ── Rust/WASM natural-layout core (optional accelerator) ─────────────────────
 // Plain wasm (no wasm-bindgen): JS allocs buffers, writes f32/u32 arrays into
@@ -89,7 +91,13 @@ let initGeneration = 0 // bumped per init; stale precalc chunk loops abort when 
 let stableFrameCount = 0  // consecutive frames with mean delta < 0.5 (natural layout early-exit)
 const MAX_TICKS = 200   // 300→200: practical convergence happens well before 300 ticks
 const ALPHA_MIN = 0.001 // early-exit threshold
-let graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural'
+let graphShape: GraphShape = 'natural'
+// Imported-shape targets (ported swarm position functions, see src/shapes/).
+// Rebuilt by init and on setGraphShape switches; keyed by node id like the
+// built-in target maps. importedTargetsShape tracks which shape they're for.
+let importedTargets = new Map<string, { x: number; y: number; z: number }>()
+let importedTargetsShape: string | null = null
+let rebuildImportedTargets: ((shape: string) => void) | null = null
 let currentSpread = 2.0
 // Spread the current natural-layout positions represent. Spread-adjust scales all
 // coordinates by (newSpread / naturalDisplaySpread) around the centre of gravity —
@@ -770,13 +778,16 @@ self.onmessage = (e: MessageEvent) => {
     type: string
     nodes?: Array<{ id: string; folder: string; tags?: string[] }>
     links?: Array<{ source: string; target: string }>
-    graphShape?: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+    graphShape?: GraphShape
     topN?: number
     tagBoxSizeScale?: number
   }
 
   if (type === 'setGraphShape') {
-    graphShape = (e.data as { graphShape?: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' }).graphShape ?? 'natural'
+    graphShape = (e.data as { graphShape?: GraphShape }).graphShape ?? 'natural'
+    if (graphShape.startsWith('imported:') && importedTargetsShape !== graphShape) {
+      rebuildImportedTargets?.(graphShape)
+    }
     if (e.data.topN != null) tagBoxTopN = e.data.topN as number
     if (e.data.tagBoxSizeScale != null) tagBoxSizeScale = e.data.tagBoxSizeScale as number
     // Build tag box targets on-demand when switching to tagboxes
@@ -800,7 +811,7 @@ self.onmessage = (e: MessageEvent) => {
     }
     // Reheat sim — update forces to match new shape
     if (simulation) {
-      const shapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes'
+      const shapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes' || graphShape.startsWith('imported:')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lf = simulation.force('link') as any
       if (lf?.strength) lf.strength(shapeDriven ? 0 : 0.5)
@@ -1414,6 +1425,24 @@ self.onmessage = (e: MessageEvent) => {
     // ── Tag Box targets: only pre-build if starting with tagboxes shape ──
     if (graphShape === 'tagboxes') buildTagBoxTargets(tagBoxTopN)
 
+    // ── Imported shape targets (ported swarm position functions, src/shapes/) ──
+    rebuildImportedTargets = (shape: string) => {
+      importedTargets = new Map()
+      importedTargetsShape = shape
+      const def = getImportedShape(shape)
+      if (!def) {
+        console.warn(`[force3d] unknown imported shape "${shape}" — no targets built`)
+        return
+      }
+      // Hubs first: position functions reserve low indices for focal regions
+      const ordered = [...simNodes].sort((a, b) => (degreeMap.get(b.id) ?? 0) - (degreeMap.get(a.id) ?? 0))
+      const rng = mulberry32(0x6a72)
+      ordered.forEach((node, i) => {
+        importedTargets.set(node.id, def.position(i, ordered.length, rng))
+      })
+    }
+    if (graphShape.startsWith('imported:')) rebuildImportedTargets(graphShape)
+
     // ── Set initial positions based on active shape ─────────────────────────
     if (graphShape === 'sun') {
       for (const node of simNodes) {
@@ -1442,6 +1471,14 @@ self.onmessage = (e: MessageEvent) => {
     } else if (graphShape === 'brain') {
       for (const node of simNodes) {
         const target = brainTargets.get(node.id)
+        if (!target) continue
+        node.x = target.x * currentSpread + (Math.random() - 0.5) * 20
+        node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
+        node.z = target.z * currentSpread + (Math.random() - 0.5) * 20
+      }
+    } else if (graphShape.startsWith('imported:')) {
+      for (const node of simNodes) {
+        const target = importedTargets.get(node.id)
         if (!target) continue
         node.x = target.x * currentSpread + (Math.random() - 0.5) * 20
         node.y = target.y * currentSpread + (Math.random() - 0.5) * 20
@@ -1515,6 +1552,16 @@ self.onmessage = (e: MessageEvent) => {
           node.vy += (target.y * currentSpread - node.y) * k
           node.vz += (target.z * currentSpread - node.z) * k
         }
+      } else if (graphShape.startsWith('imported:')) {
+        // Pull toward imported-shape targets (strong — ported formula dominates)
+        const k = alpha * 0.8
+        for (const node of simNodes) {
+          const target = importedTargets.get(node.id)
+          if (!target) continue
+          node.vx += (target.x * currentSpread - node.x) * k
+          node.vy += (target.y * currentSpread - node.y) * k
+          node.vz += (target.z * currentSpread - node.z) * k
+        }
       } else if (graphShape === 'tagboxes') {
         // Venn diagram force: pull strength varies by overlap zone
         const CONTAIN_K = 0.05
@@ -1545,7 +1592,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     // Weaker charge for saturn/milkyway — shape formula dominates, forces add subtle jitter only
-    const isShapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes'
+    const isShapeDriven = graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape === 'tagboxes' || graphShape.startsWith('imported:')
     const chargeStrength = isShapeDriven ? 0 : -120
     const centerStrength = isShapeDriven ? 0 : 0.05
 
@@ -1908,7 +1955,7 @@ self.onmessage = (e: MessageEvent) => {
       if (lf?.distance) lf.distance(60 * spread)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cf = simulation.force('charge') as any
-      const baseCharge = (graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain') ? 0 : -120
+      const baseCharge = (graphShape === 'sun' || graphShape === 'milkyway' || graphShape === 'saturn' || graphShape === 'brain' || graphShape.startsWith('imported:')) ? 0 : -120
       if (cf?.strength) {
         cf.strength(baseCharge * spread)
       }

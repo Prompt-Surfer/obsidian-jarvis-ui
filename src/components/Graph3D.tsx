@@ -9,6 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { GraphNode, GraphData } from '../hooks/useVaultGraph'
 import type { NodePosition, TagBox, PerfMetrics, LiveSimPositions } from '../hooks/useForce3D'
+import type { GraphShape } from '../shapes/types'
 import { getNodeColor } from '../lib/colors'
 
 interface Graph3DProps {
@@ -42,7 +43,7 @@ interface Graph3DProps {
   onMoveNodes?: (pinned: Array<{ id: string; x: number; y: number; z: number }>) => void
   onUnpinNodes?: (ids: string[]) => void
   electronScene?: THREE.Scene
-  graphShape?: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+  graphShape?: GraphShape
   tagBoxes?: TagBox[]
   linksEnabled?: boolean
   timeFilterActive?: boolean

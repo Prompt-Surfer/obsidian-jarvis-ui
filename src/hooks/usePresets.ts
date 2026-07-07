@@ -2,6 +2,7 @@
 // Copyright (C) 2025 Prompt-Surfer (https://github.com/Prompt-Surfer)
 
 import { useState, useCallback } from 'react'
+import type { GraphShape } from '../shapes/types'
 
 export interface PresetSettings {
   bloomStrength: number
@@ -14,7 +15,7 @@ export interface PresetSettings {
   maxNodeSize: number
   ultraNodeSize: number
   zoomToNode: boolean
-  graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
+  graphShape: GraphShape
   tagBoxTopN: number
   tagBoxSizeScale: number
 }

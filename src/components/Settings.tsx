@@ -4,6 +4,8 @@
 import { useState, useRef } from 'react'
 import { PresetManager } from './PresetManager'
 import type { Preset } from '../hooks/usePresets'
+import type { GraphShape } from '../shapes/types'
+import { importedShapes } from '../shapes/registry'
 
 interface SettingsProps {
   bloomStrength: number
@@ -35,8 +37,8 @@ interface SettingsProps {
   onChangeVault: () => void
   zoomToNode: boolean
   onZoomToNodeToggle: (v: boolean) => void
-  graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes'
-  onGraphShapeChange: (v: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes') => void
+  graphShape: GraphShape
+  onGraphShapeChange: (v: GraphShape) => void
   textSize: number
   onTextSizeChange: (v: number) => void
   tagBoxTopN: number
@@ -302,6 +304,31 @@ export function Settings({
                   </button>
                 )
               })}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>IMPORTED SHAPES</div>
+              <select
+                value={graphShape.startsWith('imported:') ? graphShape : ''}
+                onChange={(e) => { if (e.target.value) onGraphShapeChange(e.target.value as GraphShape) }}
+                style={{
+                  width: '100%',
+                  background: 'rgba(0,0,0,0.5)',
+                  color: graphShape.startsWith('imported:') ? '#00d4ff' : '#585b70',
+                  border: `1px solid ${graphShape.startsWith('imported:') ? '#00d4ff' : '#1a3a4a'}`,
+                  borderRadius: 4,
+                  padding: '8px 6px',
+                  fontFamily: 'inherit',
+                  fontSize: 11,
+                  letterSpacing: '0.05em',
+                  cursor: 'pointer',
+                  boxShadow: graphShape.startsWith('imported:') ? '0 0 8px #00d4ff44' : 'none',
+                }}
+              >
+                <option value="" disabled>— SELECT IMPORTED SHAPE —</option>
+                {importedShapes.map((s) => (
+                  <option key={s.id} value={`imported:${s.id}`}>{s.icon} {s.label}</option>
+                ))}
+              </select>
             </div>
           </div>
 

@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { GraphNode, GraphLink, GraphData } from './useVaultGraph'
+import type { GraphShape } from '../shapes/types'
 import { loadLayout, saveLayout } from '../lib/layoutCache'
 
 export interface NodePosition {
@@ -48,7 +49,7 @@ export interface LiveSimPositions {
 // often while the sim streams; the final 'end' message always flushes immediately
 const STATE_MIRROR_MS = 250
 
-export function useForce3D(graphData: GraphData | null, graphShape: 'sun' | 'saturn' | 'milkyway' | 'brain' | 'natural' | 'tagboxes' = 'natural', topNTags?: number, tagBoxSizeScale?: number, minDist?: { regular: number; super: number; ultra: number }) {
+export function useForce3D(graphData: GraphData | null, graphShape: GraphShape = 'natural', topNTags?: number, tagBoxSizeScale?: number, minDist?: { regular: number; super: number; ultra: number }) {
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map())
   const [simDone, setSimDone] = useState(false)
   const [tagBoxes, setTagBoxes] = useState<TagBox[]>([])
