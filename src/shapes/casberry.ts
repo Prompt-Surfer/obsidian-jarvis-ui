@@ -87,6 +87,45 @@ export async function fetchFormation(name: string): Promise<CasberryFormation> {
   return docToFormation(doc)
 }
 
+/**
+ * Full community catalog, mirroring upstream's gallery query
+ * (orderBy timestamp desc) but projecting `name` only and paging through the
+ * whole collection instead of infinite-scrolling 30 at a time.
+ */
+export async function fetchFormationCatalog(): Promise<string[]> {
+  const names: string[] = []
+  const seen = new Set<string>()
+  const PAGE = 300
+  const MAX_DOCS = 5000 // hard stop — the collection is ~830 today
+  for (let offset = 0; offset < MAX_DOCS; offset += PAGE) {
+    const res = await fetch(`${DOCS_URL}:runQuery?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: 'formations' }],
+          orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
+          select: { fields: [{ fieldPath: 'name' }] },
+          limit: PAGE,
+          offset,
+        },
+      }),
+    })
+    if (!res.ok) throw new Error(`catalog fetch failed (HTTP ${res.status})`)
+    const rows = (await res.json()) as Array<{ document?: FirestoreDoc }>
+    const docs = rows.filter((r) => r.document)
+    for (const r of docs) {
+      const n = r.document?.fields?.name?.stringValue?.trim()
+      if (n && !seen.has(n)) {
+        seen.add(n)
+        names.push(n)
+      }
+    }
+    if (docs.length < PAGE) break
+  }
+  return names
+}
+
 interface FirestoreDoc {
   fields?: Record<string, { stringValue?: string }>
 }

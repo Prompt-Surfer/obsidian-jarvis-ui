@@ -7,6 +7,7 @@ import { PresetManager } from './PresetManager'
 import type { Preset } from '../hooks/usePresets'
 import type { GraphShape } from '../shapes/types'
 import { importedShapes, casberryShapeId, casberryShapeName, parseCasberryInput } from '../shapes/registry'
+import { fetchFormationCatalog } from '../shapes/casberry'
 
 interface SettingsProps {
   bloomStrength: number
@@ -133,7 +134,8 @@ export function Settings({
     if (!communityOpen && communityBtnRef.current) {
       const r = communityBtnRef.current.getBoundingClientRect()
       // Fly out to the right of the settings panel, clamped to the viewport
-      setCommunityAnchor({ top: Math.max(12, Math.min(r.top, window.innerHeight - 320)), left: r.right + 16 })
+      setCommunityAnchor({ top: Math.max(12, Math.min(r.top, window.innerHeight - 540)), left: r.right + 16 })
+      ensureCatalog()
     }
     setCommunityOpen((v) => !v)
   }
@@ -148,12 +150,69 @@ export function Settings({
     return () => document.removeEventListener('mousedown', onDown)
   }, [communityOpen])
   const activeCommunityName = casberryShapeName(graphShape)
+  const minDistApplies = graphShape === 'natural'
   // JARVIS MATRIX is pinned on top; saved shapes follow
   const PINNED_COMMUNITY = ['JARVIS MATRIX']
   const communityMenu = [
     ...PINNED_COMMUNITY,
     ...communityShapes.filter((n) => !PINNED_COMMUNITY.includes(n)),
   ]
+  // Full upstream catalog (newest first, like the site's gallery), cached 1h
+  const [catalog, setCatalog] = useState<string[] | null>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('jarvis-community-catalog-v1') ?? 'null')
+      if (raw && Date.now() - raw.ts < 3600_000 && Array.isArray(raw.names)) return raw.names
+    } catch { /* */ }
+    return null
+  })
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const catalogFetchingRef = useRef(false)
+  const ensureCatalog = () => {
+    if (catalog || catalogFetchingRef.current) return
+    catalogFetchingRef.current = true
+    fetchFormationCatalog()
+      .then((names) => {
+        setCatalog(names)
+        setCatalogError(null)
+        try { localStorage.setItem('jarvis-community-catalog-v1', JSON.stringify({ ts: Date.now(), names })) } catch { /* */ }
+      })
+      .catch((e) => setCatalogError(String(e)))
+      .finally(() => { catalogFetchingRef.current = false })
+  }
+  // The input doubles as list filter and name/URL loader
+  const filterText = communityInput.trim()
+  const filterIsUrl = /^https?:\/\//i.test(filterText)
+  const matchesFilter = (n: string) => !filterText || filterIsUrl || n.toLowerCase().includes(filterText.toLowerCase())
+  const menuTop = communityMenu.filter(matchesFilter)
+  const catalogRest = (catalog ?? []).filter((n) => !communityMenu.includes(n) && matchesFilter(n))
+  const communityItem = (name: string) => {
+    const active = graphShape === casberryShapeId(name)
+    return (
+      <button
+        key={name}
+        onClick={() => selectCommunityShape(name)}
+        style={{
+          display: 'block',
+          width: '100%',
+          textAlign: 'left',
+          background: active ? 'rgba(0,212,255,0.12)' : 'transparent',
+          color: active ? '#00d4ff' : '#8fa3ad',
+          border: `1px solid ${active ? '#00d4ff88' : 'transparent'}`,
+          borderRadius: 4,
+          padding: '6px 8px',
+          fontFamily: 'inherit',
+          fontSize: 11,
+          letterSpacing: '0.05em',
+          cursor: 'pointer',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        ☁️ {name}
+      </button>
+    )
+  }
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('jarvis-settings-open') !== 'false' } catch { return true }
   })
@@ -316,10 +375,16 @@ export function Settings({
             />
           </div>
 
-          <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70', borderTop: '1px solid #1a3a4a', paddingTop: 14 }}>MIN DISTANCE</div>
-          {sliderRow(`MIN DIST · NODE: ${minDistRegular.toFixed(0)}`, minDistRegular, 4, 40, 1, onMinDistRegularChange)}
-          {sliderRow(`MIN DIST · SUPER: ${minDistSuper.toFixed(0)}`, minDistSuper, 10, 120, 1, onMinDistSuperChange)}
-          {sliderRow(`MIN DIST · ULTRA: ${minDistUltra.toFixed(0)}`, minDistUltra, 20, 240, 1, onMinDistUltraChange)}
+          {/* Min-distance drives the collide force, which only exists in the
+              natural layout — shape formulas dominate everywhere else. */}
+          <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70', borderTop: '1px solid #1a3a4a', paddingTop: 14 }}>
+            MIN DISTANCE{minDistApplies ? '' : ' · NATURAL ONLY'}
+          </div>
+          <div style={minDistApplies ? undefined : { opacity: 0.3, pointerEvents: 'none', filter: 'grayscale(1)' }} aria-disabled={!minDistApplies}>
+            {sliderRow(`MIN DIST · NODE: ${minDistRegular.toFixed(0)}`, minDistRegular, 4, 40, 1, onMinDistRegularChange)}
+            {sliderRow(`MIN DIST · SUPER: ${minDistSuper.toFixed(0)}`, minDistSuper, 10, 120, 1, onMinDistSuperChange)}
+            {sliderRow(`MIN DIST · ULTRA: ${minDistUltra.toFixed(0)}`, minDistUltra, 20, 240, 1, onMinDistUltraChange)}
+          </div>
 
           <div style={{ marginBottom: 14 }}>
             <div style={{ marginBottom: 6, letterSpacing: '0.08em', fontSize: 10, color: '#585b70' }}>SHAPE</div>
@@ -422,9 +487,10 @@ export function Settings({
                     top: communityAnchor.top,
                     left: communityAnchor.left,
                     zIndex: 400,
-                    width: 250,
-                    maxHeight: 340,
-                    overflowY: 'auto',
+                    width: 270,
+                    maxHeight: 'min(520px, 72vh)',
+                    display: 'flex',
+                    flexDirection: 'column',
                     background: 'rgba(4,12,20,0.96)',
                     border: '1px solid #00d4ff55',
                     borderRadius: 6,
@@ -434,40 +500,14 @@ export function Settings({
                   }}
                 >
                   <div style={{ fontSize: 10, letterSpacing: '0.08em', color: '#585b70', margin: '2px 4px 8px' }}>
-                    COMMUNITY CLOUD
+                    COMMUNITY CLOUD{catalog ? ` · ${catalog.length} FORMATIONS` : ''}
                   </div>
-                  {communityMenu.map((name) => {
-                    const active = graphShape === casberryShapeId(name)
-                    return (
-                      <button
-                        key={name}
-                        onClick={() => selectCommunityShape(name)}
-                        style={{
-                          display: 'block',
-                          width: '100%',
-                          textAlign: 'left',
-                          background: active ? 'rgba(0,212,255,0.12)' : 'transparent',
-                          color: active ? '#00d4ff' : '#8fa3ad',
-                          border: `1px solid ${active ? '#00d4ff88' : 'transparent'}`,
-                          borderRadius: 4,
-                          padding: '7px 8px',
-                          fontFamily: 'inherit',
-                          fontSize: 11,
-                          letterSpacing: '0.05em',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ☁️ {name}
-                      </button>
-                    )
-                  })}
-                  <div style={{ borderTop: '1px solid #1a3a4a', margin: '8px 0' }} />
-                  <div style={{ display: 'flex', gap: 4 }}>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                     <input
                       value={communityInput}
                       onChange={(e) => setCommunityInput(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') loadCommunityShape() }}
-                      placeholder="community shape name or ?sim= URL"
+                      placeholder="filter, name, or ?sim= URL"
                       spellCheck={false}
                       style={{
                         flex: 1,
@@ -499,6 +539,21 @@ export function Settings({
                     >
                       LOAD
                     </button>
+                  </div>
+                  <div style={{ overflowY: 'auto', minHeight: 0 }}>
+                    {menuTop.map(communityItem)}
+                    {catalogRest.length > 0 && (
+                      <div style={{ fontSize: 9, letterSpacing: '0.08em', color: '#585b70', margin: '8px 4px 4px', borderTop: '1px solid #1a3a4a', paddingTop: 8 }}>
+                        ALL FORMATIONS · NEWEST FIRST
+                      </div>
+                    )}
+                    {catalogRest.map(communityItem)}
+                    {!catalog && !catalogError && (
+                      <div style={{ color: '#585b70', fontSize: 10, padding: '8px 4px' }}>LOADING CATALOG…</div>
+                    )}
+                    {catalogError && (
+                      <div style={{ color: '#ff6b6b', fontSize: 10, padding: '8px 4px' }}>catalog unavailable — type a name or URL above</div>
+                    )}
                   </div>
                 </div>,
                 document.body

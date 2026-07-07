@@ -14,11 +14,19 @@ test('community flyout menu: pinned JARVIS MATRIX + live motion', async ({ page 
   await page.waitForSelector('canvas', { timeout: 30000 })
   await page.waitForTimeout(6000)
 
+  // Min-distance applies on the natural layout — enabled at startup
+  await expect(page.getByText('MIN DISTANCE', { exact: false }).first()).not.toContainText('NATURAL ONLY')
+
   // Open the community dropdown — flyout should appear right of the panel
   const trigger = page.locator('button[title*="Community cloud"]')
   await trigger.click({ force: true })
-  const menuItem = page.locator('button', { hasText: 'JARVIS MATRIX' }).last()
+  const menuItem = page.locator('button', { hasText: 'JARVIS MATRIX' }).first()
   await expect(menuItem).toBeVisible()
+
+  // Full upstream catalog loads (830-ish formations, newest first)
+  await expect(page.getByText('ALL FORMATIONS')).toBeVisible({ timeout: 20000 })
+  const itemCount = await page.locator('button', { hasText: '☁️' }).count()
+  expect(itemCount, 'full catalog should be listed').toBeGreaterThan(100)
   await page.screenshot({ path: '/tmp/jarvis-community-flyout.png' })
 
   // Top pinned option loads the shape
@@ -26,6 +34,10 @@ test('community flyout menu: pinned JARVIS MATRIX + live motion', async ({ page 
   await page.waitForTimeout(15000)
   await page.screenshot({ path: '/tmp/jarvis-matrix-flyout-loaded.png' })
   await expect(trigger).toContainText('JARVIS MATRIX')
+
+  // Min-distance doesn't apply to shape-driven layouts — greyed + disabled
+  await expect(page.getByText('MIN DISTANCE · NATURAL ONLY')).toBeVisible()
+  await expect(page.locator('div[aria-disabled="true"] input[type="range"]').first()).toBeVisible()
 
   // Live motion + auto-rotate: the frame must keep changing over time
   const a = await page.locator('canvas').first().screenshot()
