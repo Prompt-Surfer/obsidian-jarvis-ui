@@ -30,8 +30,6 @@ Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-d
 | ☀️ **The Sun** — hierarchical 3-shell sphere (ultra/super/regular tiers) | ![Sun](./screenshots/jarvis-sun.png) |
 | 🌳 **Trees** — each top-level folder grows as a fractal tree on a ground plane; every branch tip is a note | ![Trees](./screenshots/trees.png) |
 
-![Trees shape — fractal forest with folder-name labels](./screenshots/trees2.png)
-
 > **Trees** — every top-level folder becomes a fractal tree rooted on the ground plane: its notes form the canopy, every branch tip is a note, and each trunk is labelled with the folder name. The spread slider grows the whole forest from its fixed bases.
 
 ---
