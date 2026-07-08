@@ -181,7 +181,7 @@ function App() {
   const [tagIsolationIds, setTagIsolationIds] = useState<Set<string> | null>(null)
   const [tagIsolationTags, setTagIsolationTags] = useState<string[]>([])
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set())
-  const [bloomStrength, setBloomStrength] = useState(1.5)
+  const [bloomStrength, setBloomStrength] = useState(1.0)
   const [nodeOpacity, setNodeOpacity] = useState(1.0)
   const [starsEnabled, setStarsEnabled] = useState(false)
   const [labelsEnabled, setLabelsEnabled] = useState(false)
@@ -756,7 +756,7 @@ function App() {
     if (!preset) return
 
     const s = preset.settings
-    setBloomStrength('bloomStrength' in s ? s.bloomStrength : ((s as Record<string, unknown>).bloomEnabled ? 1.5 : 0))
+    setBloomStrength('bloomStrength' in s ? s.bloomStrength : ((s as Record<string, unknown>).bloomEnabled ? 1.0 : 0))
     setNodeOpacity(s.nodeOpacity)
     setStarsEnabled(s.starsEnabled)
     setLabelsEnabled(s.labelsEnabled)
@@ -943,6 +943,7 @@ function App() {
           visibleNodes={visibleNodes}
           nodeOpacity={nodeOpacity}
           bloomStrength={effectiveBloomStrength}
+          spread={spread}
           starsEnabled={starsEnabled}
           labelsEnabled={labelsEnabled}
           linksEnabled={linksEnabled}
@@ -1036,7 +1037,7 @@ function App() {
             setBloomStrength(0) // bloom washes out box structure
             setTimeout(() => graphRef.current?.resetCamera(), 3000)
           } else if (bloomStrength === 0) {
-            setBloomStrength(1.5) // restore bloom for other shapes
+            setBloomStrength(1.0) // restore bloom for other shapes
           }
           if (v === 'trees') {
             setLinksEnabled(false) // link web buries the tree silhouettes

@@ -12,9 +12,9 @@ import type { NodePosition, TagBox, TreeBranch, TreeLabel, PerfMetrics, LiveSimP
 import type { GraphShape } from '../shapes/types'
 import { getNodeColor } from '../lib/colors'
 
-// Auto-rotate: half of casberry's default speed (autoRotateSpeed 1.0 → 60s/orbit @60fps)
+// Auto-rotate: quarter of casberry's default speed (autoRotateSpeed 1.0 → 120s/orbit @60fps)
 const AUTO_ROTATE_AXIS = new THREE.Vector3(0, 1, 0)
-const AUTO_ROTATE_ANGLE = (2 * Math.PI) / (60 * 60)
+const AUTO_ROTATE_ANGLE = (2 * Math.PI) / (60 * 60 * 2)
 const autoRotOffset = new THREE.Vector3()
 
 interface Graph3DProps {
@@ -32,6 +32,7 @@ interface Graph3DProps {
   visibleNodes: Set<string>
   nodeOpacity: number
   bloomStrength: number
+  spread?: number
   starsEnabled: boolean
   labelsEnabled: boolean
   nodeDegrees: Map<string, number>
@@ -177,12 +178,17 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
   linksEnabled = true,
   timeFilterActive = false,
   textSize = 1.0,
+  spread = 4.0,
   perfRef: simPerfRef,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const autoRotateRef = useRef(autoRotate)
   const userInteractingRef = useRef(false)
   useEffect(() => { autoRotateRef.current = autoRotate }, [autoRotate])
+  // Starfield sizes off spread (the intended zoom control), NOT the live
+  // bounding sphere — so MIN DISTANCE re-spacing never moves the stars.
+  const spreadRef = useRef(spread)
+  useEffect(() => { spreadRef.current = spread }, [spread])
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
@@ -1064,13 +1070,12 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
         const bsSphere = new THREE.Sphere()
         bsBox.getBoundingSphere(bsSphere)
         const fovRad = cameraRef.current.fov * Math.PI / 180
-        // Keep the starfield far outside the shape at any spread: shell radius ≈ 12×
-        // the graph's bounding radius (base ~6500 units), so even at max spread the
-        // camera stays INSIDE the star sphere (never viewing the whole sphere from outside).
+        // Star shell scales with SPREAD (the intended zoom control), NOT the live
+        // bounding sphere — so MIN DISTANCE re-spacing never moves the stars. Default
+        // spread 4.0 → scale 1 (matches the old base look); larger spread recedes the
+        // shell so the camera stays immersed inside it.
         {
-          const STAR_BASE_RADIUS = 6500
-          const starRadius = Math.max(STAR_BASE_RADIUS, bsSphere.radius * 12)
-          const s = starRadius / STAR_BASE_RADIUS
+          const s = Math.max(1, spreadRef.current / 4.0)
           starsRef.current?.scale.setScalar(s)
           for (const g of galaxySpritesRef.current) (g as unknown as THREE.Object3D).scale.setScalar(s)
         }

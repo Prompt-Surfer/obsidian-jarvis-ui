@@ -425,7 +425,7 @@ export function Settings({
             <input
               type="range"
               min={1}
-              max={10}
+              max={20}
               step={0.1}
               value={maxNodeSize}
               onChange={e => onMaxSizeChange(Number(e.target.value))}
@@ -440,7 +440,7 @@ export function Settings({
             <input
               type="range"
               min={1}
-              max={8}
+              max={20}
               step={0.5}
               value={ultraNodeSize}
               onChange={e => onUltraNodeSizeChange(Number(e.target.value))}
@@ -455,8 +455,8 @@ export function Settings({
           </div>
           <div style={minDistApplies ? undefined : { opacity: 0.3, pointerEvents: 'none', filter: 'grayscale(1)' }} aria-disabled={!minDistApplies}>
             {sliderRow(`MIN DIST · NODE: ${minDistRegular.toFixed(0)}`, minDistRegular, 4, 40, 1, onMinDistRegularChange)}
-            {sliderRow(`MIN DIST · SUPER: ${minDistSuper.toFixed(0)}`, minDistSuper, 10, 120, 1, onMinDistSuperChange)}
-            {sliderRow(`MIN DIST · ULTRA: ${minDistUltra.toFixed(0)}`, minDistUltra, 20, 240, 1, onMinDistUltraChange)}
+            {sliderRow(`MIN DIST · SUPER: ${minDistSuper.toFixed(0)}`, minDistSuper, 10, 300, 1, onMinDistSuperChange)}
+            {sliderRow(`MIN DIST · ULTRA: ${minDistUltra.toFixed(0)}`, minDistUltra, 20, 300, 1, onMinDistUltraChange)}
           </div>
 
           <div style={{ marginBottom: 14 }}>

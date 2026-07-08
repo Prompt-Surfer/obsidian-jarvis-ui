@@ -1532,8 +1532,8 @@ self.onmessage = (e: MessageEvent) => {
     treeLabelsList = []
 
     {
-      const TREE_GAP = 140           // gap between trees along a row
-      const ROW_DEPTH = 480          // z distance between rows
+      const TREE_GAP = 210           // gap between trees along a row (~50% more spread)
+      const ROW_DEPTH = 720          // z distance between rows (~50% more spread)
       const golden = Math.PI * (3 - Math.sqrt(5))
       // TreeGenerator parameters (defaults of the TreeD.js sliders)
       const ROT = 0.125              // split angle, fraction of π
@@ -1720,7 +1720,10 @@ self.onmessage = (e: MessageEvent) => {
       gens.sort((a, b) => countMap.get(b.key)! - countMap.get(a.key)!)
       const diam = (g: TreeGen) => 2 * g.halfW + TREE_GAP
       const totalW = gens.reduce((s, g) => s + diam(g), 0)
-      const rowLimit = Math.max(gens.length > 0 ? diam(gens[0]) : 0, totalW / 2.4)
+      // Square footprint to fill the (square) ground plane: pick a row width so the
+      // forest's width (≈rowLimit) matches its depth (rows × ROW_DEPTH). Solving
+      // rowLimit = (totalW/rowLimit)·ROW_DEPTH gives rowLimit = √(totalW·ROW_DEPTH).
+      const rowLimit = Math.max(gens.length > 0 ? diam(gens[0]) : 0, Math.sqrt(totalW * ROW_DEPTH))
       const rows: TreeGen[][] = []
       let row: TreeGen[] = []
       let rowW = 0
