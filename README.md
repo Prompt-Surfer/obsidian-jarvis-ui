@@ -24,6 +24,27 @@ Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-d
 | 🌌 **Milky Way** — flat 2-arm Archimedean spiral | ![Milky Way](./screenshots/jarvis-milkyway-final.png) |
 | 🌿 **Natural** — organic force-directed layout | ![Natural](./screenshots/jarvis-natural.png) |
 | ☀️ **The Sun** — hierarchical 3-shell sphere (ultra/super/regular tiers) | ![Sun](./screenshots/jarvis-sun.png) |
+| 🌳 **Trees** — each top-level folder grows as a fractal tree on a ground plane; every branch tip is a note | ![Trees](./screenshots/trees.png) |
+
+![Trees shape — fractal forest with folder-name labels](./screenshots/trees2.png)
+
+> **Trees** — every top-level folder becomes a fractal tree rooted on the ground plane: its notes form the canopy, every branch tip is a note, and each trunk is labelled with the folder name. The spread slider grows the whole forest from its fixed bases.
+
+---
+
+## Community Shapes
+
+Beyond the built-in layouts, Jarvis UI can map your notes onto **community particle formations** — swarm shapes published on **[particles.casberry.in](https://particles.casberry.in)** (the "AI Particle Architect"). Each formation is a small per-particle position function stored in a public Firestore collection; Jarvis fetches it, compiles it statically, normalizes its world scale to jarvis units, and lays your notes out on the shape (ordered by importance, so hub notes land in the focal regions). Browse them from the **☁️ Community Cloud** flyout in the settings panel — favourite the ones you like, or paste a `particles.casberry.in` URL.
+
+![Community Cloud formation picker](./screenshots/community%20shapes.png)
+
+> The **Community Cloud** flyout — 800+ community formations, searchable, with favourites; each keeps its original publisher's name.
+
+![BLACKHOLE community formation](./screenshots/blackhole.png)
+
+> Notes mapped onto the **BLACKHOLE** (Gargantua) community formation — an accretion-disc swarm with a polar jet.
+
+> **Source & credit:** community formations come from **[particles.casberry.in](https://particles.casberry.in)** (AI Particle Architect) and remain the work of their individual publishers — Jarvis only fetches, ports, and renders them. Loader / attribution in [`src/shapes/casberry.ts`](./src/shapes/casberry.ts).
 
 ---
 
