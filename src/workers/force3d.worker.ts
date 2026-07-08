@@ -520,9 +520,15 @@ function packPositions(): Float32Array {
   const arr = new Float32Array(simNodes.length * 3)
   for (let i = 0; i < simNodes.length; i++) {
     const n = simNodes[i]
-    arr[i * 3] = n.x ?? 0
-    arr[i * 3 + 1] = n.y ?? 0
-    arr[i * 3 + 2] = n.z ?? 0
+    // Sanitize at this single serialization chokepoint (used by BOTH the per-tick
+    // stream and the final 'end' frame): a single non-finite coord poisons the
+    // render's Box3 bounding-sphere → NaN camera position → silent black screen
+    // (Box3/Sphere NaN, unlike computeBoundingSphere, logs no warning). Imported
+    // formulas (black-hole formations) and coincident-seed force blowups can both
+    // emit NaN; `?? 0` only caught undefined, not NaN/Infinity.
+    arr[i * 3] = Number.isFinite(n.x) ? (n.x as number) : 0
+    arr[i * 3 + 1] = Number.isFinite(n.y) ? (n.y as number) : 0
+    arr[i * 3 + 2] = Number.isFinite(n.z) ? (n.z as number) : 0
   }
   return arr
 }

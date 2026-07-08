@@ -286,6 +286,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     for (const sprite of labelsMapRef.current.values()) {
       sprite.scale.set(40 * textSize, 7.5 * textSize, 1)
     }
+    // Tree/folder topic labels are separate sprites with a larger base scale —
+    // rescale them too so the TEXT SIZE slider applies to folder names in trees.
+    for (const sprite of treeLabelSpritesRef.current) {
+      sprite.scale.set(110 * textSize, 20.6 * textSize, 1)
+    }
     isDirtyRef.current = true
   }, [textSize])
   useEffect(() => {
@@ -891,7 +896,9 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     }
     for (const l of treeLabels) {
       const sprite = createLabelSprite(l.text)
-      sprite.scale.set(110, 20.6, 1)
+      // Honour the current TEXT SIZE slider on creation (the textSize effect
+      // rescales these live thereafter). 110×20.6 is the folder-label base.
+      sprite.scale.set(110 * textSizeRef.current, 20.6 * textSizeRef.current, 1)
       sprite.position.set(l.x, l.y, l.z)
       scene.add(sprite)
       treeLabelSpritesRef.current.push(sprite)
@@ -1047,7 +1054,11 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     if (nowMs - lastMaxDistUpdateRef.current > 2000 || lastMaxDistUpdateRef.current === 0) {
       lastMaxDistUpdateRef.current = nowMs
       const bsPts: THREE.Vector3[] = []
-      for (const [, p] of displayedPositionsRef.current) bsPts.push(new THREE.Vector3(p.x, p.y, p.z))
+      for (const [, p] of displayedPositionsRef.current) {
+        // Skip non-finite positions — one NaN makes the sphere NaN, which would
+        // scale the starfield and camera max-distance to NaN and black the view.
+        if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) bsPts.push(new THREE.Vector3(p.x, p.y, p.z))
+      }
       if (bsPts.length > 0 && controlsRef.current && cameraRef.current) {
         const bsBox = new THREE.Box3().setFromPoints(bsPts)
         const bsSphere = new THREE.Sphere()
@@ -1810,10 +1821,14 @@ export const Graph3D = forwardRef<Graph3DHandle, Graph3DProps>(({
     const controls = controlsRef.current
     if (!camera || !controls) return
 
-    // Compute bounding sphere of all node positions
+    // Compute bounding sphere of all node positions. Skip any non-finite
+    // position: a single NaN makes Box3/Sphere NaN (silently — no THREE warning),
+    // which sets camera.position to NaN and blacks out the whole view.
     const pts: THREE.Vector3[] = []
     for (const [, pos] of displayedPositionsRef.current) {
-      pts.push(new THREE.Vector3(pos.x, pos.y, pos.z))
+      if (Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z)) {
+        pts.push(new THREE.Vector3(pos.x, pos.y, pos.z))
+      }
     }
 
     // Compute actual centroid of all node positions
