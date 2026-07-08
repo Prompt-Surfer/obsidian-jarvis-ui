@@ -4,6 +4,10 @@
 
 Jarvis UI renders your entire Obsidian vault as a living, interactive 3D force-directed graph — nodes float in space, connections bloom with light, and navigation feels like flying through a knowledge system. Built with Three.js, React, and TypeScript.
 
+![Jarvis UI — the full interface, here with the JAR.VIS community particle formation loaded](./screenshots/jarvis.png)
+
+> The full Jarvis UI: 10k+ notes as a glowing point cloud, the settings panel with every shape and control, and a community formation loaded from the Community Cloud.
+
 ## Animated Notes by Time Created
 
 <video src="https://github.com/user-attachments/assets/8c8d1245-53f7-48e2-81cd-ef29f7f877ad" autoplay loop muted playsinline width="100%"></video>
