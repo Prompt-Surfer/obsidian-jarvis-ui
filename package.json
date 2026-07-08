@@ -11,7 +11,9 @@
     "lint": "eslint src server --ext .ts,.tsx --max-warnings 0",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "record": "node scripts/record-demo.cjs",
+    "record:screen": "bash scripts/record-screen.sh"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.0",
