@@ -920,6 +920,11 @@ function App() {
     visibleNodes.has(n.id) && (!timeFilterIds || timeFilterIds.has(n.id))
   ).length
 
+  // Suppress bloom while H focus-locked: with the surrounding cluster hidden,
+  // the global bloom blows out the focused nodes. Restores on exit. The Settings
+  // slider still binds to the real bloomStrength, so it never jumps to 0.
+  const effectiveBloomStrength = focusMode ? 0 : bloomStrength
+
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000', position: 'relative', overflow: 'hidden' }}>
       <ErrorBoundary>
@@ -937,7 +942,7 @@ function App() {
           collapsedNodes={collapsedNodes}
           visibleNodes={visibleNodes}
           nodeOpacity={nodeOpacity}
-          bloomStrength={bloomStrength}
+          bloomStrength={effectiveBloomStrength}
           starsEnabled={starsEnabled}
           labelsEnabled={labelsEnabled}
           linksEnabled={linksEnabled}
